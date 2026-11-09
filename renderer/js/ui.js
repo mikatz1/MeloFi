@@ -167,7 +167,7 @@ export class UI {
       { label: M.visualizer, check: v.visualizer ? 'tick' : '', act: () => this.s.set({ visualizer: !v.visualizer }) },
       { label: M.gpu, check: v.gpu ? 'tick' : '', hint: app.stage.glr ? 'WebGL2' : 'Canvas2D', act: () => app.setGpu(!v.gpu) },
       { label: M.stream, check: v.streamMode ? 'tick' : '', act: () => this.s.set({ streamMode: !v.streamMode }) },
-      { label: M.winSize, sub: WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => window.melofi.setWindowSize(w, hh) })) },
+      { label: M.winSize, sub: WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })) },
       { sep: true },
       { label: M.help, key: 'F1', act: () => this.open('help') },
     ];
@@ -708,7 +708,7 @@ export class UI {
       this.row(T.menu.barWidth, this.seg([[0.7, T.menu.thin], [1, T.menu.normal], [1.4, T.menu.thick]], v.barWidth, (x) => this.s.set({ barWidth: x }))),
       h('div', { class: 'group-title' }, S.streamGroup),
       this.row(T.menu.stream, this.toggle(v.streamMode, (x) => this.s.set({ streamMode: x })), S.streamHint),
-      this.row(T.menu.winSize, h('div', { class: 'seg' }, ...WINDOW_SIZES.map(([w, hh]) => h('button', { onclick: () => window.melofi.setWindowSize(w, hh) }, `${w}×${hh}`)))),
+      this.row(T.menu.winSize, h('div', { class: 'seg' }, ...WINDOW_SIZES.map(([w, hh]) => h('button', { onclick: () => this.app.setWindowSize(w, hh) }, `${w}×${hh}`)))),
       h('div', { class: 'group-title' }, S.scoreGroup),
       this.row(S.scoreFall, this.toggle(v.scoreFall, (x) => this.s.set({ scoreFall: x })), S.scoreFallHint),
       this.row(S.introCard, this.toggle(v.introCard, (x) => this.s.set({ introCard: x })), S.introCardHint),
