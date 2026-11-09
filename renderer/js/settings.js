@@ -36,10 +36,9 @@ export const DEFAULTS = {
   kbZoom: 1,
   noteColor: 'theme',
   scoreHands: true,
-  scoreFall: false,
+  scoreFall: false,         // a loaded score's notes come down to the keys instead of rising after they play
   introCard: true,          // title card before a score's first play
   practiceHand: 'rh',       // practice: 'rh' | 'lh' | 'both'
-  practiceJudge: 'rhythm',  // 'rhythm' (any key plays the next notes) | 'pitch' (the right key)   // a loaded score's notes come down to the keys instead of rising after they play
   rhColor: '#ffb27a', // score hand colours
   lhColor: '#7fb0ff',
   barWidth: 1,

@@ -227,13 +227,12 @@ class App {
     this.recorder.event({ type: 'on', note, vel });
   }
 
-  // A key / MIDI note / click from the player. In practice it is judged first; in rhythm-only
-  // practice it sounds the score's notes instead of its own. Returns the notes it sounded.
+  // A key / MIDI note / click from the player (judged first when practising).
+  // Returns the notes it sounded, which key-up releases.
   userDown(note, vel) {
-    const r = this.practice?.press(note);
-    if (r == null) { this.play(note, vel); return [note]; }
-    for (const x of r) this.play(x.n, vel ?? x.v);
-    return r.map((x) => x.n);
+    this.practice?.press(note);
+    this.play(note, vel);
+    return [note];
   }
 
   userUp(notes) { for (const n of notes) this.release(n); }

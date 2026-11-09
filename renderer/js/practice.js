@@ -1,11 +1,10 @@
 // Practice: the score plays itself except the hand you chose, which comes down the screen for you
-// to play. Every note is judged on timing (and pitch, unless "rhythm only"), rhythm-game style.
+// to play. Every note is judged on timing and pitch: the right key, at the right moment.
 import { T } from './strings.js';
 
 // timing windows in real seconds (the score's own time is divided by the playback rate)
 const WINDOWS = [['perfect', 0.05, 300], ['great', 0.1, 200], ['good', 0.15, 100]];
 const MISS = 0.15;
-const CHORD = 0.035; // notes this close together are one press in rhythm-only mode
 const GRADES = [['S', 95], ['A', 90], ['B', 80], ['C', 70], ['D', 60], ['F', 0]];
 
 export function gradeOf(acc) { return GRADES.find(([, min]) => acc >= min)[0]; }
@@ -71,29 +70,22 @@ export class Practice {
     this.app.ui.updateTransport?.();
   }
 
-  // A key went down. Returns the notes to sound: null = the key's own note (pitch mode),
-  // an array = the score's notes for that press (rhythm only; empty = nothing to hit).
+  // A key went down: judge it against the nearest open note of that pitch, if one is due.
   press(note) {
-    if (!this.active || !this.P.playing) return null;
+    if (!this.active || !this.P.playing) return;
     const now = this.P.now(), rate = this.P.rate;
-    const rhythm = this.app.settings.get('practiceJudge') === 'rhythm';
     let best = -1, bestErr = Infinity;
     for (let i = this.next; i < this.targets.length; i++) {
       const x = this.targets[i];
       const err = (x.t - now) / rate;
       if (err > MISS) break;
-      if (x.judged || err < -MISS) continue;
-      if (!rhythm && x.n !== note) continue;
+      if (x.judged || err < -MISS || x.n !== note) continue;
       if (Math.abs(err) < Math.abs(bestErr)) { best = i; bestErr = err; }
-      if (rhythm) break; // earliest open note wins
     }
-    if (best < 0) return rhythm ? [] : null;
-    const group = [best];
-    if (rhythm) for (let i = best + 1; i < this.targets.length && this.targets[i].t - this.targets[best].t <= CHORD; i++) if (!this.targets[i].judged) group.push(i);
+    if (best < 0) return;
     const [name, , pts] = WINDOWS.find(([, w]) => Math.abs(bestErr) <= w) || WINDOWS[2];
-    for (const i of group) this.judge(this.targets[i], name, pts);
+    this.judge(this.targets[best], name, pts);
     this.flash(name, bestErr);
-    return rhythm ? group.map((i) => ({ n: this.targets[i].n, v: this.targets[i].v })) : null;
   }
 
   judge(x, name, pts) {
