@@ -687,7 +687,7 @@ export class GLRenderer {
       if (!k) continue;
       const y2 = top - (now - b.t1) * speed;
       if (y2 < 0) continue;
-      const bw = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.barScale;
+      const bw = st.barW(k);
       dep(k.cx, y2 - bw * 0.3, bw * 0.9, 0.018 * dt * 60, 0.16 * dt * 60, b.t0); // faint, wide, wet: bleeds into a wash instead of a line
     }
     for (let i = 0; i < st.n; i++) {
@@ -774,7 +774,7 @@ export class GLRenderer {
       // bars (rects)
       for (const b of st.barShapes()) {
         const { k, y1, y2 } = b;
-        const w = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.barScale;
+        const w = st.barW(k);
         const nc = b.color || st.colorOf(b.note);
         const core = this.rgb(nc || t.bar), glow = this.rgb(nc || t.barGlow);
         const h = Math.max(w, y2 - y1);

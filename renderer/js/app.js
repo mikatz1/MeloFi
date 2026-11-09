@@ -243,7 +243,7 @@ class App {
     if (note < 21 || note > 108 || !this.count[note]) return;
     if (--this.count[note] > 0) return;
     this.engine.noteOff(note);
-    this.stage.noteOff(note, this.barHolds(note));
+    this.stage.noteOff(note, this.engine.isSounding(note));
     this.recorder.event({ type: 'off', note });
   }
 
@@ -272,10 +272,6 @@ class App {
     this.engine.setSustain(on);
     this.recorder.event({ type: 'sus', on });
   }
-
-  // Does a note's bar keep growing after its key comes up? Yes while the sound rings on —
-  // except with the pedal locked, where the bars show how long each key was actually held.
-  barHolds(note) { return !this.pedalLatch && this.engine.isSounding(note); }
 
   // Soft pedal (left): notes come out quieter and darker while it is down.
   setSoft(on) {
@@ -634,7 +630,7 @@ class App {
     player.later(() => { this.stage.noteOn(n, v, color); this.recorder.event({ type: 'on', note: n, vel: v }); }, delay);
     player.later(() => {
       if (vid != null) this.engine.releaseVoice(vid);
-      this.stage.noteOff(n, this.barHolds(n));
+      this.stage.noteOff(n, this.engine.isSounding(n));
       this.recorder.event({ type: 'off', note: n });
     }, delay + dur * 1000 - 3);
   }
