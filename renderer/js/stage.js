@@ -410,6 +410,8 @@ export class Stage {
     const rad = 3 * dpr;
     const fontPx = (sz) => `${Math.round(sz)}px "Segoe UI Variable Text","Segoe UI","Malgun Gothic",sans-serif`;
     const showLabels = this.opts.labels !== 'none' && !this.opts.stream;
+    if (t.keys === 'ink') { this.paintInkKeys(w, k, kh, showLabels, fontPx); return; }
+    if (t.keys === 'pixel') { this.paintPixelKeys(w, k, kh, showLabels); return; }
     for (let n = this.lo; n <= this.hi; n++) {
       const key = this.keys[n];
       if (key.black) continue;
@@ -471,6 +473,158 @@ export class Stage {
         k.font = fontPx(clamp(bw * 0.5, 7 * dpr, 11 * dpr));
         k.textAlign = 'center';
         k.fillText(this.labels.get(n), x + bw / 2, bh - bh * 0.14);
+      }
+    }
+  }
+
+  // ---------- themed keyboards ----------
+
+  // 먹: keys of rice paper, brush-ink lines between them, black keys painted in ink with a
+  // ragged lift-off at the bottom and dry-brush streaks. Seeded, so it looks the same every time.
+  paintInkKeys(w, k, kh, showLabels, fontPx) {
+    const d = this.dpr, W = this.W, bh = this.bh;
+    let seed = 11;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    w.fillStyle = '#efe7d6';
+    w.fillRect(0, 0, W, kh);
+    for (let i = 0; i < 40; i++) {
+      const x = r() * W, y = r() * kh, rr = (30 + r() * 120) * d;
+      const g = w.createRadialGradient(x, y, 0, x, y, rr);
+      g.addColorStop(0, r() < 0.5 ? 'rgba(150,125,90,0.05)' : 'rgba(255,253,246,0.12)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      w.fillStyle = g;
+      w.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+    }
+    w.lineCap = 'round';
+    for (let i = 0, n = Math.round((W * kh) / (700 * d * d)); i < n; i++) {
+      const x = r() * W, y = r() * kh, len = (5 + r() * 22) * d, a = r() * Math.PI * 2;
+      w.strokeStyle = r() < 0.6 ? `rgba(150,130,100,${0.05 + r() * 0.08})` : `rgba(255,255,250,${0.1 + r() * 0.15})`;
+      w.lineWidth = (0.4 + r() * 0.8) * d;
+      w.beginPath();
+      w.moveTo(x, y);
+      w.quadraticCurveTo(x + Math.cos(a + 0.6) * len * 0.5, y + Math.sin(a + 0.6) * len * 0.5, x + Math.cos(a) * len, y + Math.sin(a) * len);
+      w.stroke();
+    }
+    // a wash of ink under the felt
+    const sh = w.createLinearGradient(0, 0, 0, 16 * d);
+    sh.addColorStop(0, 'rgba(40,30,22,0.45)');
+    sh.addColorStop(1, 'rgba(40,30,22,0)');
+    w.fillStyle = sh;
+    w.fillRect(0, 0, W, 16 * d);
+    // a brush line down each gap: thickens and thins, skips where the brush runs dry
+    const brush = (x) => {
+      const seg = 10 * d;
+      let jx = 0;
+      for (let y = 0; y < kh; y += seg) {
+        if (r() < 0.03) continue;
+        jx = clamp(jx + (r() - 0.5) * 0.5 * d, -0.8 * d, 0.8 * d);
+        w.strokeStyle = `rgba(22,18,14,${0.7 + r() * 0.25})`;
+        w.lineWidth = 1.6 * d * (0.7 + r() * 0.6) * (1 - 0.35 * (y / kh));
+        w.beginPath();
+        w.moveTo(x + jx, y);
+        w.lineTo(x + jx + (r() - 0.5) * 0.4 * d, Math.min(kh, y + seg + d));
+        w.stroke();
+      }
+    };
+    let first = true;
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (key.black) continue;
+      if (!first) brush(key.x);
+      first = false;
+      if (showLabels && this.labels.has(n)) {
+        w.fillStyle = 'rgba(25,20,15,0.6)';
+        w.font = fontPx(clamp(key.w * 0.42, 8 * d, 13 * d));
+        w.textAlign = 'center';
+        w.textBaseline = 'alphabetic';
+        w.fillText(this.labels.get(n), key.x + key.w / 2, kh - 9 * d);
+      }
+    }
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (!key.black) continue;
+      const x = key.x, bw = key.w;
+      // ink bleeding a little into the paper around it
+      k.fillStyle = 'rgba(20,16,12,0.12)';
+      k.fillRect(x - 1.5 * d, 0, bw + 3 * d, bh + 2 * d);
+      // body: slightly uneven sides, ragged where the brush lifted
+      k.beginPath();
+      k.moveTo(x + (r() - 0.5) * d, 0);
+      for (let y = bh * 0.25; y < bh; y += bh * 0.25) k.lineTo(x + (r() - 0.5) * 1.2 * d, y);
+      const steps = 7;
+      for (let i = 0; i <= steps; i++) k.lineTo(x + (bw * i) / steps, bh + (r() - 0.35) * 3.2 * d);
+      for (let y = bh * 0.75; y > 0; y -= bh * 0.25) k.lineTo(x + bw + (r() - 0.5) * 1.2 * d, y);
+      k.lineTo(x + bw + (r() - 0.5) * d, 0);
+      k.closePath();
+      k.fillStyle = '#16130f';
+      k.fill();
+      // dry-brush streaks
+      for (let i = 0, n2 = 3 + ((r() * 3) | 0); i < n2; i++) {
+        const sx = x + bw * (0.15 + r() * 0.7);
+        k.strokeStyle = `rgba(95,84,70,${0.12 + r() * 0.12})`;
+        k.lineWidth = (0.5 + r() * 0.8) * d;
+        k.beginPath();
+        k.moveTo(sx, bh * r() * 0.2);
+        k.lineTo(sx + (r() - 0.5) * d, bh * (0.55 + r() * 0.4));
+        k.stroke();
+      }
+      // a wet sheen
+      const gl = k.createLinearGradient(x, 0, x + bw, 0);
+      gl.addColorStop(0, 'rgba(255,250,240,0)');
+      gl.addColorStop(0.3, 'rgba(255,250,240,0.06)');
+      gl.addColorStop(0.45, 'rgba(255,250,240,0)');
+      k.fillStyle = gl;
+      k.fillRect(x, 0, bw, bh * 0.85);
+      if (showLabels && this.labels.has(n)) {
+        k.fillStyle = 'rgba(240,232,215,0.55)';
+        k.font = fontPx(clamp(bw * 0.5, 7 * d, 11 * d));
+        k.textAlign = 'center';
+        k.fillText(this.labels.get(n), x + bw / 2, bh - bh * 0.14);
+      }
+    }
+  }
+
+  // 아케이드: flat colours, hard edges, chunky bevels (lit top-left, shaded bottom-right)
+  paintPixelKeys(w, k, kh, showLabels) {
+    const W = this.W, bh = Math.round(this.bh);
+    const P = Math.max(2, Math.round(this.P * 0.75));
+    const gap = Math.max(1, Math.round(P / 2));
+    const font = (sz) => `bold ${Math.round(sz)}px "Cascadia Mono", Consolas, monospace`;
+    w.fillStyle = '#1b1528';
+    w.fillRect(0, 0, W, kh);
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (key.black) continue;
+      const x0 = Math.round(key.x) + gap, x1 = Math.round(key.x + key.w) - gap, ww = x1 - x0;
+      w.fillStyle = '#e6e1ef'; w.fillRect(x0, 0, ww, kh);
+      w.fillStyle = '#ffffff'; w.fillRect(x0, 0, P, kh - 2 * P);
+      w.fillStyle = '#b4adc6'; w.fillRect(x1 - P, 0, P, kh - 2 * P);
+      w.fillStyle = '#a39cb8'; w.fillRect(x0, kh - 2 * P, ww, 2 * P);
+      if (showLabels && this.labels.has(n)) {
+        w.fillStyle = '#5a5270';
+        w.font = font(clamp(ww * 0.42, 8 * this.dpr, 13 * this.dpr));
+        w.textAlign = 'center';
+        w.textBaseline = 'alphabetic';
+        w.fillText(this.labels.get(n), x0 + ww / 2, kh - 2 * P - 6 * this.dpr);
+      }
+    }
+    // the felt's shadow, as two hard bands
+    w.fillStyle = '#2a2140'; w.fillRect(0, 0, W, P);
+    w.fillStyle = 'rgba(0,0,0,0.22)'; w.fillRect(0, P, W, P);
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (!key.black) continue;
+      const x = Math.round(key.x), bw = Math.round(key.w);
+      k.fillStyle = 'rgba(0,0,0,0.45)'; k.fillRect(x + P, 0, bw, bh + P);
+      k.fillStyle = '#2b2340'; k.fillRect(x, 0, bw, bh);
+      k.fillStyle = '#4d4170'; k.fillRect(x, 0, P, bh - P);
+      k.fillStyle = '#171126'; k.fillRect(x + bw - P, 0, P, bh - P);
+      k.fillStyle = '#5d5185'; k.fillRect(x, bh - P, bw, P);
+      if (showLabels && this.labels.has(n)) {
+        k.fillStyle = '#b9b0d6';
+        k.font = font(clamp(bw * 0.5, 7 * this.dpr, 11 * this.dpr));
+        k.textAlign = 'center';
+        k.fillText(this.labels.get(n), x + bw / 2, bh - P - 5 * this.dpr);
       }
     }
   }
@@ -1212,6 +1366,13 @@ export class Stage {
     const tint = (note, v, black) => {
       const k = this.keys[note];
       const h = black ? this.bh : kbH;
+      if (t.keys === 'pixel') {
+        // flat fill, hard edges
+        ctx.fillStyle = rgba(this.noteColor(note) || t.keyLit, (black ? 0.8 : 0.6) * v);
+        const gp = black ? 0 : Math.max(1, Math.round(this.P * 0.375));
+        ctx.fillRect(Math.round(k.x) + gp, top, Math.round(k.w) - gp * 2, h - (black ? 0 : Math.max(2, Math.round(this.P * 0.75)) * 2));
+        return;
+      }
       const g = ctx.createLinearGradient(0, top, 0, top + h);
       const lc = this.noteColor(note) || t.keyLit;
       g.addColorStop(0, rgba(lc, (black ? 0.9 : 0.75) * v));
@@ -1230,8 +1391,8 @@ export class Stage {
     ctx.drawImage(this.blackC, 0, top);
     for (const [note, v] of lit) if (this.keys[note].black) tint(note, v, true);
 
-    // light spilling onto the keys
-    if (t.blend === 'lighter') {
+    // light spilling onto the keys (not on the flat pixel keys)
+    if (t.blend === 'lighter' && t.keys !== 'pixel') {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, top, W, kbH);

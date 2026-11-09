@@ -67,6 +67,7 @@ export const THEMES = {
   },
   ink: {
     name: '먹',
+    keys: 'ink', // rice-paper keys, brush lines between them, black keys painted in ink
     // hanji paper; on the GPU the ink really bleeds (water + pigment simulation)
     paper: true, inkSim: true,
     bg: ['#f1eadb', '#ebe3d1', '#e1d7c2'],
@@ -81,6 +82,7 @@ export const THEMES = {
   },
   arcade: {
     name: '아케이드',
+    keys: 'pixel', // flat keys with pixel bevels
     // 8-bit: square pixels on a grid, square-cut notes, CRT scanlines (stage.pixel / gl SH_PIXEL)
     bg: ['#05030f', '#0b0820', '#140c30'],
     lane: 'rgba(120,255,255,0.06)',

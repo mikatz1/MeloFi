@@ -858,6 +858,12 @@ export class GLRenderer {
       const k = st.keys[note];
       const lc = this.rgb(st.noteColor(note) || t.keyLit);
       const h = black ? st.bh : st.kbH;
+      if (t.keys === 'pixel') {
+        // flat fill, hard edges, inside the bevel
+        const a = (black ? 0.8 : 0.6) * v, gp = black ? 0 : Math.max(1, Math.round(st.P * 0.375));
+        this.rect(Math.round(k.x) + gp, top, Math.round(k.w) - gp * 2, h - (black ? 0 : Math.max(2, Math.round(st.P * 0.75)) * 2), 0, [...lc, a], [...lc, a]);
+        return;
+      }
       const gap = black ? 0 : Math.max(1, dpr) / 2;
       this.rect(k.x + gap, top - 2, k.w - gap * 2, h + 2 - (black ? 0 : dpr), 3 * dpr, [...lc, (black ? 0.9 : 0.75) * v], [...lc, (black ? 0.35 : 0.18) * v]);
       this.rect(k.x + gap, top, k.w - gap * 2, 4 * dpr, 0, [0, 0, 0, 0.25 * v], [0, 0, 0, 0.25 * v]);
@@ -875,7 +881,7 @@ export class GLRenderer {
     kb.felt = [s0, this.rects.n - s0];
 
     mark('spill', () => {
-      if (!additive) return;
+      if (!additive || t.keys === 'pixel') return;
       const gu = Math.min(st.ww, 26 * dpr);
       for (const [note, v] of lit) {
         const k = st.keys[note];
