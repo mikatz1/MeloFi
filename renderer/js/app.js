@@ -101,7 +101,7 @@ class App {
     this.engine.setBrightness(v.brightness);
     this.stage.setTheme(v.theme, v.customTheme);
     this.stage.setOptions({ visualizer: v.visualizer, particles: v.particles, bloom: v.bloom, speed: v.speed, labels: v.labels, range: v.range,
-      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode });
+      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode, fxExtra: v.fxExtra });
     this.applyStream(v.streamMode);
     this.stage.setBackground(v.bgImage);
     this.metronome.setTempo(v.bpm);
@@ -119,7 +119,7 @@ class App {
       if ('resonance' in p) this.engine.setResonance(p.resonance);
       if ('theme' in p || 'customTheme' in p) this.stage.setTheme(this.settings.get('theme'), this.settings.get('customTheme'));
       const so = {};
-      for (const k of ['visualizer', 'particles', 'bloom', 'speed', 'labels', 'range', 'noteColor', 'barWidth', 'bgDim']) if (k in p) so[k] = p[k];
+      for (const k of ['visualizer', 'particles', 'bloom', 'speed', 'labels', 'range', 'noteColor', 'barWidth', 'bgDim', 'fxExtra']) if (k in p) so[k] = p[k];
       if ('kbZoom' in p) { so.zoom = p.kbZoom; this.scoreZoom = null; } // picking a zoom by hand wins over the fit
       if (['kbZoom', 'octave', 'transpose', 'keyPreset', 'customMap'].some((k) => k in p)) so.center = this.playCenter();
       if ('bgImage' in p) this.stage.setBackground(p.bgImage);
@@ -268,6 +268,7 @@ class App {
     this.ui.setSustain(on, this.pedalLatch);
     if (this.sustainDown === on) return;
     this.sustainDown = on;
+    this.stage.setPedal(on);
     this.engine.setSustain(on);
     this.recorder.event({ type: 'sus', on });
   }

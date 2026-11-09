@@ -4,7 +4,7 @@
 // The simulation (particle motion, bars, key state) stays in stage.js.
 
 const SPARK = 0, DUST = 1, HAZE = 2, PETAL = 3, EMBER = 4, SNOW = 5, INK = 6;
-const SH_GLOW = 0, SH_PETAL = 1, SH_FLAKE = 2, SH_BLOT = 3, SH_PIXEL = 4;
+const SH_GLOW = 0, SH_PETAL = 1, SH_FLAKE = 2, SH_BLOT = 3, SH_PIXEL = 4, SH_RING = 5, SH_BEAM = 6;
 
 const VS_QUAD = `#version 300 es
 layout(location=0) in vec2 aQuad;
@@ -38,6 +38,25 @@ void main() {
   c += (texture(uTex, vUv + uStep * 1.3846) + texture(uTex, vUv - uStep * 1.3846)) * 0.3162;
   c += (texture(uTex, vUv + uStep * 3.2308) + texture(uTex, vUv - uStep * 3.2308)) * 0.0703;
   o = c;
+}`;
+
+// glossy keys: the light just above the key line, mirrored onto the key fronts and fading down
+const FS_REFL = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uAlpha;
+uniform vec2 uRes;
+uniform vec2 uTop;    // key line y (top-down px), reflection depth (px)
+out vec4 o;
+void main() {
+  float y = uRes.y - gl_FragCoord.y;
+  float d = (y - uTop.x) / uTop.y;
+  if (d < 0.0 || d > 1.0) discard;
+  float ys = uTop.x - (y - uTop.x) * 1.15 - 4.0;
+  vec4 c = texture(uTex, vec2(gl_FragCoord.x / uRes.x, 1.0 - ys / uRes.y));
+  float f = 1.0 - d;
+  o = c * uAlpha * f * f;
 }`;
 
 // light-layer composite: soft highlight roll-off + fade where it runs onto the keys
@@ -117,8 +136,14 @@ void main() {
     float ang = atan(vUv.y, vUv.x);
     float rr = r * (1.0 + 0.16 * sin(ang * 5.0 + vSeed) + 0.08 * sin(ang * 9.0 - vSeed * 1.7));
     a = (1.0 - smoothstep(0.35, 1.0, rr)) * 0.6;
-  } else {
+  } else if (vShape < 4.5) {
     a = 1.0; // flat square pixel (arcade theme)
+  } else if (vShape < 5.5) {
+    a = smoothstep(0.78, 0.92, r) * (1.0 - smoothstep(0.94, 1.0, r)); // thin ring
+  } else {
+    // light shaft: soft across, strongest at the bottom
+    float hx = 1.0 - abs(vUv.x);
+    a = hx * hx * pow(clamp((vUv.y + 1.0) * 0.5, 0.0, 1.0), 1.6);
   }
   if (r > 1.42) discard;
   a *= vColor.a;
@@ -409,6 +434,7 @@ export class GLRenderer {
     this.hdr = !!gl.getExtension('EXT_color_buffer_float'); // float light layer: highlights can exceed 1 and roll off
     this.pBlur = this.program(VS_QUAD, FS_BLUR);
     this.pSprite = this.program(VS_SPRITE, FS_SPRITE);
+    this.pRefl = this.program(VS_QUAD, FS_REFL);
     this.pRect = this.program(VS_RECT, FS_RECT);
     this.pSeg = this.program(VS_SEG, FS_SEG);
     this.pInkSim = this.program(VS_QUAD, FS_INK_SIM);
@@ -531,6 +557,7 @@ export class GLRenderer {
     if (step && prog.u.uStep) gl.uniform2f(prog.u.uStep, step[0], step[1]);
     if (prog.u.uMask) gl.uniform2f(prog.u.uMask, this.mask[0], this.mask[1]);
     if (prog.u.uKnee) gl.uniform1f(prog.u.uKnee, this.hdr ? 1 : 0);
+    if (prog.u.uTop) gl.uniform2f(prog.u.uTop, this.refl[0], this.refl[1]);
     if (prog.u.uFiber) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, this.tex.fiber.t);
@@ -708,6 +735,13 @@ export class GLRenderer {
       const px = !!t.pixel;
       // per-note colours (score hands, note-colour setting): slot n of st.tints is C[i] = n + 1
       const tHaze = st.tints.map((x) => this.rgb(x.haze)), tDust = st.tints.map((x) => this.rgb(x.dust));
+      // extra effects: background pulse and pedal light shafts (behind everything)
+      const FX = st.fxNow;
+      mark('beams', () => {
+        if (!FX || !additive) return;
+        if (FX.pulse > 0.005) this.sprite(W / 2, top, W * 0.75, H * 0.5, 0, this.rgb(t.barGlow), FX.pulse, 0, SH_GLOW);
+        for (const b of FX.beams) this.sprite(b.x, b.y, b.hw, b.hh, 0, this.rgb(b.color), b.a, 0, SH_BEAM);
+      });
       mark('haze', () => { for (let i = 0; i < n; i++) if (K[i] === HAZE) { const lf = L[i] / M[i]; this.sprite(X[i], Y[i], S[i], S[i], 0, (C[i] && tHaze[C[i] - 1]) || cHaze, Math.sin(lf * Math.PI) * hazeA, 0, SH_GLOW); } });
       mark('dust', () => {
         for (let i = 0; i < n; i++) {
@@ -735,6 +769,16 @@ export class GLRenderer {
           continue;
         }
         this.rect(k.cx - w / 2, y2 - h, w, h, w / 2, [...core, 0.55 * fresh], [...core, 0.95 * fresh], [...glow, ga], w * 1.6);
+      }
+      // big-chord flash: a wash of light rising from the key line
+      if (FX?.flash && additive && !t.inkSim) {
+        const c = this.rgb(FX.flash.color);
+        this.rect(0, FX.flash.y, W, FX.flash.h, 0, [...c, 0], [...c, FX.flash.a]);
+      }
+      // runs: arcs of light between consecutive keys
+      if (FX) for (const l of FX.links) {
+        const c = this.rgb(l.color);
+        for (let s = 1; s < l.pts.length; s++) this.seg(l.pts[s - 1][0], l.pts[s - 1][1], l.pts[s][0], l.pts[s][1], l.w, c, l.a);
       }
       // wisps (segments)
       const cW = this.rgb(t.wisp), tW = st.tints.map((x) => this.rgb(x.wisp));
@@ -785,12 +829,13 @@ export class GLRenderer {
         for (const [note, v] of lit) {
           const k = st.keys[note];
           const c = this.rgb(st.noteColor(note) || t.hit);
-          const r = gu * (1.9 + 0.9 * v);
+          const r = gu * (1.9 + 0.9 * v) * st.hitK;
           this.sprite(k.cx, top, r, r * 0.7, 0, c, (additive ? 0.32 * v : 0.12 * v) * st.crowd, 0.6, SH_GLOW);
           const cc = gu * (0.55 + 0.35 * v);
           this.sprite(k.cx, top, cc, cc * 0.8, 0, c, (additive ? 0.55 * v : 0.2 * v) * st.crowd, 0.6, SH_GLOW);
         }
       });
+      mark('rings', () => { if (FX) for (const r of FX.rings) this.sprite(r.x, r.y, r.rx, r.ry, 0, this.rgb(r.color), r.a, 0, SH_RING); });
     }
     const fxRects = this.rects.n;
 
@@ -872,6 +917,7 @@ export class GLRenderer {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       this.blend(additive ? 'add' : 'over');
+      sprites('beams');
       sprites('haze');
       sprites('dust');
       this.blend('over');
@@ -883,6 +929,7 @@ export class GLRenderer {
       sprites('petals');
       this.blend(additive ? 'add' : 'over');
       sprites('hits');
+      sprites('rings');
 
       this.bind(null);
       this.blend(additive ? 'add' : 'over');
@@ -905,6 +952,13 @@ export class GLRenderer {
         this.mask = [top, top + fade * 2];
         this.blit(a1.t, 0, 0, W, H, 0.55 * st.bloomK, true, this.pFx);
         this.blit(a2.t, 0, 0, W, H, 0.75 * st.bloomK, true, this.pFx);
+      }
+      // glossy keys
+      if (st.fxOn && additive) {
+        this.bind(null);
+        this.blend('add');
+        this.refl = [top, st.kbH * 0.55];
+        this.blit(fx.t, 0, top, W, st.kbH * 0.55, 0.26, true, this.pRefl);
       }
     }
 
