@@ -362,6 +362,10 @@ class App {
     };
 
     const up = (e) => {
+      // Space / Enter on a focused button "click" it on key-up (Space is the pedal: lifting it
+      // after a score ended restarted the score). Keys belong to the piano unless typing.
+      const tag = e.target?.tagName;
+      if (!((tag === 'INPUT' && e.target.type !== 'range') || tag === 'SELECT' || tag === 'TEXTAREA')) e.preventDefault();
       const v0 = this.settings.v;
       if (v0.softKey && e.code === v0.softKey) { this.setSoft(false); return; }
       if (v0.sostKey && e.code === v0.sostKey) { this.setSostenuto(false); return; }
