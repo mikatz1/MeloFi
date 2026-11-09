@@ -1,4 +1,3 @@
-```markdown
 # MeloFi
 
 컴퓨터 키보드로 연주하는 Electron 기반 가상 피아노 앱입니다.
@@ -144,9 +143,9 @@ npx electron tools/make-icon.js
 | --- | --- | --- |
 | Splendid Grand (Steinway) | AKAI, SFZ: kinwie | Public Domain |
 | Salamander Grand (Yamaha C5) | Alexander Holm | CC BY 3.0 |
-| Maestro Concert Grand (Yamaha CF-3) | Mats Helgesson | 자유 배포 |
+| Maestro Concert Grand (Yamaha CF-3) | Mats Helgesson | 작가 허락 하에 무료 배포 |
 | Headroom Piano (Yamaha C3) | Bengt Nilsson | CC BY 4.0 |
-| jRhodes3d (Rhodes Mark I) | Jeff Learman | CC BY-NC 4.0 |
+| jRhodes3d (Rhodes Mark I) | Jeff Learman | 샘플 CC BY-NC 4.0 (비상업) |
 | Scarypiano | Karoryfer Samples | CC0 |
 | Wurlitzer EP200 | Greg Sullivan, SFZ: kinwie | CC BY 3.0 |
 | Harpsichord, TX81Z Clavisynth, Concert Harp | Versilian Studios ([VCSL](https://github.com/sgossner/VCSL)) | CC0 |
