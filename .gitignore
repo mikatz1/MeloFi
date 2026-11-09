@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+# instrument audio is large (≈1.2 GB) and comes from the SFZ sources; see README
+instruments/_dl/
+instruments/*/s/
+# local test copies
+renderer/_test/

@@ -1,0 +1,23 @@
+{
+  "name": "melofi",
+  "version": "0.1.0",
+  "description": "Keyboard piano with a visualizer",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "set MELOFI_DEV=1&& electron .",
+    "build:instruments": "node tools/build-instruments.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "linkedom": "^0.18.9"
+  },
+  "dependencies": {
+    "lamejs": "^1.2.1"
+  },
+  "productName": "MeloFi",
+  "private": true
+}
