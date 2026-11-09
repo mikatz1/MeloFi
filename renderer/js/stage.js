@@ -479,8 +479,8 @@ export class Stage {
 
   // ---------- themed keyboards ----------
 
-  // 먹: keys of rice paper, brush-ink lines between them, black keys painted in ink with a
-  // ragged lift-off at the bottom and dry-brush streaks. Seeded, so it looks the same every time.
+  // 먹: keys of rice paper, crisp ink lines between them, black keys in solid ink with
+  // dry-brush streaks inside. Seeded, so it looks the same every time.
   paintInkKeys(w, k, kh, showLabels, fontPx) {
     const d = this.dpr, W = this.W, bh = this.bh;
     let seed = 11;
@@ -511,20 +511,11 @@ export class Stage {
     sh.addColorStop(1, 'rgba(40,30,22,0)');
     w.fillStyle = sh;
     w.fillRect(0, 0, W, 16 * d);
-    // a brush line down each gap: thickens and thins, skips where the brush runs dry
+    // a clean ink line down each gap
+    const lw = Math.max(1, Math.round(1.5 * d));
     const brush = (x) => {
-      const seg = 10 * d;
-      let jx = 0;
-      for (let y = 0; y < kh; y += seg) {
-        if (r() < 0.03) continue;
-        jx = clamp(jx + (r() - 0.5) * 0.5 * d, -0.8 * d, 0.8 * d);
-        w.strokeStyle = `rgba(22,18,14,${0.7 + r() * 0.25})`;
-        w.lineWidth = 1.6 * d * (0.7 + r() * 0.6) * (1 - 0.35 * (y / kh));
-        w.beginPath();
-        w.moveTo(x + jx, y);
-        w.lineTo(x + jx + (r() - 0.5) * 0.4 * d, Math.min(kh, y + seg + d));
-        w.stroke();
-      }
+      w.fillStyle = '#1a1612';
+      w.fillRect(Math.round(x - lw / 2), 0, lw, kh);
     };
     let first = true;
     for (let n = this.lo; n <= this.hi; n++) {
@@ -544,20 +535,9 @@ export class Stage {
       const key = this.keys[n];
       if (!key.black) continue;
       const x = key.x, bw = key.w;
-      // ink bleeding a little into the paper around it
-      k.fillStyle = 'rgba(20,16,12,0.12)';
-      k.fillRect(x - 1.5 * d, 0, bw + 3 * d, bh + 2 * d);
-      // body: slightly uneven sides, ragged where the brush lifted
-      k.beginPath();
-      k.moveTo(x + (r() - 0.5) * d, 0);
-      for (let y = bh * 0.25; y < bh; y += bh * 0.25) k.lineTo(x + (r() - 0.5) * 1.2 * d, y);
-      const steps = 7;
-      for (let i = 0; i <= steps; i++) k.lineTo(x + (bw * i) / steps, bh + (r() - 0.35) * 3.2 * d);
-      for (let y = bh * 0.75; y > 0; y -= bh * 0.25) k.lineTo(x + bw + (r() - 0.5) * 1.2 * d, y);
-      k.lineTo(x + bw + (r() - 0.5) * d, 0);
-      k.closePath();
+      // body: solid ink, crisp edges
       k.fillStyle = '#16130f';
-      k.fill();
+      k.fillRect(Math.round(x), 0, Math.round(bw), Math.round(bh));
       // dry-brush streaks
       for (let i = 0, n2 = 3 + ((r() * 3) | 0); i < n2; i++) {
         const sx = x + bw * (0.15 + r() * 0.7);
