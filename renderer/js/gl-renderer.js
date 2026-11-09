@@ -718,8 +718,17 @@ export class GLRenderer {
     this.mask = [top - 2 * dpr, top + st.fadeLen() * 0.6];
     this.blit(cur().t, 0, 0, W, H, 1, true, this.pInkDraw);
 
-    // plain note bars on top of the ink
-    rects(0, fxRects);
+    // plain note bars on top of the ink (cut at the key line, like the light layer's bars)
+    this.clipAbove(top - dpr, () => rects(0, fxRects));
+  }
+
+  // draw only above a line (y top-down, px) of the current target
+  clipAbove(y, fn) {
+    const gl = this.gl;
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, Math.round(this.res[1] - y), this.res[0], Math.round(y));
+    fn();
+    gl.disable(gl.SCISSOR_TEST);
   }
 
   // ---------- frame ----------
@@ -946,7 +955,8 @@ export class GLRenderer {
       sprites('haze');
       sprites('dust');
       this.blend('over');
-      rects(0, fxRects);
+      // notes come out from under the keys (and go back into them when falling): cut at the key line
+      this.clipAbove(top - dpr, () => rects(0, fxRects));
       this.blend(additive ? 'add' : 'over');
       this.instanced(this.pSeg, this.segs, GL, 0, this.segs.n);
       sprites('sparks');

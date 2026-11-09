@@ -1262,7 +1262,7 @@ export class Stage {
         const k = this.keys[x.n];
         if (!k) continue;
         const live = x.t <= now;
-        out.push({ note: x.n, k, y1: top - (x.t + x.d - now) * speed, y2: Math.min(top - dpr, top - (x.t - now) * speed), color: x.color, live, fresh: live ? 1 : 0.8, seed: x.t });
+        out.push({ note: x.n, k, y1: top - (x.t + x.d - now) * speed, y2: top - (x.t - now) * speed, color: x.color, live, fresh: live ? 1 : 0.8, seed: x.t });
       }
       return out;
     }
@@ -1270,7 +1270,7 @@ export class Stage {
     for (const b of this.bars) {
       const k = this.keys[b.note];
       if (!k) continue;
-      const y2 = b.t1 == null ? top - dpr : top - (T - b.t1) * speed;
+      const y2 = b.t1 == null ? top + this.barW(k) : top - (T - b.t1) * speed;
       if (y2 < -40 * dpr) continue;
       out.push({ note: b.note, k, y1: top - (T - b.t0) * speed, y2, color: b.color, live: b.t1 == null,
         fresh: b.t1 == null ? 1 : Math.max(0.75, 1 - (T - b.t1) * 0.1), seed: b.t0 });
@@ -1281,6 +1281,10 @@ export class Stage {
   drawBars(f) {
     const { theme: t } = this;
     f.save();
+    // notes live above the key line: they come out from under the keys and go back into them
+    f.beginPath();
+    f.rect(0, 0, this.W, this.top - this.dpr);
+    f.clip();
     for (const b of this.barShapes()) {
       const { k, y1, y2 } = b;
       const w = this.barW(k);
