@@ -168,7 +168,7 @@ export class Stage {
     const relayout = changed('range') || changed('visualizer') || changed('zoom') || changed('fit') || (changed('center') && (o.zoom ?? this.opts.zoom) > 1);
     Object.assign(this.opts, o);
     if (relayout) this.layout();
-    else if ('labels' in o || 'bgDim' in o) this.renderStatic();
+    else if ('labels' in o || 'bgDim' in o || 'stream' in o) this.renderStatic();
   }
 
   setBackground(url) {
@@ -380,14 +380,16 @@ export class Stage {
       const step = Math.max(2, Math.round(3 * dpr)), lw = Math.max(1, Math.round(dpr));
       for (let y = 0; y < top; y += step) b.fillRect(0, y, W, lw);
     }
-    // grain to stop gradient banding
-    const img = b.getImageData(0, 0, W, Math.max(1, top));
-    const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const k = (Math.random() - 0.5) * 5;
-      d[i] += k; d[i + 1] += k; d[i + 2] += k;
+    // grain to stop gradient banding (not when streaming: noise is what video compression handles worst)
+    if (!this.opts.stream) {
+      const img = b.getImageData(0, 0, W, Math.max(1, top));
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const k = (Math.random() - 0.5) * 5;
+        d[i] += k; d[i + 1] += k; d[i + 2] += k;
+      }
+      b.putImageData(img, 0, 0);
     }
-    b.putImageData(img, 0, 0);
 
     // keys
     const kh = this.kbH;
@@ -403,7 +405,7 @@ export class Stage {
     const gap = Math.max(1, dpr);
     const rad = 3 * dpr;
     const fontPx = (sz) => `${Math.round(sz)}px "Segoe UI Variable Text","Segoe UI","Malgun Gothic",sans-serif`;
-    const showLabels = this.opts.labels !== 'none';
+    const showLabels = this.opts.labels !== 'none' && !this.opts.stream;
     for (let n = this.lo; n <= this.hi; n++) {
       const key = this.keys[n];
       if (key.black) continue;
@@ -562,11 +564,17 @@ export class Stage {
 
   q() {
     const base = QUALITY[this.opts.particles] ?? 1;
-    return base * this.load * (this.theme.sparse ? 0.4 : 1);
+    return base * this.load * (this.theme.sparse ? 0.4 : 1) * (this.opts.stream ? 0.45 : 1);
   }
+
+  // stream mode: knobs for screen sharing (see setOptions 'stream')
+  get barScale() { return this.opts.barWidth * (this.opts.stream ? 1.35 : 1); }
+  get bloomK() { return this.theme.bloom * (this.opts.stream ? 0.6 : 1); }
+  get hazeK() { return this.opts.stream ? 0.6 : 1; }
 
   spawn(kind, x, y, vx, vy, life, size, col = 0) {
     if (this.n >= POOL) return;
+    if (this.opts.stream && (kind === SPARK || kind === DUST || kind === EMBER)) size *= 1.5;
     const i = this.n++;
     this.kind[i] = kind; this.px[i] = x; this.py[i] = y; this.vx[i] = vx; this.vy[i] = vy;
     this.life[i] = this.max[i] = life; this.size[i] = size; this.col[i] = col;
@@ -609,7 +617,7 @@ export class Stage {
       }
       for (let i = 0; i < 3; i++) this.spawn(INK, k.cx + rand(-0.6, 0.6) * k.w, this.top - rand(6, 40) * d, rand(-10, 10) * d, -rand(15, 50) * d * sc, rand(1.6, 2.8), rand(8, 18) * d, (Math.random() * 3) | 0);
     }
-    if (q >= 0.5 && t.motes !== 'ink' && !t.pixel && rep > 0.6) {
+    if (q >= 0.5 && t.motes !== 'ink' && !t.pixel && rep > 0.6 && !this.opts.stream) {
       const count = (vel > 100 ? 2 : 1) * (t.wispBoost || 1);
       for (let i = 0; i < count; i++) this.spawnWisp(k.cx + rand(-0.3, 0.3) * k.w, this.top - 2 * d, vf, tint);
     }
@@ -655,7 +663,7 @@ export class Stage {
         this.spawn(SPARK, k.cx + rand(-0.45, 0.45) * k.w, this.top - rand(0, 4) * d, rand(-25, 25) * d, -rand(40, 160) * sc * d,
           rand(0.4, 1.1), rand(0.7, 1.8) * d, this.sparkIndex(note));
       }
-      for (let i = rate(80 * q); i > 0; i--) {
+      for (let i = rate(80 * q * (this.opts.stream ? 0.4 : 1)); i > 0; i--) {
         this.spawn(DUST, k.cx + rand(-0.9, 0.9) * k.w, this.top - rand(0, 18) * d, rand(-12, 12) * d, -rand(20, 75) * sc * d,
           rand(1.8, 4.2), rand(0.6, 1.5) * d, tint);
       }
@@ -859,9 +867,9 @@ export class Stage {
         b2.drawImage(this.b1, 0, 0, this.b2.width, this.b2.height);
         ctx.globalCompositeOperation = 'lighter';
         ctx.imageSmoothingQuality = 'high';
-        ctx.globalAlpha = 0.55 * t.bloom;
+        ctx.globalAlpha = 0.55 * this.bloomK;
         ctx.drawImage(this.b1, 0, 0, W, H);
-        ctx.globalAlpha = 0.75 * t.bloom;
+        ctx.globalAlpha = 0.75 * this.bloomK;
         ctx.drawImage(this.b2, 0, 0, W, H);
         ctx.globalAlpha = 1;
       }
@@ -908,7 +916,7 @@ export class Stage {
           break;
         }
         case HAZE: {
-          f.globalAlpha = Math.sin(lf * Math.PI) * (t.blend === 'lighter' ? 0.16 : 0.07);
+          f.globalAlpha = Math.sin(lf * Math.PI) * (t.blend === 'lighter' ? 0.16 : 0.07) * this.hazeK;
           const tn = this.col[i] && this.tints[this.col[i] - 1];
           f.drawImage(tn ? this.glow(tn.haze, 128, 0) : sp.haze, x - s, y - s, s * 2, s * 2);
           break;
@@ -983,7 +991,7 @@ export class Stage {
     f.save();
     for (const b of this.barShapes()) {
       const { k, y1, y2 } = b;
-      const w = (k.black ? k.w * 0.7 : this.ww * 0.46) * this.opts.barWidth;
+      const w = (k.black ? k.w * 0.7 : this.ww * 0.46) * this.barScale;
       const nc = b.color || this.colorOf(b.note);
       const x = k.cx - w / 2;
       const h = Math.max(w, y2 - y1);

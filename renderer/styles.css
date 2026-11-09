@@ -202,6 +202,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px;
 #hud .judge[data-kind=great], #result [data-kind=great] b { color: #8fd6ff; }
 #hud .judge[data-kind=good], #result [data-kind=good] b { color: #b9e39a; }
 #hud .judge[data-kind=miss], #result [data-kind=miss] b { color: #ff7d7d; }
+/* stream mode: only errors pop up, and a resting pointer disappears */
+body.stream #toasts .toast:not(.err) { display: none; }
+body.stream.idle, body.stream.idle * { cursor: none !important; }
+
 /* title card */
 #intro { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4,5,8,0); z-index: 20; cursor: default; }
 #intro[hidden] { display: none; }

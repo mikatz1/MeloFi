@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('melofi', {
   relaunch: () => ipcRenderer.invoke('app:relaunch'),
   toggleFullscreen: () => ipcRenderer.invoke('win:toggleFullscreen'),
   setFullscreen: (on) => ipcRenderer.invoke('win:setFullscreen', on),
+  setWindowSize: (w, h) => ipcRenderer.invoke('win:setSize', w, h),
   onFullscreen: (cb) => ipcRenderer.on('win:fullscreen', (_e, on) => cb(on)),
   saveRecording: (payload) => ipcRenderer.invoke('recording:save', payload),
   downloadInstrument: (id) => ipcRenderer.invoke('instruments:download', id),

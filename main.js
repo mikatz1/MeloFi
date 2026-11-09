@@ -278,6 +278,14 @@ app.whenReady().then(() => {
   ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('win:toggleFullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
   ipcMain.handle('win:setFullscreen', (_e, on) => { if (win) win.setFullScreen(!!on); });
+  // exact window size (the whole window is content: the title bar is drawn by the page)
+  ipcMain.handle('win:setSize', (_e, w, h) => {
+    if (!win) return;
+    if (win.isFullScreen()) win.setFullScreen(false);
+    if (win.isMaximized()) win.unmaximize();
+    win.setContentSize(Math.round(w), Math.round(h));
+    win.center();
+  });
 
   ipcMain.handle('score:pick', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [

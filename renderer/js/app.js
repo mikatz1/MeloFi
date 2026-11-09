@@ -101,7 +101,8 @@ class App {
     this.engine.setBrightness(v.brightness);
     this.stage.setTheme(v.theme, v.customTheme);
     this.stage.setOptions({ visualizer: v.visualizer, particles: v.particles, bloom: v.bloom, speed: v.speed, labels: v.labels, range: v.range,
-      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter() });
+      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode });
+    this.applyStream(v.streamMode);
     this.stage.setBackground(v.bgImage);
     this.metronome.setTempo(v.bpm);
     this.metronome.setBeats(v.beats);
@@ -130,6 +131,7 @@ class App {
       if ('pedalMode' in p) { this.pedalHeld = false; this.setLatch(false); }
       if (Object.keys(so).length) this.stage.setOptions(so);
       if ('range' in p && this.player.song) this.fitScore(this.player.song);
+      if ('streamMode' in p) { this.stage.setOptions({ stream: p.streamMode }); this.applyStream(p.streamMode); }
       if (['scoreFall', 'scoreHands', 'rhColor', 'lhColor', 'theme'].some((k) => k in p)) { this.updateFall(); this.ui.updateTransport?.(); }
       if (['octave', 'transpose', 'keyPreset', 'customMap', 'labels', 'noteNames', 'range'].some((k) => k in p)) this.updateLabels();
       if ('instrument' in p) this.loadInstrument();
@@ -422,6 +424,24 @@ class App {
   openRecDir() {
     const dir = this.settings.get('recDir') || this.env.recordDir;
     window.melofi.openFolder(dir);
+  }
+
+  // ---------- stream mode ----------
+
+  // Page side of stream mode: only error toasts show, and the pointer hides when it rests.
+  applyStream(on) {
+    document.body.classList.toggle('stream', !!on);
+    if (this.idleWatch) return;
+    this.idleWatch = true;
+    let t = 0;
+    const wake = () => {
+      document.body.classList.remove('idle');
+      clearTimeout(t);
+      t = setTimeout(() => { if (document.body.classList.contains('stream')) document.body.classList.add('idle'); }, 1500);
+    };
+    window.addEventListener('pointermove', wake, { passive: true });
+    window.addEventListener('pointerdown', wake, { passive: true });
+    wake();
   }
 
   // ---------- high-quality video of the score ----------
