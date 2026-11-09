@@ -666,10 +666,12 @@ export class Stage {
     }
   }
 
-  // Key released. If the sound carries on (pedal), the bar keeps growing until soundOff.
+  // Key released. The bar ends here: bars show how long each key was held, even when the
+  // pedal lets the sound ring on (stillSounding keeps the note counted as ringing until soundOff).
   noteOff(note, stillSounding = false) {
     const a = this.active.get(note);
     if (a && a.off == null) a.off = this.time;
+    for (const b of this.bars) if (b.note === note && b.t1 == null) b.t1 = this.time;
     if (!stillSounding) this.soundOff(note);
   }
 
@@ -708,6 +710,9 @@ export class Stage {
 
   // stream mode: knobs for screen sharing (see setOptions 'stream')
   get barScale() { return this.opts.barWidth * (this.opts.stream ? 1.35 : 1); }
+  // note width: white-key notes clearly wider than black-key notes
+  barW(k) { return (k.black ? this.ww * 0.34 : this.ww * 0.6) * this.barScale; }
+
   get bloomK() { return this.theme.bloom * 0.85 * (this.opts.stream ? 0.6 : 1) * (this.fxOn ? 0.85 + 0.25 * this.dyn : 1); }
 
   // ---------- extra effects (settings: fxExtra) ----------
@@ -1278,7 +1283,7 @@ export class Stage {
     f.save();
     for (const b of this.barShapes()) {
       const { k, y1, y2 } = b;
-      const w = (k.black ? k.w * 0.7 : this.ww * 0.46) * this.barScale;
+      const w = this.barW(k);
       const nc = b.color || this.colorOf(b.note);
       const x = k.cx - w / 2;
       const h = Math.max(w, y2 - y1);
