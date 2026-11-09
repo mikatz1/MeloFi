@@ -46,7 +46,9 @@ class Sampler extends AudioWorkletProcessor {
     super();
     this.samples = new Map();
     this.voices = [];
-    this.pendingOffs = [];
+    this.pendingOffs = []; // releases scheduled for later, kept in time order
+    this.queue = [];       // voices that start more than a second from now, in start order
+    this.qi = 0;
     this.port.onmessage = (e) => this.onMessage(e.data);
   }
 
@@ -61,23 +63,37 @@ class Sampler extends AudioWorkletProcessor {
       case 'on': {
         const s = this.samples.get(m.id);
         if (!s) { this.port.postMessage({ type: 'end', vid: m.vid }); break; }
-        this.voices.push({
+        const v = {
           vid: m.vid, s, pos: PAD + (m.off || 0), step: m.step, exact: m.step === 1,
           amp: m.gain * SCALE, g: 0, atk: m.gain * SCALE / 96, rc: 1, releasing: false,
           peak: 0, age: 0, quietFor: 0, quiet: false,
-          // scheduled start (score playback): wait this many samples before sounding
-          wait: m.at ? Math.max(0, Math.round((m.at - currentTime) * sampleRate)) : 0,
-        });
+          // scheduled start (score playback / video rendering): sample frame to start on
+          start: m.at ? Math.round(m.at * sampleRate) : currentFrame, wait: 0,
+        };
+        if (v.start - currentFrame > sampleRate) {
+          // far ahead (a whole score handed over at once): park it so it costs nothing until due
+          const q = this.queue;
+          if (q.length > this.qi && q[q.length - 1].start > v.start) { q.push(v); this.sortQueue = true; } else q.push(v);
+        } else {
+          v.wait = Math.max(0, v.start - currentFrame);
+          this.voices.push(v);
+        }
         break;
       }
       case 'off': {
-        if (m.at && m.at > currentTime) { this.pendingOffs.push(m); break; }
+        if (m.at && m.at > currentTime) {
+          const po = this.pendingOffs;
+          if (po.length && po[po.length - 1].at > m.at) { po.push(m); po.sort((a, b) => a.at - b.at); } else po.push(m);
+          break;
+        }
         const rc = Math.exp(-1 / (Math.max(0.005, m.tau) * sampleRate));
         for (const v of this.voices) if (v.vid === m.vid) { v.releasing = true; v.rc = Math.min(v.rc === 1 ? rc : v.rc, rc); }
         break;
       }
       case 'cancel': // drop everything scheduled but not yet sounding
         this.voices = this.voices.filter((v) => { if (v.wait > 0) { this.port.postMessage({ type: 'end', vid: v.vid }); return false; } return true; });
+        for (let i = this.qi; i < this.queue.length; i++) this.port.postMessage({ type: 'end', vid: this.queue[i].vid });
+        this.queue = []; this.qi = 0;
         this.pendingOffs = [];
         break;
       case 'allOff': {
@@ -93,11 +109,20 @@ class Sampler extends AudioWorkletProcessor {
     const oL = out[0], oR = out[1] || out[0];
     const n = oL.length;
     const K = KERNEL;
+    // parked voices that start within the next few blocks
+    if (this.sortQueue) { const rest = this.queue.slice(this.qi).sort((a, b) => a.start - b.start); this.queue = rest; this.qi = 0; this.sortQueue = false; }
+    while (this.qi < this.queue.length && this.queue[this.qi].start - currentFrame < n * 4) {
+      const v = this.queue[this.qi++];
+      v.wait = Math.max(0, v.start - currentFrame);
+      this.voices.push(v);
+    }
+    if (this.qi > 4096) { this.queue = this.queue.slice(this.qi); this.qi = 0; }
     if (this.pendingOffs.length) {
       const until = currentTime + n / sampleRate;
-      const due = this.pendingOffs.filter((m) => m.at <= until);
-      if (due.length) {
-        this.pendingOffs = this.pendingOffs.filter((m) => m.at > until);
+      let k = 0;
+      while (k < this.pendingOffs.length && this.pendingOffs[k].at <= until) k++;
+      if (k) {
+        const due = this.pendingOffs.splice(0, k);
         for (const m of due) this.onMessage({ ...m, at: 0 });
       }
     }

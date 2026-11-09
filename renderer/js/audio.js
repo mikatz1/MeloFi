@@ -55,8 +55,9 @@ function toInt16(src, out) {
 }
 
 export class Engine {
-  constructor() {
-    this.ctx = new AudioContext({ latencyHint: 'interactive' });
+  constructor(ctx = null) {
+    this.ctx = ctx || new AudioContext({ latencyHint: 'interactive' });
+    this.offline = typeof OfflineAudioContext !== 'undefined' && this.ctx instanceof OfflineAudioContext;
     const c = this.ctx;
 
     this.input = c.createGain();
@@ -107,8 +108,11 @@ export class Engine {
     this.tone.connect(this.res).connect(this.resGate).connect(this.resLevel).connect(this.master);
     this.master.connect(this.limiter).connect(this.out).connect(c.destination);
 
-    this.stream = c.createMediaStreamDestination();
-    this.out.connect(this.stream);
+    // live only: the stream MediaRecorder records from
+    if (!this.offline) {
+      this.stream = c.createMediaStreamDestination();
+      this.out.connect(this.stream);
+    }
 
     // output meters
     const split = c.createChannelSplitter(2);
@@ -160,6 +164,7 @@ export class Engine {
   setBass(db) { this.bass.gain.setTargetAtTime(db, this.ctx.currentTime, 0.05); }
   setRoom(kind) {
     if (kind === this.room) return;
+    if (this.offline) { this.room = kind; this.conv.buffer = makeImpulse(this.ctx, kind); return; }
     this.room = kind;
     // a ConvolverNode can't swap its buffer without a click: fade the wet path out, swap, fade back
     const t = this.ctx.currentTime;
@@ -298,7 +303,7 @@ export class Engine {
     this.voices.set(vid, { note, held: true, ending: false, rel: r.r });
     this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at });
 
-    if (this.voices.size > MAX_VOICES) {
+    if (this.voices.size > MAX_VOICES && !this.offline) { // (a rendered score hands over every note at once)
       let victim = null;
       for (const [id, v] of this.voices) { if (v.ending) { victim = id; break; } }
       if (victim == null) for (const [id, v] of this.voices) { if (!v.held) { victim = id; break; } }
@@ -313,7 +318,7 @@ export class Engine {
     const v = this.voices.get(vid);
     if (!v || !v.held) return;
     v.held = false;
-    if (!this.sustain) this.release(vid, v, v.rel / 4.5, at);
+    if (!this.sustain && !v.sost) this.release(vid, v, v.rel / 4.5, at);
   }
 
   // Forget everything that was scheduled but hasn't started yet.
@@ -346,7 +351,17 @@ export class Engine {
     for (const [vid, v] of this.voices) {
       if (v.note !== note || !v.held) continue;
       v.held = false;
-      if (!this.sustain) this.release(vid, v, v.rel / 4.5);
+      if (!this.sustain && !v.sost) this.release(vid, v, v.rel / 4.5);
+    }
+  }
+
+  // Sostenuto (middle pedal): only the notes held at the moment it goes down keep ringing.
+  setSostenuto(on) {
+    if (on) { for (const v of this.voices.values()) if (v.held && !v.ending) v.sost = true; return; }
+    for (const [vid, v] of this.voices) {
+      if (!v.sost) continue;
+      v.sost = false;
+      if (!v.held && !v.ending && !this.sustain) this.release(vid, v, v.rel / 4.5);
     }
   }
 
@@ -355,7 +370,7 @@ export class Engine {
     // dampers lift fast and fall back a little slower
     this.resGate.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, on ? 0.03 : 0.09);
     if (on) return;
-    for (const [vid, v] of this.voices) if (!v.held && !v.ending) this.release(vid, v, v.rel / 4.5);
+    for (const [vid, v] of this.voices) if (!v.held && !v.ending && !v.sost) this.release(vid, v, v.rel / 4.5);
   }
 
   allOff(tau = 0.08) {

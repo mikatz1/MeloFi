@@ -40,7 +40,11 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
     if (doc.querySelector('score-timewise')) throw new Error('timewise MusicXML은 지원하지 않습니다. partwise로 내보내 주세요.');
     throw new Error('MusicXML을 읽지 못했습니다.');
   }
-  const title = doc.querySelector('work > work-title')?.textContent?.trim() || doc.querySelector('movement-title')?.textContent?.trim() || fallbackTitle;
+  const realTitle = doc.querySelector('work > work-title')?.textContent?.trim() || doc.querySelector('movement-title')?.textContent?.trim() || '';
+  const title = realTitle || fallbackTitle;
+  const credit = (type) => [...doc.querySelectorAll('credit')].find((c) => c.querySelector('credit-type')?.textContent?.trim() === type)?.querySelector('credit-words')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+  const composer = doc.querySelector('identification > creator[type="composer"]')?.textContent?.replace(/\s+/g, ' ').trim() || credit('composer');
+  const subtitle = credit('subtitle');
 
   const partMeta = new Map();
   for (const sp of root.querySelectorAll('part-list > score-part')) {
@@ -311,6 +315,9 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
   const toSec = tempoMap(buildTempos(tempos, fermatas));
   return {
     title,
+    composer,
+    subtitle,
+    hasTitle: !!realTitle,
     lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, notes: finishLine(l.notes, toSec) })).filter((l) => l.notes.length),
     pedals: pedals.sort((a, b) => a.tick - b.tick).map((p) => ({ t: toSec(p.tick), on: p.on })),
   };

@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('melofi', {
   listInstruments: () => ipcRenderer.invoke('instruments:list'),
@@ -16,4 +16,15 @@ contextBridge.exposeInMainWorld('melofi', {
   setFullscreen: (on) => ipcRenderer.invoke('win:setFullscreen', on),
   onFullscreen: (cb) => ipcRenderer.on('win:fullscreen', (_e, on) => cb(on)),
   saveRecording: (payload) => ipcRenderer.invoke('recording:save', payload),
+  downloadInstrument: (id) => ipcRenderer.invoke('instruments:download', id),
+  cancelDownload: (id) => ipcRenderer.invoke('instruments:cancel', id),
+  removeInstrument: (id) => ipcRenderer.invoke('instruments:remove', id),
+  onInstrumentProgress: (cb) => ipcRenderer.on('instruments:progress', (_e, p) => cb(p)),
+  openScorePath: (p) => ipcRenderer.invoke('score:openPath', p),
+  recentScores: () => ipcRenderer.invoke('score:recent'),
+  renderOpen: (o) => ipcRenderer.invoke('render:open', o),
+  renderWrite: (id, data, pos) => ipcRenderer.invoke('render:write', id, data, pos),
+  renderClose: (id, keep) => ipcRenderer.invoke('render:close', id, keep),
+  clearRecentScores: () => ipcRenderer.invoke('score:clearRecent'),
+  pathForFile: (f) => { try { return webUtils.getPathForFile(f) || ''; } catch { return ''; } },
 });

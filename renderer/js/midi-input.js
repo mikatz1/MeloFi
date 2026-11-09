@@ -37,5 +37,7 @@ export class MidiInput {
     if (type === 0x90 && d[2] > 0) this.onNote(d[1], d[2], true);
     else if (type === 0x80 || (type === 0x90 && d[2] === 0)) this.onNote(d[1], 0, false);
     else if (type === 0xb0 && d[1] === 64) this.onSustain(d[2] >= 64);
+    else if (type === 0xb0 && d[1] === 66) this.onSostenuto?.(d[2] >= 64);
+    else if (type === 0xb0 && d[1] === 67) this.onSoft?.(d[2] >= 64);
   }
 }

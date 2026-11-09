@@ -24,6 +24,8 @@
     <div class="cell"><label>VEL</label><b id="velVal">90</b></div>
     <div class="cell mod" id="modCell"><b id="modVal"></b></div>
     <button class="cell flag pedal" id="susFlag" title="">SUS</button>
+    <span class="cell flag pedal" id="sostFlag" hidden>SOST</span>
+    <span class="cell flag pedal" id="softFlag" hidden>SOFT</span>
     <div class="cell metro" id="metroCell" hidden><span class="beats" id="beatDots"></span><b id="bpmVal">100</b></div>
     <div class="cell flag on-dim" id="midiFlag" hidden>MIDI</div>
   </div>
@@ -40,6 +42,7 @@
   <input type="range" id="tpSeek" min="0" max="1000" step="1" value="0">
   <span class="tp-time" id="tpDur">0:00</span>
   <div class="tp-rate"><button class="btn" id="tpSlower">−</button><b id="tpRate">100%</b><button class="btn" id="tpFaster">+</button></div>
+  <button class="btn" id="tpPractice"></button>
   <button class="btn" id="tpParts"></button>
   <button class="btn" id="tpMidi"></button>
   <button class="x" id="tpClose"></button>
@@ -47,6 +50,37 @@
 
 <main id="stageWrap">
   <canvas id="stage"></canvas>
+  <div id="renderBox" hidden>
+    <div class="card">
+      <b class="title" data-t="render.title"></b>
+      <div class="phase"></div>
+      <div class="bar"><i></i></div>
+      <div class="eta"></div>
+      <div class="row"><button class="btn" data-act="cancel" data-t="render.cancel"></button></div>
+    </div>
+  </div>
+  <div id="intro" hidden>
+    <div class="in"><div class="sub"></div><h1 class="t"></h1><i class="rule"></i><div class="c"></div></div>
+    <label class="never"><input type="checkbox"><span data-t="intro.never"></span></label>
+  </div>
+  <div id="hud" hidden><b class="grade"></b><span class="acc"></span><span class="combo"></span><div class="judge"></div></div>
+  <div id="result" hidden>
+    <div class="card">
+      <div class="big"></div>
+      <dl>
+        <dt data-t="practice.accuracy"></dt><dd class="acc"></dd>
+        <dt data-t="practice.score"></dt><dd class="score"></dd>
+        <dt data-t="practice.maxCombo"></dt><dd class="combo"></dd>
+      </dl>
+      <ul class="counts">
+        <li data-kind="perfect"><span data-t="practice.perfect"></span><b class="n-perfect"></b></li>
+        <li data-kind="great"><span data-t="practice.great"></span><b class="n-great"></b></li>
+        <li data-kind="good"><span data-t="practice.good"></span><b class="n-good"></b></li>
+        <li data-kind="miss"><span data-t="practice.miss"></span><b class="n-miss"></b></li>
+      </ul>
+      <div class="row"><button class="btn" data-act="again" data-t="practice.again"></button><button class="btn" data-act="close" data-t="practice.close"></button></div>
+    </div>
+  </div>
 </main>
 
 <div id="menu" class="menu" role="menu" hidden></div>

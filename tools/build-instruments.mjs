@@ -11,11 +11,13 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readSfz } from './sfz.mjs';
+import { fetchLib } from './fetch-lib.mjs';
+import { vcslMap } from './vcsl-map.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DL = path.join(ROOT, 'instruments', '_dl');
 
-const LIBS = {
+export const LIBS = {
   splendid: {
     order: 1, name: 'Splendid Grand', model: 'Steinway', maker: 'AKAI · SFZ by kinwie',
     license: 'Public Domain', url: 'https://github.com/sfzinstruments/SplendidGrandPiano',
@@ -48,6 +50,57 @@ const LIBS = {
     sfz: 'karoryfer.scarypiano-master/Programs/Scarypiano.sfz',
     filter: (r) => !(r.lv === 1 && r.hv === 127), // drop the always-on "scarier" stacks
   },
+  // ---- beyond the piano (fetched with tools/fetch-lib.mjs when built) ----
+  wurlitzer: {
+    order: 10, family: 'keys', name: 'Wurlitzer EP200', model: '전자 피아노', maker: 'Greg Sullivan · SFZ by kinwie',
+    license: 'CC BY 3.0', url: 'https://github.com/sfzinstruments/GregSullivan.E-Pianos',
+    sfz: 'GregSullivan.E-Pianos-master/Wurlitzer EP200/Wurlitzer EP200.sfz', strings: false,
+  },
+  harpsichord: {
+    order: 11, family: 'keys', name: 'Harpsichord', model: '프렌치 하프시코드', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/harpsichord.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Chordophones/Zithers/Harpsichord, French/Sustains/', /^Harpsi2_Normal_([A-G]#?-?\d)_rr1_Main\.wav$/, { c3: true, release: 0.35, file: 'harpsichord' }),
+  },
+  synth: {
+    // the patch sounds an octave above the key it was sampled from (checked with tools/check-pitch.mjs)
+    order: 12, family: 'synth', name: 'TX81Z Clavisynth', model: 'FM 신디사이저', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/clavisynth.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Electrophones/TX81Z/Clavisynth/', /^Clavisynth_([A-G]#?-?\d)_vl(\d)\.wav$/, { c3: true, shift: 12, release: 0.3, file: 'clavisynth' }),
+  },
+  harp: {
+    order: 13, family: 'strings', name: 'Concert Harp', model: '하프', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/harp.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Chordophones/Composite Chordophones/Concert Harp/', /^KSHarp_([A-G]#?-?\d)_(p|mf|f)\d\.wav$/, { layers: ['p', 'mf', 'f'], release: 0.8, file: 'harp' }),
+  },
+  acoustic: {
+    order: 20, family: 'guitar', name: 'Shinyguitar Acoustic', model: '어쿠스틱 기타', maker: 'Karoryfer Samples',
+    license: 'CC0', url: 'https://github.com/sfzinstruments/karoryfer.shinyguitar',
+    sfz: 'karoryfer.shinyguitar-master/Programs/main.sfz', strings: false,
+    cc: { 100: 127 }, // Blend all the way to the mic'd acoustic signal rather than the pickup
+    vars: { sample_dir: '../Samples' }, // normally set by the bank file
+    filter: (r) => !(r.lv === 1 && r.hv === 127), // fret / release noises
+  },
+  electric: {
+    order: 21, family: 'guitar', name: 'Green Guitar', model: '일렉 기타', maker: 'Karoryfer Samples',
+    license: 'CC0', url: 'https://github.com/sfzinstruments/karoryfer.black-and-green-guitars',
+    sfz: 'karoryfer.black-and-green-guitars-main/Programs/04-green_twang.sfz', strings: false,
+  },
+  ebass: {
+    order: 30, family: 'bass', name: 'Growlybass', model: '일렉 베이스', maker: 'Karoryfer Samples',
+    license: 'CC0', url: 'https://github.com/sfzinstruments/karoryfer.growlybass',
+    sfz: 'karoryfer.growlybass-master/growlybass_clean.sfz', strings: false,
+    filter: (r) => !/scrape/i.test(r.file), // string scrapes parked on the top keys
+    shift: -12, // mapped like bass notation (an octave above how it sounds); MeloFi plays sounding pitch
+  },
+  upright: {
+    order: 31, family: 'bass', name: 'Double Bass Pizz', model: '콘트라베이스 피치카토', maker: 'D. Smolken',
+    license: 'CC0', url: 'https://github.com/sfzinstruments/dsmolken.double-bass',
+    sfz: 'dsmolken.double-bass-master/d_smolken_rubner_bass_pizz.sfz', strings: false,
+    filter: (r) => !(r.lv === 1 && r.hv === 127),
+  },
 };
 
 function run(cmd, args) {
@@ -66,7 +119,7 @@ async function pool(items, n, fn) {
 }
 
 // Make key ranges contiguous inside each velocity layer (fills gaps at the extremes).
-function respanKeys(regions) {
+export function respanKeys(regions) {
   const byLayer = new Map();
   for (const r of regions) { const k = `${r.lv}-${r.hv}`; if (!byLayer.has(k)) byLayer.set(k, []); byLayer.get(k).push(r); }
   const out = [];
@@ -82,7 +135,7 @@ function respanKeys(regions) {
 }
 
 // Velocity bands must tile 1..127 with no holes.
-function tileVelocity(regions) {
+export function tileVelocity(regions) {
   const bands = [...new Set(regions.map((r) => r.lv))].sort((a, b) => a - b);
   const hiOf = new Map(regions.map((r) => [r.lv, r.hv]));
   const remap = new Map();
@@ -105,10 +158,17 @@ async function peakDb(file) {
 async function build(id) {
   const cfg = LIBS[id];
   const sfzPath = path.join(DL, cfg.sfz);
+  const repo = cfg.url.replace('https://github.com/', '');
+  {
+    // pull the library (text + the audio this program uses) from GitHub
+    const program = path.relative(path.join(DL, cfg.sfz.split('/')[0]), sfzPath).split(path.sep).join('/');
+    await fetchLib(repo, [program], cfg.gen, { cc: cfg.cc, vars: cfg.vars });
+  }
   if (!fs.existsSync(sfzPath)) { console.log(`skip ${id}: ${cfg.sfz} not downloaded`); return; }
 
-  let regions = readSfz(sfzPath).filter((r) => r.hi >= 0 && r.lo <= 127);
+  let regions = readSfz(sfzPath, { cc: cfg.cc, vars: cfg.vars }).filter((r) => r.hi >= 0 && r.lo <= 127);
   if (cfg.filter) regions = regions.filter(cfg.filter);
+  if (cfg.shift) regions = regions.map((r) => ({ ...r, lo: r.lo + cfg.shift, hi: r.hi + cfg.shift, center: r.center + cfg.shift }));
   regions = tileVelocity(respanKeys(regions));
 
   const outDir = path.join(ROOT, 'instruments', id);
@@ -138,12 +198,22 @@ async function build(id) {
   const samples = {};
   for (const f of files) { const i = info.get(f); samples[`s/${i.name}`] = { rate: i.rate, ch: i.ch, dur: +i.dur.toFixed(3) }; }
 
+  const top = cfg.sfz.split('/')[0];
+  const branch = top.slice(top.lastIndexOf('-') + 1);
+  const srcFiles = {};
+  let srcBytes = 0;
+  for (const f of files) {
+    srcFiles[`s/${info.get(f).name}`] = path.relative(path.join(DL, top), f).split(path.sep).join('/');
+    srcBytes += fs.statSync(f).size;
+  }
   const manifest = {
     name: cfg.name, model: cfg.model, maker: cfg.maker, license: cfg.license, url: cfg.url, order: cfg.order,
     credit: `${cfg.name} — ${cfg.maker}. ${cfg.license}. ${cfg.url}`,
     gain: +norm.toFixed(5),
     strings: cfg.strings !== false,
     samples,
+    family: cfg.family || 'piano',
+    source: { repo, branch, archive: `https://codeload.github.com/${repo}/zip/refs/heads/${branch}`, root: top, bytes: srcBytes, files: srcFiles },
     regions: regions
       .sort((a, b) => a.lo - b.lo || a.lv - b.lv)
       .map((r) => ({
@@ -156,5 +226,7 @@ async function build(id) {
   console.log(`${id}: ${layers} layers, ${files.length} samples, ${(bytes / 1e6).toFixed(0)} MB FLAC, ${(seconds / 60).toFixed(1)} ch-min audio, gain ${manifest.gain}`);
 }
 
-const only = process.argv.slice(2);
-for (const id of Object.keys(LIBS)) if (!only.length || only.includes(id)) await build(id);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const only = process.argv.slice(2);
+  for (const id of Object.keys(LIBS)) if (!only.length || only.includes(id)) await build(id);
+}

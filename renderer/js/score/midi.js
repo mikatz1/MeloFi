@@ -93,6 +93,7 @@ export function parseMidi(bytes, fallbackTitle = 'MIDI') {
   const pianoCh = new Set(lines.filter((l) => l.piano).map((l) => l.ch));
   return {
     title: title || fallbackTitle,
+    hasTitle: !!title,
     lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, notes: l.notes })),
     pedals: pedals.filter((pd) => pianoCh.has(pd.ch)).sort((a, b) => a.t - b.t).map(({ t, on }) => ({ t, on })),
   };

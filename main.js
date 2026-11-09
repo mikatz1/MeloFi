@@ -33,6 +33,9 @@ app.on('second-instance', () => {
 
 const ROOT = __dirname;
 const INSTRUMENTS_DIR = path.join(ROOT, 'instruments');
+// instruments downloaded from inside the app (only the default one ships with it)
+const USER_INST = () => path.join(app.getPath('userData'), 'instruments');
+const downloads = new Map(); // id -> AbortController
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 
 protocol.registerSchemesAsPrivileged([
@@ -113,6 +116,27 @@ function defaultRecordDir() {
   return path.join(app.getPath('documents'), 'MeloFi');
 }
 
+// installed = every sample is on disk, either shipped with the app or downloaded into userData
+function instrumentState(id, m) {
+  const names = Object.keys(m.samples);
+  const bundled = names.every((n) => fs.existsSync(path.join(INSTRUMENTS_DIR, id, n)));
+  const installed = bundled || names.every((n) => fs.existsSync(path.join(USER_INST(), id, n)) || fs.existsSync(path.join(INSTRUMENTS_DIR, id, n)));
+  return { installed, bundled };
+}
+
+// ---- recently opened scores (userData/recent.json, newest first) ----
+const RECENT_FILE = () => path.join(app.getPath('userData'), 'recent.json');
+async function loadRecent() { try { return JSON.parse(await fsp.readFile(RECENT_FILE(), 'utf8')); } catch { return []; } }
+async function saveRecent(list) { await fsp.mkdir(path.dirname(RECENT_FILE()), { recursive: true }); await fsp.writeFile(RECENT_FILE(), JSON.stringify(list, null, 2)); }
+async function forgetRecent(p) { await saveRecent((await loadRecent()).filter((x) => x.path !== p)); }
+async function readScoreFile(p) {
+  const data = new Uint8Array(await fsp.readFile(p));
+  const list = (await loadRecent()).filter((x) => x.path.toLowerCase() !== p.toLowerCase());
+  list.unshift({ path: p, name: path.basename(p) });
+  await saveRecent(list.slice(0, 10));
+  return { name: path.basename(p), data, path: p };
+}
+
 function stamp() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
@@ -124,7 +148,7 @@ app.whenReady().then(() => {
 
   // Everything the page loads comes from melofi://app/... so workers, worklets and
   // sample fetches are all same-origin.
-  const ALLOWED = ['renderer', 'instruments', path.join('node_modules', 'lamejs')].map((p) => path.join(ROOT, p) + path.sep);
+  const ALLOWED = ['renderer', 'instruments', path.join('node_modules', 'lamejs'), path.join('node_modules', 'mp4-muxer')].map((p) => path.join(ROOT, p) + path.sep);
   const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.ogg': 'audio/ogg', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
   protocol.handle('melofi', async (req) => {
     const url = new URL(req.url);
@@ -136,6 +160,13 @@ app.whenReady().then(() => {
       const base = path.join(app.getPath('userData'), 'user') + path.sep;
       full = path.normalize(path.join(base, rel.slice(6)));
       if (!full.startsWith(base)) return new Response('forbidden', { status: 403 });
+    } else if (rel.startsWith('/instruments/') && rel.includes('/s/')) {
+      // samples: a downloaded copy in userData first, else the one shipped with the app
+      const base = USER_INST() + path.sep;
+      const user = path.normalize(path.join(base, rel.slice('/instruments/'.length)));
+      if (!user.startsWith(base)) return new Response('forbidden', { status: 403 });
+      full = fs.existsSync(user) ? user : path.normalize(path.join(ROOT, rel));
+      if (full !== user && !full.startsWith(path.join(ROOT, 'instruments') + path.sep)) return new Response('forbidden', { status: 403 });
     } else {
       full = path.normalize(path.join(ROOT, rel));
       if (!ALLOWED.some((a) => full.startsWith(a))) return new Response('forbidden', { status: 403 });
@@ -156,10 +187,71 @@ app.whenReady().then(() => {
       if (!ent.isDirectory() || ent.name.startsWith('_')) continue;
       try {
         const m = JSON.parse(await fsp.readFile(path.join(INSTRUMENTS_DIR, ent.name, 'manifest.json'), 'utf8'));
-        out.push({ id: ent.name, name: m.name, maker: m.maker, model: m.model, license: m.license, credit: m.credit, url: m.url, order: m.order ?? 99, regionCount: m.regions.length });
+        const st = instrumentState(ent.name, m);
+        out.push({ id: ent.name, name: m.name, maker: m.maker, model: m.model, license: m.license, credit: m.credit, url: m.url, order: m.order ?? 99, regionCount: m.regions.length,
+          family: m.family || 'piano', installed: st.installed, bundled: st.bundled, size: m.source?.bytes || 0, downloadable: !!m.source, downloading: downloads.has(ent.name) });
       } catch { /* not built yet */ }
     }
     return out.sort((a, b) => a.order - b.order);
+  });
+
+  // Download an instrument's samples straight from its original GitHub repository.
+  // Each file is written as <name>.part and renamed when complete, so a cancelled or broken
+  // download resumes where it stopped and never leaves a half-written sample behind.
+  ipcMain.handle('instruments:download', async (e, id) => {
+    if (downloads.has(id)) return { ok: false, busy: true };
+    const m = JSON.parse(await fsp.readFile(path.join(INSTRUMENTS_DIR, path.basename(id), 'manifest.json'), 'utf8'));
+    const src = m.source;
+    if (!src) return { ok: false };
+    const dir = path.join(USER_INST(), path.basename(id));
+    await fsp.mkdir(path.join(dir, 's'), { recursive: true });
+    const ac = new AbortController();
+    downloads.set(id, ac);
+    const jobs = Object.entries(src.files);
+    const total = src.bytes;
+    let done = 0, last = 0;
+    const send = (force) => {
+      const now = Date.now();
+      if (!force && now - last < 120) return;
+      last = now;
+      if (!e.sender.isDestroyed()) e.sender.send('instruments:progress', { id, done, total });
+    };
+    const url = (f) => `https://raw.githubusercontent.com/${src.repo}/${src.branch}/${f.split('/').map(encodeURIComponent).join('/')}`;
+    const one = async ([name, file]) => {
+      const dst = path.join(dir, name);
+      if (fs.existsSync(dst)) { done += (await fsp.stat(dst)).size; send(); return; }
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await fetch(url(file), { signal: ac.signal, headers: { 'User-Agent': 'MeloFi' } });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const chunks = [];
+          let got = 0;
+          for await (const c of r.body) { chunks.push(c); got += c.length; done += c.length; send(); }
+          await fsp.writeFile(dst + '.part', Buffer.concat(chunks));
+          await fsp.rename(dst + '.part', dst);
+          return;
+        } catch (err) {
+          if (ac.signal.aborted || attempt >= 3) throw err;
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
+    };
+    try {
+      let i = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => { while (i < jobs.length) { const j = jobs[i++]; await one(j); } }));
+      send(true);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, cancelled: ac.signal.aborted, error: String(err.message || err) };
+    } finally {
+      downloads.delete(id);
+    }
+  });
+  ipcMain.handle('instruments:cancel', (_e, id) => { downloads.get(id)?.abort(); return true; });
+  ipcMain.handle('instruments:remove', async (_e, id) => {
+    downloads.get(id)?.abort();
+    await fsp.rm(path.join(USER_INST(), path.basename(id)), { recursive: true, force: true });
+    return true;
   });
 
   ipcMain.handle('settings:load', async () => {
@@ -193,8 +285,14 @@ app.whenReady().then(() => {
       { name: 'All files', extensions: ['*'] },
     ] });
     if (r.canceled || !r.filePaths[0]) return null;
-    return { name: path.basename(r.filePaths[0]), data: new Uint8Array(await fsp.readFile(r.filePaths[0])) };
+    return readScoreFile(r.filePaths[0]);
   });
+  ipcMain.handle('score:openPath', async (_e, p) => { try { return await readScoreFile(p); } catch { await forgetRecent(p); return null; } });
+  ipcMain.handle('score:recent', async () => {
+    const list = await loadRecent();
+    return list.filter((x) => fs.existsSync(x.path));
+  });
+  ipcMain.handle('score:clearRecent', async () => { await saveRecent([]); return []; });
 
   ipcMain.handle('bg:pick', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
@@ -215,6 +313,32 @@ app.whenReady().then(() => {
   });
 
   // files: [{ ext, data: Uint8Array, sub?: true }] — written next to each other with one shared stamp.
+  // Video rendering streams the MP4 straight to disk (it can be gigabytes at 4K).
+  const renders = new Map(); // id -> { fh, path }
+  let renderId = 0;
+  ipcMain.handle('render:open', async (_e, { dir, base }) => {
+    const target = dir || defaultRecordDir();
+    await fsp.mkdir(target, { recursive: true });
+    const safe = base ? String(base).replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) : 'MeloFi';
+    const p = path.join(target, `${safe}_${stamp()}.mp4`);
+    const fh = await fsp.open(p, 'w');
+    const id = ++renderId;
+    renders.set(id, { fh, path: p });
+    return { id, path: p };
+  });
+  ipcMain.handle('render:write', async (_e, id, data, pos) => {
+    const r = renders.get(id);
+    if (r) await r.fh.write(Buffer.from(data.buffer, data.byteOffset, data.byteLength), 0, data.byteLength, pos);
+  });
+  ipcMain.handle('render:close', async (_e, id, keep) => {
+    const r = renders.get(id);
+    if (!r) return null;
+    renders.delete(id);
+    await r.fh.close();
+    if (!keep) { await fsp.unlink(r.path).catch(() => {}); return null; }
+    return r.path;
+  });
+
   ipcMain.handle('recording:save', async (_e, { dir, files, convert, base }) => {
     const target = dir || defaultRecordDir();
     await fsp.mkdir(target, { recursive: true });
