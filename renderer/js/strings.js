@@ -275,6 +275,7 @@ export const T = {
     scoreFail: '악보를 열지 못했습니다.',
     scoreRange: (n, r) => `${r}건반 범위 밖의 음 ${n}개는 화면에 표시되지 않습니다. 소리는 정상 출력됩니다.`,
     use88: '88건반으로 변경',
+    winTooBig: (w, h) => `화면보다 커서 ${w}×${h}로 맞췄습니다.`,
     gpuRestart: '그래픽 가속 설정은 다시 시작해야 적용됩니다.',
     restart: '다시 시작',
     themeMade: '배경 이미지 색으로 테마를 만들었습니다.',

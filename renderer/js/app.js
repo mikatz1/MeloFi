@@ -429,6 +429,12 @@ class App {
 
   // ---------- stream mode ----------
 
+  // Window at a size in real screen pixels (what a screen share sends).
+  async setWindowSize(w, h) {
+    const r = await window.melofi.setWindowSize(w, h);
+    if (r && !r.fits) this.ui.toast(T.toast.winTooBig(r.w, r.h));
+  }
+
   // Page side of stream mode: only error toasts show, and the pointer hides when it rests.
   applyStream(on) {
     document.body.classList.toggle('stream', !!on);

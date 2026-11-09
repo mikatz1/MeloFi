@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, ipcMain, protocol, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, protocol, dialog, shell, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -48,8 +48,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1360,
     height: 800,
-    minWidth: 860,
-    minHeight: 520,
+    minWidth: 640,  // small enough for a 1280×720 share on a 200% display
+    minHeight: 360,
     title: 'MeloFi',
     backgroundColor: '#08090d',
     show: false,
@@ -279,12 +279,24 @@ app.whenReady().then(() => {
   ipcMain.handle('win:toggleFullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
   ipcMain.handle('win:setFullscreen', (_e, on) => { if (win) win.setFullScreen(!!on); });
   // exact window size (the whole window is content: the title bar is drawn by the page)
+  // Size in real screen pixels (what a screen share captures). Electron sizes windows in
+  // scaled units, so divide by the display scale; if it doesn't fit the screen, take the
+  // largest 16:9 size that does. Returns the pixel size actually set.
   ipcMain.handle('win:setSize', (_e, w, h) => {
-    if (!win) return;
+    if (!win) return null;
     if (win.isFullScreen()) win.setFullScreen(false);
     if (win.isMaximized()) win.unmaximize();
-    win.setContentSize(Math.round(w), Math.round(h));
+    const d = screen.getDisplayMatching(win.getBounds());
+    const sf = d.scaleFactor || 1;
+    let cw = w / sf, ch = h / sf;
+    const wa = d.workArea;
+    const fits = cw <= wa.width && ch <= wa.height;
+    if (!fits) { const k = Math.min(wa.width / cw, wa.height / ch); cw = Math.floor(cw * k); ch = Math.floor((cw * h) / w); }
+    // (Windows sizes in whole scaled units, so at 125% / 150% it can land a pixel or two off;
+    // a screen share rescales anyway)
+    win.setContentSize(Math.round(cw), Math.round(ch));
     win.center();
+    return { fits, w: Math.round(cw * sf), h: Math.round(ch * sf), scale: sf };
   });
 
   ipcMain.handle('score:pick', async () => {
