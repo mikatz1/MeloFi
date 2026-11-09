@@ -167,7 +167,11 @@ export class UI {
       { label: M.visualizer, check: v.visualizer ? 'tick' : '', act: () => this.s.set({ visualizer: !v.visualizer }) },
       { label: M.gpu, check: v.gpu ? 'tick' : '', hint: app.stage.glr ? 'WebGL2' : 'Canvas2D', act: () => app.setGpu(!v.gpu) },
       { label: M.stream, check: v.streamMode ? 'tick' : '', act: () => this.s.set({ streamMode: !v.streamMode }) },
-      { label: M.winSize, sub: WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })) },
+      { label: M.winSize, sub: [
+        ...WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })),
+        { sep: true },
+        { label: M.winCustom, act: () => { this.tab = 'look'; this.open('settings'); setTimeout(() => $('#winW')?.focus(), 50); } },
+      ] },
       { sep: true },
       { label: M.help, key: 'F1', act: () => this.open('help') },
     ];
@@ -447,6 +451,8 @@ export class UI {
     $('#tpPractice').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.openPracticeMenu(); });
     $('#tpMidi').textContent = T.score.midi;
     $('#tpPlay').addEventListener('click', () => this.app.toggleScore());
+    // transport buttons don't keep keyboard focus (keys are for playing)
+    $('#transport').addEventListener('click', (e) => e.target.closest('button')?.blur());
     $('#tpStop').addEventListener('click', () => P.stop());
     $('#tpClose').addEventListener('click', () => this.app.closeScore());
     $('#tpMidi').addEventListener('click', () => this.app.exportScoreMidi());
@@ -623,6 +629,21 @@ export class UI {
     return [inp, out];
   }
 
+  // any window size in real pixels (remembered for next time)
+  customSize() {
+    const [cw, ch] = this.s.get('winCustom') || [1280, 720];
+    const inp = (id, val) => h('input', { id, type: 'number', min: 320, max: 7680, step: 1, value: val, class: 'num' });
+    const w = inp('winW', cw), hh = inp('winH', ch);
+    const apply = () => {
+      const W = Math.round(+w.value), H = Math.round(+hh.value);
+      if (!(W >= 320 && H >= 200)) return;
+      this.s.set({ winCustom: [W, H] });
+      this.app.setWindowSize(W, H);
+    };
+    for (const el of [w, hh]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+    return h('div', { class: 'wsize' }, w, h('span', {}, '×'), hh, h('button', { class: 'btn sm', onclick: apply }, T.settings.apply));
+  }
+
   colorPick(value, onChange, label) {
     const inp = h('input', { type: 'color', value });
     inp.addEventListener('input', () => onChange(inp.value));
@@ -709,6 +730,7 @@ export class UI {
       h('div', { class: 'group-title' }, S.streamGroup),
       this.row(T.menu.stream, this.toggle(v.streamMode, (x) => this.s.set({ streamMode: x })), S.streamHint),
       this.row(T.menu.winSize, h('div', { class: 'seg' }, ...WINDOW_SIZES.map(([w, hh]) => h('button', { onclick: () => this.app.setWindowSize(w, hh) }, `${w}×${hh}`)))),
+      this.row(T.menu.winCustom, this.customSize()),
       h('div', { class: 'group-title' }, S.scoreGroup),
       this.row(S.scoreFall, this.toggle(v.scoreFall, (x) => this.s.set({ scoreFall: x })), S.scoreFallHint),
       this.row(S.introCard, this.toggle(v.introCard, (x) => this.s.set({ introCard: x })), S.introCardHint),

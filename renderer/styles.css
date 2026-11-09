@@ -202,6 +202,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px;
 #hud .judge[data-kind=great], #result [data-kind=great] b { color: #8fd6ff; }
 #hud .judge[data-kind=good], #result [data-kind=good] b { color: #b9e39a; }
 #hud .judge[data-kind=miss], #result [data-kind=miss] b { color: #ff7d7d; }
+.wsize { display: flex; align-items: center; gap: 6px; }
+.wsize .num { width: 74px; padding: 4px 6px; background: #121318; border: 1px solid #2c2e35; border-radius: 3px; color: #ece9e2; font: 12px/1.2 'Cascadia Mono', Consolas, monospace; text-align: right; }
+.wsize .num::-webkit-inner-spin-button { opacity: .4; }
+.wsize span { color: var(--faint); }
+
 /* stream mode: only errors pop up, and a resting pointer disappears */
 body.stream #toasts .toast:not(.err) { display: none; }
 body.stream.idle, body.stream.idle * { cursor: none !important; }

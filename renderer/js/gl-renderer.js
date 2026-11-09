@@ -59,6 +59,23 @@ void main() {
   o = c * uAlpha * f * f;
 }`;
 
+// keys mirrored upward in the lacquered board above them: shallow, fading fast
+const FS_KREF = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uAlpha;
+uniform vec2 uRes;
+uniform vec2 uTop;    // key line y (top-down px), reflection height (px)
+out vec4 o;
+void main() {
+  float y = uRes.y - gl_FragCoord.y;
+  float d = (uTop.x - y) / uTop.y;
+  if (d < 0.0 || d > 1.0) discard;
+  float f = 1.0 - d;
+  o = texture(uTex, vUv) * uAlpha * f * f;
+}`;
+
 // light-layer composite: soft highlight roll-off + fade where it runs onto the keys
 const FS_FX = `#version 300 es
 precision highp float;
@@ -435,6 +452,7 @@ export class GLRenderer {
     this.pBlur = this.program(VS_QUAD, FS_BLUR);
     this.pSprite = this.program(VS_SPRITE, FS_SPRITE);
     this.pRefl = this.program(VS_QUAD, FS_REFL);
+    this.pKref = this.program(VS_QUAD, FS_KREF);
     this.pRect = this.program(VS_RECT, FS_RECT);
     this.pSeg = this.program(VS_SEG, FS_SEG);
     this.pInkSim = this.program(VS_QUAD, FS_INK_SIM);
@@ -761,7 +779,7 @@ export class GLRenderer {
         const core = this.rgb(nc || t.bar), glow = this.rgb(nc || t.barGlow);
         const h = Math.max(w, y2 - y1);
         const fresh = b.fresh;
-        const ga = additive ? 0.5 : 0.16;
+        const ga = additive ? 0.42 : 0.16;
         if (px) {
           const [bx, by, bw2, bh] = st.pixelBar(k.cx, w, y2 - h, y2);
           const a = b.live ? 1 : 0.85;
@@ -774,11 +792,6 @@ export class GLRenderer {
       if (FX?.flash && additive && !t.inkSim) {
         const c = this.rgb(FX.flash.color);
         this.rect(0, FX.flash.y, W, FX.flash.h, 0, [...c, 0], [...c, FX.flash.a]);
-      }
-      // runs: arcs of light between consecutive keys
-      if (FX) for (const l of FX.links) {
-        const c = this.rgb(l.color);
-        for (let s = 1; s < l.pts.length; s++) this.seg(l.pts[s - 1][0], l.pts[s - 1][1], l.pts[s][0], l.pts[s][1], l.w, c, l.a);
       }
       // wisps (segments)
       const cW = this.rgb(t.wisp), tW = st.tints.map((x) => this.rgb(x.wisp));
@@ -830,9 +843,9 @@ export class GLRenderer {
           const k = st.keys[note];
           const c = this.rgb(st.noteColor(note) || t.hit);
           const r = gu * (1.9 + 0.9 * v) * st.hitK;
-          this.sprite(k.cx, top, r, r * 0.7, 0, c, (additive ? 0.32 * v : 0.12 * v) * st.crowd, 0.6, SH_GLOW);
+          this.sprite(k.cx, top, r, r * 0.7, 0, c, (additive ? 0.26 * v : 0.12 * v) * st.crowd, 0.6, SH_GLOW);
           const cc = gu * (0.55 + 0.35 * v);
-          this.sprite(k.cx, top, cc, cc * 0.8, 0, c, (additive ? 0.55 * v : 0.2 * v) * st.crowd, 0.6, SH_GLOW);
+          this.sprite(k.cx, top, cc, cc * 0.8, 0, c, (additive ? 0.45 * v : 0.2 * v) * st.crowd, 0.6, SH_GLOW);
         }
       });
       mark('rings', () => { if (FX) for (const r of FX.rings) this.sprite(r.x, r.y, r.rx, r.ry, 0, this.rgb(r.color), r.a, 0, SH_RING); });
@@ -902,6 +915,12 @@ export class GLRenderer {
       gl.disable(gl.SCISSOR_TEST);
     }
     this.blend('over');
+    // keys reflected in the board above them
+    if (st.fxOn) {
+      this.refl = [top - 3 * dpr, Math.max(8 * dpr, st.kbH * 0.16)];
+      this.blit(this.tex.white, 0, top - 3 * dpr - st.kbH, W, st.kbH, additive ? 0.17 : 0.1, true, this.pKref);
+      this.blit(this.tex.black, 0, top - 3 * dpr - st.kbH, W, st.kbH, additive ? 0.17 : 0.1, true, this.pKref);
+    }
     rects(kb.felt[0], 1); // felt strip; the hit line goes on last
 
     // 2a) ink theme: deposit drops, run the bleed, print it on the paper, brush strokes on top
