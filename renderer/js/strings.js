@@ -245,8 +245,7 @@ export const T = {
   },
 
   practice: {
-    title: '연습', running: '연습 중', hand: '연습할 손 선택', both: '양손', judge: '판정',
-    rhythm: '리듬 연습 (아무 키나 박자에 맞춰 연주)', pitch: '음높이 연습 (정확한 건반 연주)',
+    title: '연습', running: '연습 중', hand: '연습할 손 선택', both: '양손',
     start: '처음부터 다시 연습', stop: '연습 종료',
     perfect: 'PERFECT', great: 'GREAT', good: 'GOOD', miss: 'MISS', early: '빠름', late: '느림', combo: '콤보',
     accuracy: '정확도', score: '점수', maxCombo: '최대 콤보', again: '다시', close: '닫기',

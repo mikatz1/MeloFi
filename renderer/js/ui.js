@@ -564,9 +564,6 @@ export class UI {
     const items = [
       { group: Q.hand },
       ...[['rh', T.score.rh], ['lh', T.score.lh], ['both', Q.both]].map(([k, l]) => radio(v.practiceHand === k, l, () => this.s.set({ practiceHand: k }))),
-      { group: Q.judge },
-      radio(v.practiceJudge === 'rhythm', Q.rhythm, () => this.s.set({ practiceJudge: 'rhythm' })),
-      radio(v.practiceJudge === 'pitch', Q.pitch, () => this.s.set({ practiceJudge: 'pitch' })),
       { sep: true },
       Pr.active ? { label: Q.stop, act: () => { this.app.player.pause(); Pr.stop(); } } : { label: Q.start, act: () => Pr.start() },
     ];
