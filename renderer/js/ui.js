@@ -698,6 +698,7 @@ export class UI {
       this.row(S.visualizer, this.toggle(v.visualizer, (x) => this.s.set({ visualizer: x }))),
       this.row(S.particles, this.seg(Object.entries(S.particleLevels), v.particles, (x) => this.s.set({ particles: x }))),
       this.row(S.bloom, this.toggle(v.bloom, (x) => this.s.set({ bloom: x }))),
+      this.row(S.fxExtra, this.toggle(v.fxExtra, (x) => this.s.set({ fxExtra: x })), S.fxExtraHint),
       this.row(S.speed, this.slider(0.4, 2.2, 0.05, v.speed, (x) => `${x.toFixed(2)}×`, (x) => this.set({ speed: x }))),
       this.row(S.labels, this.seg(Object.entries(S.labelKinds), v.labels, (x) => this.s.set({ labels: x }))),
       this.row(S.noteNames, this.seg(Object.entries(S.noteNameKinds), v.noteNames, (x) => this.s.set({ noteNames: x }))),

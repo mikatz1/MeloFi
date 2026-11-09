@@ -120,7 +120,7 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
     st.setTheme(v.theme, v.customTheme);
     st.setOptions({
       visualizer: true, particles: 'high', bloom: v.bloom, speed: v.speed, labels: 'none', range: v.range,
-      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: app.zoomNow(), fit: app.stage.opts.fit, center: app.stage.opts.center,
+      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: app.zoomNow(), fit: app.stage.opts.fit, center: app.stage.opts.center, fxExtra: v.fxExtra,
     });
     if (v.bgImage) {
       st.setBackground(v.bgImage);
@@ -138,6 +138,7 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
       vis.push({ t: up, k: 1, x, held });
       vis.push({ t: held ? Math.min(pedalUpAfter(up), x.t + 9) : up, k: 2, x });
     }
+    for (const p of pedals) vis.push({ t: p.t, k: 3, on: p.on });
     vis.sort((a, b) => a.t - b.t || a.k - b.k);
     let vi = 0;
     const frames = Math.ceil(dur * fps);
@@ -150,7 +151,8 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
         const e = vis[vi++];
         if (e.k === 0) st.noteOn(e.x.n, e.x.v, e.x.color);
         else if (e.k === 1) st.noteOff(e.x.n, e.held);
-        else st.soundOff(e.x.n);
+        else if (e.k === 2) st.soundOff(e.x.n);
+        else st.setPedal(e.on);
       }
       st.frame(tf * 1000);
       const frame = new VideoFrame(canvas, { timestamp: Math.round(tf * 1e6), duration: Math.round(1e6 / fps) });

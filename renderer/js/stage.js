@@ -135,6 +135,10 @@ export class Stage {
     this.inkQueue = [];
     this.noteColors = new Map();
     this.heat = new Map(); // note -> { v, t }: how hard a key is being hammered right now
+    // extra effects (settings: fxExtra) — see fxNote / stepFx / fxShapes
+    this.fxs = { pulse: 0, intensity: 64, links: [], rings: [], beams: new Map(), flash: null, shake: 0, recent: [], last: null };
+    this.fxNow = null;
+    this.pedal = false;
     this.ringing = new Set(); // notes still sounding, held or carried by the pedal
     this.bars = [];
     this.wisps = [];
@@ -524,6 +528,7 @@ export class Stage {
       if (!this.fall) this.bars.push({ note, t0: this.time, t1: null, vel, color });
       if (this.bars.length > 300) this.bars.shift();
       this.burst(note, vel, rep);
+      this.fxNote(note, vel, color);
     }
   }
 
@@ -569,7 +574,170 @@ export class Stage {
 
   // stream mode: knobs for screen sharing (see setOptions 'stream')
   get barScale() { return this.opts.barWidth * (this.opts.stream ? 1.35 : 1); }
-  get bloomK() { return this.theme.bloom * (this.opts.stream ? 0.6 : 1); }
+  get bloomK() { return this.theme.bloom * (this.opts.stream ? 0.6 : 1) * (this.fxOn ? 0.85 + 0.4 * this.dyn : 1); }
+
+  // ---------- extra effects (settings: fxExtra) ----------
+  // Always: bass notes make the background breathe, quick runs leave arcs of light between keys,
+  // loud passages get bigger light, and the keys reflect the light above them.
+  // Falling-notes mode only: shock rings on hard hits, light shafts while the pedal holds notes,
+  // a flash (and a small shake) on big loud chords, and sparks that fall back and bounce on the key line.
+  get fxOn() { return this.opts.fxExtra !== false && this.opts.visualizer; }
+  get dyn() { return this.fxOn ? clamp((this.fxs.intensity - 40) / 80, 0, 1) : 0.5; } // how loud it's been lately
+  get hitK() { return this.fxOn ? 0.85 + 0.35 * this.dyn : 1; }
+  get fallFx() { return this.fxOn && !!this.fall; }
+  setPedal(on) { this.pedal = !!on; }
+
+  fxNote(note, vel, color) {
+    if (!this.fxOn) return;
+    const F = this.fxs, T = this.time, k = this.keys[note];
+    F.intensity += (vel - F.intensity) * 0.12;
+    if (note < 50) F.pulse = Math.min(1.4, F.pulse + (vel / 127) * (0.55 - ((note - 21) / 29) * 0.3));
+    // a run: link this key to the one struck just before
+    const L = F.last;
+    if (L && T - L.t < 0.13 && L.note !== note && Math.abs(L.note - note) <= 14) {
+      F.links.push({ x1: L.x, x2: k.cx, t0: T, color: color || this.noteColor(note) });
+      if (F.links.length > 60) F.links.shift();
+    }
+    F.last = { note, x: k.cx, t: T };
+    if (!this.fall) return;
+    // 'hard' is relative to how loud the piece has been playing (a ff in a quiet piece still counts)
+    if (vel >= 45 && vel >= Math.min(78, F.intensity + 8)) {
+      F.rings.push({ x: k.cx, t0: T, v: vel / 127, color: color || this.noteColor(note) });
+      if (F.rings.length > 40) F.rings.shift();
+    }
+    F.recent = F.recent.filter((h) => T - h.t < 0.045);
+    F.recent.push({ t: T, v: vel });
+    const avg = F.recent.reduce((s, h) => s + h.v, 0) / F.recent.length;
+    if (F.recent.length >= 4 && avg >= Math.min(88, F.intensity + 14) && (!F.flash || T - F.flash.t0 > 0.35)) {
+      F.flash = { t0: T, s: Math.min(1, F.recent.length / 6), color };
+      if (!this.opts.stream && !this.fixed) F.shake = 1;
+    }
+  }
+
+  stepFx(dt) {
+    const F = this.fxs, T = this.time;
+    F.pulse *= Math.exp(-dt / 0.35);
+    F.intensity += (64 - F.intensity) * (1 - Math.exp(-dt / 4));
+    F.links = F.links.filter((l) => T - l.t0 < 0.45);
+    F.rings = F.rings.filter((r) => T - r.t0 < 0.6);
+    if (F.flash && T - F.flash.t0 > 0.4) F.flash = null;
+    // light shafts follow the pedal and the notes it holds
+    if (this.fallFx) {
+      if (this.pedal) for (const n of this.ringing) if (!F.beams.has(n)) F.beams.set(n, 0);
+      for (const [n, lv] of F.beams) {
+        const target = this.pedal && this.ringing.has(n) ? 1 : 0;
+        const v = lv + (target - lv) * (1 - Math.exp(-dt / (target ? 0.15 : 0.35)));
+        if (!target && v < 0.01) F.beams.delete(n); else F.beams.set(n, v);
+      }
+    } else F.beams.clear();
+    // shake: a CSS transform on the canvas, so it costs nothing to draw
+    if (F.shake > 0.02) {
+      F.shake *= Math.exp(-dt / 0.09);
+      this.c.style.transform = `translate(${(Math.random() * 2 - 1) * 3 * F.shake}px, ${(Math.random() * 2 - 1) * 2 * F.shake}px)`;
+    } else if (F.shake) { F.shake = 0; this.c.style.transform = ''; }
+    this.fxNow = this.fxShapes();
+  }
+
+  // what to draw this frame (both renderers read this)
+  fxShapes() {
+    const F = this.fxs, T = this.time, { top, H, W, dpr, theme: t } = this;
+    const out = { pulse: 0, beams: [], rings: [], links: [], flash: null };
+    if (!this.fxOn) return out;
+    out.pulse = Math.min(1, F.pulse) * 0.22;
+    for (const l of F.links) {
+      const age = (T - l.t0) / 0.45;
+      const span = Math.abs(l.x2 - l.x1), hgt = Math.min(70 * dpr, span * 0.35 + 8 * dpr);
+      const pts = [];
+      for (let s = 0; s <= 10; s++) { const u = s / 10; pts.push([l.x1 + (l.x2 - l.x1) * u, top - 4 * dpr - Math.sin(Math.PI * u) * hgt]); }
+      out.links.push({ pts, w: 2.4 * dpr * (1 - age * 0.6), a: (1 - age) ** 2 * 0.75, color: l.color || t.wisp });
+    }
+    if (!this.fall) return out;
+    for (const r of F.rings) {
+      const age = (T - r.t0) / 0.6, e = 1 - (1 - age) ** 3;
+      const rad = (18 + 110 * r.v ** 1.5) * dpr * e + 6 * dpr;
+      out.rings.push({ x: r.x, y: top - 2 * dpr, rx: rad, ry: rad * 0.3, a: (1 - age) ** 1.6 * 0.85, color: r.color || t.hit });
+    }
+    const crowd = 1 / Math.sqrt(Math.max(1, F.beams.size));
+    for (const [n, lv] of F.beams) {
+      const k = this.keys[n];
+      if (!k) continue;
+      const len = H * 0.55;
+      out.beams.push({ x: k.cx, y: top - len / 2, hw: Math.max(this.ww * 0.8, 10 * dpr), hh: len / 2, a: lv * 0.14 * crowd, color: this.noteColor(n) || t.barGlow });
+    }
+    if (F.flash) {
+      const age = (T - F.flash.t0) / 0.4;
+      out.flash = { a: (1 - age) ** 2 * 0.18 * F.flash.s, color: F.flash.color || t.hit, y: top - H * 0.55, h: H * 0.55 };
+    }
+    return out;
+  }
+
+  // Canvas2D versions
+  drawFxBack(f) {
+    const S = this.fxNow;
+    if (!S || this.theme.blend !== 'lighter') return;
+    const { W, H, top } = this;
+    f.save();
+    f.globalCompositeOperation = 'lighter';
+    if (S.pulse > 0.005) { f.globalAlpha = S.pulse; f.drawImage(this.glow(this.theme.barGlow, 128, 0), W / 2 - W * 0.75, top - H * 0.5, W * 1.5, H); }
+    for (const b of S.beams) { f.globalAlpha = b.a; f.drawImage(this.glow(b.color, 64, 0), b.x - b.hw, b.y - b.hh, b.hw * 2, b.hh * 4); }
+    f.restore();
+  }
+
+  drawFxLinks(f) {
+    const S = this.fxNow;
+    if (!S || !S.links.length) return;
+    f.save();
+    f.globalCompositeOperation = this.theme.blend;
+    f.lineCap = 'round'; f.lineJoin = 'round';
+    for (const l of S.links) {
+      f.strokeStyle = rgba(l.color, l.a);
+      f.lineWidth = l.w;
+      f.beginPath();
+      l.pts.forEach(([x, y], i) => (i ? f.lineTo(x, y) : f.moveTo(x, y)));
+      f.stroke();
+    }
+    f.restore();
+  }
+
+  drawFxFront(f) {
+    const S = this.fxNow;
+    if (!S) return;
+    f.save();
+    f.globalCompositeOperation = this.theme.blend;
+    for (const r of S.rings) {
+      f.strokeStyle = rgba(r.color, r.a);
+      f.lineWidth = 2 * this.dpr;
+      f.beginPath();
+      f.ellipse(r.x, r.y, r.rx, r.ry, 0, 0, Math.PI * 2);
+      f.stroke();
+    }
+    if (S.flash && this.theme.blend === 'lighter') {
+      const g = f.createLinearGradient(0, S.flash.y, 0, S.flash.y + S.flash.h);
+      g.addColorStop(0, rgba(S.flash.color, 0));
+      g.addColorStop(1, rgba(S.flash.color, S.flash.a));
+      f.fillStyle = g;
+      f.fillRect(0, S.flash.y, this.W, S.flash.h);
+    }
+    f.restore();
+  }
+
+  // glossy keys: the light above, mirrored on the key fronts and fading down
+  drawGloss(ctx) {
+    if (!this.fxOn || this.theme.blend !== 'lighter') return;
+    const depth = this.kbH * 0.55;
+    for (const [frac, a] of [[1, 0.07], [0.66, 0.08], [0.33, 0.1]]) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, this.top, this.W, depth * frac);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = a;
+      ctx.translate(0, 2 * this.top + 4 * this.dpr);
+      ctx.scale(1, -1);
+      ctx.drawImage(this.fx, 0, 0);
+      ctx.restore();
+    }
+  }
   get hazeK() { return this.opts.stream ? 0.6 : 1; }
 
   spawn(kind, x, y, vx, vy, life, size, col = 0) {
@@ -588,13 +756,21 @@ export class Stage {
     const d = this.dpr, H = this.H, t = this.theme;
     const vf = 0.45 + (vel / 127) * 0.9;
     const sc = H / 900;
-    const n = Math.round(30 * q * vf * rep);
+    const n = Math.round(30 * q * vf * rep * (this.fxOn ? 0.6 + 0.9 * this.dyn : 1));
     const tint = this.tintIndex(note);
     for (let i = 0; i < n; i++) {
       const a = -Math.PI / 2 + rand(-1.15, 1.15);
       const sp = rand(60, 330) * sc * d * vf;
       this.spawn(SPARK, k.cx + rand(-0.4, 0.4) * k.w, this.top - rand(0, 3) * d, Math.cos(a) * sp, Math.sin(a) * sp,
         rand(0.45, 1.35), rand(0.9, 2.4) * d, this.sparkIndex(note));
+    }
+    // falling notes: a few sparks thrown sideways that land and bounce on the key line
+    if (this.fallFx) {
+      for (let i = 0; i < Math.round(8 * q * vf); i++) {
+        const a = -Math.PI / 2 + (Math.random() < 0.5 ? -1 : 1) * rand(0.9, 1.4);
+        const sp = rand(120, 260) * sc * d * vf;
+        this.spawn(SPARK, k.cx + rand(-0.3, 0.3) * k.w, this.top - rand(1, 4) * d, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.9, 1.6), rand(0.9, 2) * d, this.sparkIndex(note));
+      }
     }
     if (!t.sparse && !t.pixel) {
       for (let i = 0; i < Math.round(3 * q); i++) {
@@ -717,7 +893,11 @@ export class Stage {
         case SPARK: {
           const drag = Math.pow(0.12, dt);
           this.vx[i] = this.vx[i] * drag + Math.cos(ang) * 30 * d * dt;
-          this.vy[i] = this.vy[i] * drag - 28 * d * dt;
+          if (this.fallFx) {
+            // falling-notes mode: gravity, and a bounce on the key line
+            this.vy[i] = this.vy[i] * Math.pow(0.5, dt) + 260 * d * dt;
+            if (this.py[i] >= top - 1.5 * d && this.vy[i] > 0) { this.py[i] = top - 1.5 * d; this.vy[i] *= -0.38; this.vx[i] *= 0.7; }
+          } else this.vy[i] = this.vy[i] * drag - 28 * d * dt;
           break;
         }
         case DUST:
@@ -782,6 +962,7 @@ export class Stage {
     const dt = clamp(now - this.time, 0, 0.05);
     this.time = now;
     this.adapt(dt);
+    this.stepFx(dt);
 
     const { ctx, W, H, top, theme: t, dpr } = this;
     const vis = this.opts.visualizer;
@@ -820,10 +1001,12 @@ export class Stage {
       f.globalAlpha = 1;
       f.clearRect(0, 0, W, H);
       f.globalCompositeOperation = t.blend;
+      this.drawFxBack(f);
       this.drawParticles(f, [HAZE]);
       this.drawParticles(f, [DUST, INK]);
       this.drawBars(f);
       this.drawWisps(f);
+      this.drawFxLinks(f);
       this.drawParticles(f, [SPARK, EMBER, PETAL, SNOW]);
       // hit glows
       f.globalCompositeOperation = t.blend;
@@ -831,7 +1014,7 @@ export class Stage {
         const k = this.keys[note];
         // wide soft halo + small hot core, squashed so it sits on the key line
         const gu = Math.min(this.ww, 26 * this.dpr); // glow size stops growing with keyboard zoom
-        const r = gu * (1.9 + 0.9 * v);
+        const r = gu * (1.9 + 0.9 * v) * this.hitK;
         f.globalAlpha = (t.blend === 'lighter' ? 0.32 * v : 0.12 * v) * this.crowd;
         const nc = this.noteColor(note);
         const hit = nc ? this.glow(nc, 128, 0.6) : this.sp.hit;
@@ -840,6 +1023,7 @@ export class Stage {
         f.globalAlpha = (t.blend === 'lighter' ? 0.55 * v : 0.2 * v) * this.crowd;
         f.drawImage(hit, k.cx - c, top - c * 0.8, c * 2, c * 1.6);
       }
+      this.drawFxFront(f);
       // the light runs a little way onto the keys and fades, instead of stopping dead at the key line
       const fade = this.fadeLen();
       const m = f.createLinearGradient(0, top - 2 * dpr, 0, top + fade);
@@ -856,6 +1040,7 @@ export class Stage {
 
       ctx.globalCompositeOperation = t.blend === 'lighter' ? 'lighter' : 'source-over';
       ctx.drawImage(this.fx, 0, 0);
+      this.drawGloss(ctx);
 
       if (this.opts.bloom && t.bloom > 0 && this.load > 0.45) {
         const b1 = this.b1.getContext('2d'), b2 = this.b2.getContext('2d');

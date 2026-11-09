@@ -38,7 +38,8 @@ export const DEFAULTS = {
   scoreHands: true,
   scoreFall: false,         // a loaded score's notes come down to the keys instead of rising after they play
   introCard: true,
-  streamMode: false,        // tuned for screen sharing (Discord etc.)          // title card before a score's first play
+  streamMode: false,
+  fxExtra: true,            // extra effects (bass pulse, run arcs, key gloss; rings/shafts/flash with falling notes)        // tuned for screen sharing (Discord etc.)          // title card before a score's first play
   practiceHand: 'rh',       // practice: 'rh' | 'lh' | 'both'
   rhColor: '#ffb27a', // score hand colours
   lhColor: '#7fb0ff',
