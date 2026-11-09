@@ -2,6 +2,7 @@
 import { T } from './strings.js';
 import { THEMES } from './themes.js';
 
+const WINDOW_SIZES = [[1280, 720], [1600, 900], [1920, 1080]]; // 16:9, for screen sharing
 const FAMILY_ORDER = ['piano', 'keys', 'synth', 'strings', 'guitar', 'bass'];
 const byFamily = (list) => {
   const groups = new Map();
@@ -165,6 +166,8 @@ export class UI {
       { label: M.labels, sub: opts('labels', Object.entries(T.settings.labelKinds)) },
       { label: M.visualizer, check: v.visualizer ? 'tick' : '', act: () => this.s.set({ visualizer: !v.visualizer }) },
       { label: M.gpu, check: v.gpu ? 'tick' : '', hint: app.stage.glr ? 'WebGL2' : 'Canvas2D', act: () => app.setGpu(!v.gpu) },
+      { label: M.stream, check: v.streamMode ? 'tick' : '', act: () => this.s.set({ streamMode: !v.streamMode }) },
+      { label: M.winSize, sub: WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => window.melofi.setWindowSize(w, hh) })) },
       { sep: true },
       { label: M.help, key: 'F1', act: () => this.open('help') },
     ];
@@ -702,6 +705,9 @@ export class UI {
       this.row(T.menu.zoom, this.seg([[1, '100'], [1.25, '125'], [1.5, '150'], [2, '200'], [3, '300']], v.kbZoom, (x) => this.s.set({ kbZoom: x }))),
       this.row(T.menu.noteColor, this.select(Object.entries(T.menu.noteColorKinds), v.noteColor, (x) => this.s.set({ noteColor: x }))),
       this.row(T.menu.barWidth, this.seg([[0.7, T.menu.thin], [1, T.menu.normal], [1.4, T.menu.thick]], v.barWidth, (x) => this.s.set({ barWidth: x }))),
+      h('div', { class: 'group-title' }, S.streamGroup),
+      this.row(T.menu.stream, this.toggle(v.streamMode, (x) => this.s.set({ streamMode: x })), S.streamHint),
+      this.row(T.menu.winSize, h('div', { class: 'seg' }, ...WINDOW_SIZES.map(([w, hh]) => h('button', { onclick: () => window.melofi.setWindowSize(w, hh) }, `${w}×${hh}`)))),
       h('div', { class: 'group-title' }, S.scoreGroup),
       this.row(S.scoreFall, this.toggle(v.scoreFall, (x) => this.s.set({ scoreFall: x })), S.scoreFallHint),
       this.row(S.introCard, this.toggle(v.introCard, (x) => this.s.set({ introCard: x })), S.introCardHint),

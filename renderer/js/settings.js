@@ -37,7 +37,8 @@ export const DEFAULTS = {
   noteColor: 'theme',
   scoreHands: true,
   scoreFall: false,         // a loaded score's notes come down to the keys instead of rising after they play
-  introCard: true,          // title card before a score's first play
+  introCard: true,
+  streamMode: false,        // tuned for screen sharing (Discord etc.)          // title card before a score's first play
   practiceHand: 'rh',       // practice: 'rh' | 'lh' | 'both'
   rhColor: '#ffb27a', // score hand colours
   lhColor: '#7fb0ff',

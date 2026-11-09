@@ -642,7 +642,7 @@ export class GLRenderer {
       if (!k) continue;
       const y2 = top - (now - b.t1) * speed;
       if (y2 < 0) continue;
-      const bw = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.opts.barWidth;
+      const bw = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.barScale;
       dep(k.cx, y2 - bw * 0.3, bw * 0.9, 0.018 * dt * 60, 0.16 * dt * 60, b.t0); // faint, wide, wet: bleeds into a wash instead of a line
     }
     for (let i = 0; i < st.n; i++) {
@@ -703,7 +703,7 @@ export class GLRenderer {
     if (vis) {
       const T = st.time, n = st.n;
       const K = st.kind, X = st.px, Y = st.py, L = st.life, M = st.max, S = st.size, C = st.col, R = st.rot, E = st.seed;
-      const hazeA = additive ? 0.16 : 0.07;
+      const hazeA = (additive ? 0.16 : 0.07) * st.hazeK;
       const cHaze = this.rgb(t.haze), cDust = this.rgb(t.dust);
       const px = !!t.pixel;
       // per-note colours (score hands, note-colour setting): slot n of st.tints is C[i] = n + 1
@@ -722,7 +722,7 @@ export class GLRenderer {
       // bars (rects)
       for (const b of st.barShapes()) {
         const { k, y1, y2 } = b;
-        const w = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.opts.barWidth;
+        const w = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.barScale;
         const nc = b.color || st.colorOf(b.note);
         const core = this.rgb(nc || t.bar), glow = this.rgb(nc || t.barGlow);
         const h = Math.max(w, y2 - y1);
@@ -889,7 +889,7 @@ export class GLRenderer {
       this.mask = [top - 2 * dpr, top + fade];
       this.blit(fx.t, 0, 0, W, H, 1, true, this.pFx);
 
-      if (st.opts.bloom && t.bloom > 0 && st.load > 0.45) {
+      if (st.opts.bloom && st.bloomK > 0 && st.load > 0.45) {
         const w1 = Math.max(2, W >> 2), h1 = Math.max(2, H >> 2), w2 = Math.max(2, W >> 3), h2 = Math.max(2, H >> 3);
         const a1 = this.target('b1', w1, h1, true), a1t = this.target('b1t', w1, h1, true);
         const a2 = this.target('b2', w2, h2, true), a2t = this.target('b2t', w2, h2, true);
@@ -903,8 +903,8 @@ export class GLRenderer {
         this.bind(null);
         this.blend('add');
         this.mask = [top, top + fade * 2];
-        this.blit(a1.t, 0, 0, W, H, 0.55 * t.bloom, true, this.pFx);
-        this.blit(a2.t, 0, 0, W, H, 0.75 * t.bloom, true, this.pFx);
+        this.blit(a1.t, 0, 0, W, H, 0.55 * st.bloomK, true, this.pFx);
+        this.blit(a2.t, 0, 0, W, H, 0.75 * st.bloomK, true, this.pFx);
       }
     }
 
