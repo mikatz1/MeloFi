@@ -720,22 +720,17 @@ export class GLRenderer {
         }
       });
       // bars (rects)
-      const speed = H * 0.21 * st.opts.speed;
-      for (const b of st.bars) {
-        const k = st.keys[b.note];
-        if (!k) continue;
-        const y1 = top - (T - b.t0) * speed;
-        const y2 = b.t1 == null ? top - dpr : top - (T - b.t1) * speed;
-        if (y2 < -40 * dpr) continue;
+      for (const b of st.barShapes()) {
+        const { k, y1, y2 } = b;
         const w = (k.black ? k.w * 0.7 : st.ww * 0.46) * st.opts.barWidth;
         const nc = b.color || st.colorOf(b.note);
         const core = this.rgb(nc || t.bar), glow = this.rgb(nc || t.barGlow);
         const h = Math.max(w, y2 - y1);
-        const fresh = b.t1 == null ? 1 : Math.max(0.75, 1 - (T - b.t1) * 0.1);
+        const fresh = b.fresh;
         const ga = additive ? 0.5 : 0.16;
         if (px) {
           const [bx, by, bw2, bh] = st.pixelBar(k.cx, w, y2 - h, y2);
-          const a = b.t1 == null ? 1 : 0.85;
+          const a = b.live ? 1 : 0.85;
           this.rect(bx, by, bw2, bh, 0, [...core, a], [...core, a], [...glow, ga * 0.7], st.P * 3);
           continue;
         }

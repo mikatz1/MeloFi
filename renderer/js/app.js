@@ -14,7 +14,11 @@ import { themeFromImage } from './palette.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const ZOOMS = [1, 1.25, 1.5, 2, 3];
+export const TOUCH_STEPS = [24, 40, 56, 72, 88, 100, 112, 120, 127]; // number keys 1-9
+const SOFT = 0.72; // soft pedal: velocity scale
 import { HAND_COLORS } from './app-colors.js';
+import { Practice } from './practice.js';
+import { renderVideo } from './render-video.js';
 
 class App {
   async start() {
@@ -22,6 +26,10 @@ class App {
     await this.settings.load();
     this.env = await window.melofi.envInfo();
     this.instruments = await window.melofi.listInstruments();
+    this.dl = new Map(); // instrument id -> download progress 0..1
+    this.recent = [];
+    this.loadRecent();
+    window.melofi.onInstrumentProgress(({ id, done, total }) => { this.dl.set(id, total ? Math.min(1, done / total) : 0); this.ui.dlProgress(id); });
 
     this.engine = new Engine();
     await this.engine.init();
@@ -32,8 +40,13 @@ class App {
     this.metronome.onBeat = (b) => this.ui?.beat(b);
     this.midiDevices = [];
     this.midi = new MidiInput({
-      onNote: (n, vel, on) => (on ? this.play(n, vel) : this.release(n)),
+      onNote: (n, vel, on) => {
+        if (on) this.midiHeld.set(n, this.userDown(n, vel));
+        else { this.userUp(this.midiHeld.get(n) ?? [n]); this.midiHeld.delete(n); }
+      },
       onSustain: (on) => this.sustain(on),
+      onSostenuto: (on) => this.setSostenuto(on),
+      onSoft: (on) => this.setSoft(on),
       onDevices: (list) => {
         const had = this.midiActive();
         this.midiDevices = list;
@@ -46,6 +59,7 @@ class App {
       instrumentName: () => this.instruments.find((i) => i.id === this.settings.get('instrument'))?.name || 'Piano',
     });
     this.player = new ScorePlayer(this);
+    this.practice = new Practice(this);
     this.ui = new UI(this);
 
     this.held = new Map();          // KeyboardEvent.code -> note
@@ -56,6 +70,8 @@ class App {
     this.pedalLatch = false;
     this.pedalScore = false;
     this.pointerNote = null;
+    this.pointerPlayed = [];
+    this.midiHeld = new Map();      // MIDI note -> notes it sounded
 
     this.applyAll();
     this.bindInput();
@@ -63,12 +79,13 @@ class App {
     window.melofi.onFullscreen((on) => { this.fullscreen = on; this.ui.setFullscreen(on); });
     this.midi.enabled = this.settings.get('midiIn');
     this.midi.init();
-    this.loop = (t) => { this.stage.frame(t); this.recorder.tick(); requestAnimationFrame(this.loop); };
+    this.loop = (t) => { this.practice.tick(); this.stage.frame(t); this.recorder.tick(); requestAnimationFrame(this.loop); };
     requestAnimationFrame(this.loop);
     new ResizeObserver(() => this.stage.layout()).observe(this.stage.c);
 
-    if (!this.instruments.length) { this.ui.toast(T.toast.noInstruments, { err: true, ms: 10000 }); return; }
-    if (!this.instruments.some((i) => i.id === this.settings.get('instrument'))) this.settings.set({ instrument: this.instruments[0].id });
+    const usable = this.instruments.filter((i) => i.installed);
+    if (!usable.length) { this.ui.toast(T.toast.noInstruments, { err: true, ms: 10000 }); return; }
+    if (!usable.some((i) => i.id === this.settings.get('instrument'))) this.settings.set({ instrument: (usable.find((i) => i.bundled) || usable[0]).id });
     else this.loadInstrument();
   }
 
@@ -102,7 +119,7 @@ class App {
       if ('theme' in p || 'customTheme' in p) this.stage.setTheme(this.settings.get('theme'), this.settings.get('customTheme'));
       const so = {};
       for (const k of ['visualizer', 'particles', 'bloom', 'speed', 'labels', 'range', 'noteColor', 'barWidth', 'bgDim']) if (k in p) so[k] = p[k];
-      if ('kbZoom' in p) so.zoom = p.kbZoom;
+      if ('kbZoom' in p) { so.zoom = p.kbZoom; this.scoreZoom = null; } // picking a zoom by hand wins over the fit
       if (['kbZoom', 'octave', 'transpose', 'keyPreset', 'customMap'].some((k) => k in p)) so.center = this.playCenter();
       if ('bgImage' in p) this.stage.setBackground(p.bgImage);
       if ('bpm' in p) this.metronome.setTempo(p.bpm);
@@ -112,6 +129,8 @@ class App {
       if ('midiIn' in p) { this.midi.enabled = p.midiIn; this.loadInstrument(true); }
       if ('pedalMode' in p) { this.pedalHeld = false; this.setLatch(false); }
       if (Object.keys(so).length) this.stage.setOptions(so);
+      if ('range' in p && this.player.song) this.fitScore(this.player.song);
+      if (['scoreFall', 'scoreHands', 'rhColor', 'lhColor', 'theme'].some((k) => k in p)) { this.updateFall(); this.ui.updateTransport?.(); }
       if (['octave', 'transpose', 'keyPreset', 'customMap', 'labels', 'noteNames', 'range'].some((k) => k in p)) this.updateLabels();
       if ('instrument' in p) this.loadInstrument();
       else if ('velocity' in p || 'humanize' in p) { clearTimeout(this._vt); this._vt = setTimeout(() => this.loadInstrument(true), 350); }
@@ -144,7 +163,7 @@ class App {
   async loadInstrument(layersOnly = false) {
     const id = this.settings.get('instrument');
     const meta = this.instruments.find((i) => i.id === id);
-    if (!meta) return;
+    if (!meta?.installed) return;
     const [lo, hi] = this.velRange();
     if (!layersOnly) this.ui.setProgress(0);
     try {
@@ -200,12 +219,24 @@ class App {
   play(note, velocity) {
     if (note < 21 || note > 108) return;
     if (this.engine.ctx.state !== 'running') this.engine.ctx.resume();
-    const vel = velocity ?? this.velocity();
+    let vel = velocity ?? this.velocity();
+    if (this.softDown) vel = Math.max(1, Math.round(vel * SOFT)); // una corda: quieter, and a softer layer
     this.count[note]++;
     this.engine.noteOn(note, vel);
     this.stage.noteOn(note, vel);
     this.recorder.event({ type: 'on', note, vel });
   }
+
+  // A key / MIDI note / click from the player. In practice it is judged first; in rhythm-only
+  // practice it sounds the score's notes instead of its own. Returns the notes it sounded.
+  userDown(note, vel) {
+    const r = this.practice?.press(note);
+    if (r == null) { this.play(note, vel); return [note]; }
+    for (const x of r) this.play(x.n, vel ?? x.v);
+    return r.map((x) => x.n);
+  }
+
+  userUp(notes) { for (const n of notes) this.release(n); }
 
   release(note) {
     if (note < 21 || note > 108 || !this.count[note]) return;
@@ -240,11 +271,31 @@ class App {
     this.recorder.event({ type: 'sus', on });
   }
 
+  // Soft pedal (left): notes come out quieter and darker while it is down.
+  setSoft(on) {
+    if (this.softDown === on) return;
+    this.softDown = on;
+    this.ui.setPedalFlag('soft', on);
+  }
+
+  // Sostenuto (middle): keeps the notes that are down right now, nothing played after.
+  setSostenuto(on) {
+    if (this.sostDown === on) return;
+    this.sostDown = on;
+    this.engine.setSostenuto(on);
+    this.ui.setPedalFlag('sost', on);
+    if (!on) for (let n = 21; n <= 108; n++) if (!this.count[n]) this.engine.soundCheck(n);
+  }
+
   releaseEverything() {
-    for (const note of this.held.values()) this.release(note);
+    for (const notes of this.held.values()) this.userUp(notes);
     this.held.clear();
-    if (this.pointerNote != null) { this.release(this.pointerNote); this.pointerNote = null; }
+    for (const notes of this.midiHeld.values()) this.userUp(notes);
+    this.midiHeld.clear();
+    if (this.pointerNote != null) { this.userUp(this.pointerPlayed); this.pointerNote = null; }
     this.sustain(false); // a locked pedal stays locked
+    this.setSoft(false);
+    this.setSostenuto(false);
   }
 
   // ---------- input ----------
@@ -283,6 +334,9 @@ class App {
       }
       if (this.ui.menuOpen) this.ui.openMenu(null);
       if (e.code === 'Tab' || e.altKey) return;
+      const v0 = this.settings.v;
+      if (v0.softKey && e.code === v0.softKey) { e.preventDefault(); this.setSoft(true); return; }
+      if (v0.sostKey && e.code === v0.sostKey) { e.preventDefault(); if (!e.repeat) this.setSostenuto(true); return; }
 
       e.preventDefault();
       if (e.repeat) return;
@@ -295,23 +349,27 @@ class App {
         case 'ArrowDown': this.settings.set({ octave: clamp(v.octave - 1, 0, 7) }); return;
       }
       if (v.sustainKey && e.code === v.sustainKey) { if (v.pedalMode === 'toggle') this.setLatch(!this.pedalLatch); else this.sustain(true); return; }
+      // 1-9: touch strength, unless the key map plays notes on the number row
+      const dg = /^Digit([1-9])$/.exec(e.code);
+      if (dg && this.currentMap()[e.code] == null) { this.settings.set({ velocity: TOUCH_STEPS[+dg[1] - 1] }); return; }
       if (this.octaveKey(e.code)) { if (e.code === 'KeyZ') this.octZ = true; else this.octX = true; this.setShift(); return; }
       if (RESERVED.has(e.code) || this.held.has(e.code)) return;
       const off = this.currentMap()[e.code];
       if (off == null) return;
-      const note = this.noteFor(off);
-      this.held.set(e.code, note);
-      this.play(note);
+      this.held.set(e.code, this.userDown(this.noteFor(off)));
     };
 
     const up = (e) => {
+      const v0 = this.settings.v;
+      if (v0.softKey && e.code === v0.softKey) { this.setSoft(false); return; }
+      if (v0.sostKey && e.code === v0.sostKey) { this.setSostenuto(false); return; }
       if (e.code === 'KeyZ' || e.code === 'KeyX') { if (e.code === 'KeyZ') this.octZ = false; else this.octX = false; this.setShift(); }
       const v = this.settings.v;
       if (v.sustainKey && e.code === v.sustainKey) { if (v.pedalMode !== 'toggle') this.sustain(false); return; }
-      const note = this.held.get(e.code);
-      if (note == null) return;
+      const notes = this.held.get(e.code);
+      if (notes == null) return;
       this.held.delete(e.code);
-      this.release(note);
+      this.userUp(notes);
     };
 
     window.addEventListener('keydown', down, true);
@@ -322,7 +380,11 @@ class App {
     window.addEventListener('drop', async (e) => {
       e.preventDefault();
       const file = [...(e.dataTransfer?.files || [])].find((f) => SCORE_EXT.includes(f.name.split('.').pop().toLowerCase()));
-      if (file) await this.openScore(file.name, new Uint8Array(await file.arrayBuffer()));
+      if (!file) return;
+      // dropped from disk: open by path so it shows up in the recent list
+      const p = window.melofi.pathForFile(file);
+      if (p) await this.openRecent(p);
+      else await this.openScore(file.name, new Uint8Array(await file.arrayBuffer()));
     });
 
     const cv = this.stage.c;
@@ -332,26 +394,26 @@ class App {
       if (!e.ctrlKey) return;
       e.preventDefault();
       const steps = ZOOMS;
-      const i = steps.indexOf(this.settings.get('kbZoom'));
+      const i = steps.indexOf(this.zoomNow());
       const j = clamp((i < 0 ? 0 : i) + (e.deltaY < 0 ? 1 : -1), 0, steps.length - 1);
-      if (steps[j] !== this.settings.get('kbZoom')) this.settings.set({ kbZoom: steps[j] });
+      if (steps[j] !== this.zoomNow()) this.settings.set({ kbZoom: steps[j] });
     }, { passive: false });
     cv.addEventListener('pointerdown', (e) => {
       const n = at(e);
       if (n == null) return;
       cv.setPointerCapture(e.pointerId);
       this.pointerNote = n;
-      this.play(n);
+      this.pointerPlayed = this.userDown(n);
     });
     cv.addEventListener('pointermove', (e) => {
       if (this.pointerNote == null) return;
       const n = at(e);
       if (n == null || n === this.pointerNote) return;
-      this.release(this.pointerNote);
+      this.userUp(this.pointerPlayed);
       this.pointerNote = n;
-      this.play(n);
+      this.pointerPlayed = this.userDown(n);
     });
-    const end = () => { if (this.pointerNote != null) { this.release(this.pointerNote); this.pointerNote = null; } };
+    const end = () => { if (this.pointerNote != null) { this.userUp(this.pointerPlayed); this.pointerNote = null; } };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
   }
@@ -363,18 +425,91 @@ class App {
     window.melofi.openFolder(dir);
   }
 
+  // ---------- high-quality video of the score ----------
+
+  async renderVideo(opts) {
+    if (this.rendering || !this.player.song) return;
+    this.player.pause();
+    this.rendering = true;
+    const box = document.getElementById('renderBox');
+    const bar = box.querySelector('.bar i'), phase = box.querySelector('.phase'), eta = box.querySelector('.eta');
+    let cancel = false;
+    box.querySelector('[data-act=cancel]').onclick = () => { cancel = true; phase.textContent = T.render.cancelling; };
+    box.hidden = false;
+    const fmt = (s) => (s >= 60 ? `${Math.floor(s / 60)}${T.render.min} ${Math.round(s % 60)}${T.render.sec}` : `${Math.round(s)}${T.render.sec}`);
+    try {
+      const out = await renderVideo(this, opts, {
+        cancelled: () => cancel,
+        progress: (ph, p, left) => {
+          if (cancel) return;
+          phase.textContent = T.render[ph];
+          bar.style.width = `${Math.round(p * 1000) / 10}%`;
+          eta.textContent = left != null && p > 0.02 ? `${Math.round(p * 100)}% · ${T.render.left} ${fmt(left)}` : `${Math.round(p * 100)}%`;
+        },
+      });
+      if (out) this.ui.toast(T.toast.saved, { path: out, action: { label: T.toast.openFolder, fn: () => window.melofi.showItem(out) } });
+    } catch (err) {
+      console.error(err);
+      this.ui.toast(`${T.render.fail} ${err.message || ''}`, { err: true, ms: 8000 });
+    } finally {
+      box.hidden = true;
+      this.rendering = false;
+    }
+  }
+
+  // ---------- instrument downloads ----------
+
+  async refreshInstruments() {
+    this.instruments = await window.melofi.listInstruments();
+    this.ui.refresh();
+  }
+
+  async downloadInstrument(id) {
+    const meta = this.instruments.find((i) => i.id === id);
+    if (!meta || this.dl.has(id)) return;
+    this.dl.set(id, 0);
+    this.ui.refresh();
+    const r = await window.melofi.downloadInstrument(id);
+    this.dl.delete(id);
+    await this.refreshInstruments();
+    if (r.ok) this.ui.toast(T.toast.instReady(meta.name), { action: { label: T.toast.useNow, fn: () => this.settings.set({ instrument: id }) } });
+    else if (!r.cancelled) this.ui.toast(`${T.toast.dlFail(meta.name)} ${r.error || ''}`, { err: true, ms: 7000 });
+  }
+
+  cancelDownload(id) { window.melofi.cancelDownload(id); }
+
+  async removeInstrument(id) {
+    if (this.settings.get('instrument') === id) {
+      const d = this.instruments.find((i) => i.bundled) || this.instruments.find((i) => i.installed && i.id !== id);
+      if (d) this.settings.set({ instrument: d.id });
+    }
+    await window.melofi.removeInstrument(id);
+    await this.refreshInstruments();
+  }
+
   // ---------- score playback ----------
 
   async pickScore() {
     const f = await window.melofi.pickScore();
     if (f) await this.openScore(f.name, f.data);
+    this.loadRecent();
   }
+
+  async openRecent(p) {
+    const f = await window.melofi.openScorePath(p);
+    if (f) await this.openScore(f.name, f.data);
+    else this.ui.toast(T.toast.recentGone, { err: true });
+    this.loadRecent();
+  }
+
+  async loadRecent() { this.recent = await window.melofi.recentScores(); }
 
   async openScore(name, bytes) {
     try {
       const song = await readScore(name, bytes);
       this.player.load(song);
-      this.fitScore(song);
+      this.fitScore(song, true);
+      this.updateFall();
       const piano = song.lines.filter((l) => l.piano).length;
       this.ui.toast(T.toast.scoreLoaded(song.title, piano, song.lines.length), { ms: 3500 });
     } catch (err) {
@@ -384,24 +519,63 @@ class App {
   }
 
   // zoom the keyboard so the score's whole range is on screen; the old zoom comes back on close
-  fitScore(song) {
+  // (the fitted zoom is not saved, so quitting with a score open leaves the user's own zoom alone)
+  fitScore(song, warn = false) {
     let lo = 127, hi = 0;
     for (const l of song.lines) for (const n of l.notes) { if (n.n < lo) lo = n.n; if (n.n > hi) hi = n.n; }
     if (hi < lo) return;
-    if (this.zoomBeforeScore == null) this.zoomBeforeScore = this.settings.get('kbZoom');
-    this.stage.setOptions({ fit: [lo, hi] });
-    const z = this.stage.fitZoom(lo, hi, ZOOMS);
-    if (z !== this.settings.get('kbZoom')) this.settings.set({ kbZoom: z });
+    this.scoreZoom = this.stage.fitZoom(lo, hi, ZOOMS);
+    this.stage.setOptions({ fit: [lo, hi], zoom: this.scoreZoom });
+    // keys the chosen keyboard size can't show
+    const [rlo, rhi] = this.stage.fullRange();
+    let out = 0;
+    for (const l of song.lines) for (const n of l.notes) if (n.n < rlo || n.n > rhi) out++;
+    if (warn && out) {
+      this.ui.toast(T.toast.scoreRange(out, this.settings.get('range')), { action: { label: T.toast.use88, fn: () => this.settings.set({ range: 88 }) }, ms: 9000 });
+    }
+  }
+
+  // zoom actually on screen (a loaded score's fitted zoom, else the setting)
+  zoomNow() { return this.scoreZoom ?? this.settings.get('kbZoom'); }
+
+  // The title card shows once per opened score (not again for replays / retries) when it has
+  // a real title or a composer, and the card hasn't been turned off.
+  async intro() {
+    const song = this.player.song;
+    if (!song || this.introShown === song) return;
+    this.introShown = song;
+    if (!this.settings.get('introCard') || !(song.hasTitle || song.composer)) return;
+    await this.ui.showIntro(song);
+  }
+
+  async toggleScore() {
+    const P = this.player;
+    if (P.playing) { P.pause(); return; }
+    if (P.pos === 0) await this.intro();
+    P.play();
+  }
+
+  // falling notes: the enabled parts of the loaded score, coloured by hand
+  updateFall() {
+    const P = this.player;
+    if (!P?.song || !(this.settings.get('scoreFall') || this.practice?.active)) { this.stage.fall = null; return; }
+    const notes = [];
+    for (const l of P.song.lines) {
+      if (!P.enabled.has(l.id)) continue;
+      for (const n of l.notes) if (n.n >= 21 && n.n <= 108) notes.push({ t: n.t, d: n.d, n: n.n, color: this.lineColor(l.id, n.n) });
+    }
+    notes.sort((a, b) => a.t - b.t);
+    this.stage.fall = { notes, maxD: notes.reduce((m, x) => Math.max(m, x.d), 0), now: () => P.now() };
+    this.stage.bars.length = 0;
   }
 
   closeScore() {
+    this.practice.stop();
+    this.practice.hideResult();
     this.player.unload();
-    this.stage.setOptions({ fit: null });
-    if (this.zoomBeforeScore != null) {
-      const z = this.zoomBeforeScore;
-      this.zoomBeforeScore = null;
-      if (z !== this.settings.get('kbZoom')) this.settings.set({ kbZoom: z });
-    }
+    this.stage.fall = null;
+    this.scoreZoom = null;
+    this.stage.setOptions({ fit: null, zoom: this.settings.get('kbZoom') });
   }
 
   // one score note: audio on the audio clock, visuals/recording on timers
@@ -411,14 +585,15 @@ class App {
     let hand = this.player.hands?.get(line);
     if (hand === 'split') hand = n >= 60 ? 'rh' : 'lh';
     const ink = this.stage.theme.inkSim;
-    if (hand === 'rh') return ink ? '#15130f' : HAND_COLORS.rh;
-    if (hand === 'lh') return ink ? '#a3271a' : HAND_COLORS.lh;
+    if (hand === 'rh') return ink ? '#15130f' : this.settings.get('rhColor') || HAND_COLORS.rh;
+    if (hand === 'lh') return ink ? '#a3271a' : this.settings.get('lhColor') || HAND_COLORS.lh;
     const others = ['#c7a6ff', '#8de0b0', '#ffd27a', '#ff8fa8', '#7fe0e6'];
     return others[line % others.length];
   }
 
   scoreNote(n, v, at, dur, player, line) {
     if (n < 21 || n > 108) return;
+    if (this.practice?.isTarget(line, n)) return; // the player's own part
     const vid = this.engine.noteOn(n, v, at);
     const delay = (at - this.engine.ctx.currentTime) * 1000;
     const color = this.lineColor(line, n);
@@ -484,7 +659,7 @@ class App {
     if (name === 'metro') return this.settings.set({ metro: !this.settings.get('metro') });
     if (name === 'latch') return this.setLatch(!this.pedalLatch);
     if (name === 'fullscreen') return window.melofi.toggleFullscreen();
-    if (name === 'scorePlay') return this.player.song ? this.player.toggle() : this.pickScore();
+    if (name === 'scorePlay') return this.player.song ? this.toggleScore() : this.pickScore();
     if (name === 'scoreStop') return this.player.stop();
     this.ui.open(name);
   }
@@ -501,7 +676,7 @@ class App {
         const t0 = performance.now();
         this._recTimer = setInterval(() => this.ui.setRecTime((performance.now() - t0) / 1000), 250);
         // notes already held when recording starts belong in the take
-        for (const n of this.held.values()) this.recorder.event({ type: 'on', note: n, vel: this.settings.get('velocity') });
+        for (const n of [...this.held.values()].flat()) this.recorder.event({ type: 'on', note: n, vel: this.settings.get('velocity') });
         if (this.sustainDown) this.recorder.event({ type: 'sus', on: true });
       } else {
         clearInterval(this._recTimer);

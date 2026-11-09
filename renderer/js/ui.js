@@ -1,6 +1,14 @@
 // DOM side: title bar readouts, settings drawer, help, key mapping, menus, toasts.
 import { T } from './strings.js';
 import { THEMES } from './themes.js';
+
+const FAMILY_ORDER = ['piano', 'keys', 'synth', 'strings', 'guitar', 'bass'];
+const byFamily = (list) => {
+  const groups = new Map();
+  for (const i of list) { const f = i.family || 'piano'; if (!groups.has(f)) groups.set(f, []); groups.get(f).push(i); }
+  return [...groups.entries()].sort((a, b) => FAMILY_ORDER.indexOf(a[0]) - FAMILY_ORDER.indexOf(b[0]));
+};
+const mb = (bytes) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`);
 import { LAYOUT, PRESETS, keyLabel, noteName, isBlack } from './keymap.js';
 import { HAND_COLORS } from './app-colors.js';
 
@@ -82,6 +90,13 @@ export class UI {
     if (name === 'file') {
       return [
         { label: M.openScore, act: () => app.pickScore() },
+        { label: M.recent, sub: app.recent?.length
+          ? [...app.recent.map((r) => ({ label: r.name, hint: r.path.split(/[\\/]/).slice(-2, -1)[0] || '', act: () => app.openRecent(r.path) })),
+            { sep: true }, { label: M.recentClear, act: async () => { app.recent = await window.melofi.clearRecentScores(); } }]
+          : [{ label: M.recentNone, disabled: true }] },
+        { label: M.renderVideo, disabled: !app.player?.song || app.rendering, sub: [
+          ...[[2160, 60], [2160, 30], [1440, 60], [1080, 60]].map(([hh, fps]) => ({ label: `${hh === 2160 ? '4K' : `${hh}p`} · ${fps}fps`, hint: `${Math.round((hh * 16) / 9)}×${hh}`, act: () => app.renderVideo({ height: hh, fps }) })),
+          { sep: true }, { label: M.renderHint, disabled: true }] },
         { label: M.scorePlay, key: 'F8', act: () => app.action('scorePlay'), disabled: !app.player?.song },
         { label: M.scoreStop, key: 'F9', act: () => app.action('scoreStop'), disabled: !app.player?.song },
         { sep: true },
@@ -99,7 +114,11 @@ export class UI {
     if (name === 'sound') {
       const devs = app.midiDevices || [];
       return [
-        { label: M.instrument, sub: app.instruments.map((i) => radio(v.instrument === i.id, i.name, () => this.s.set({ instrument: i.id }), { hint: i.model })) },
+        { label: M.instrument, sub: byFamily(app.instruments).flatMap(([fam, list], gi) => [
+          ...(gi ? [{ sep: true }] : []), { group: T.families[fam] || fam }, ...list.map((i) => (i.installed
+          ? radio(v.instrument === i.id, i.name, () => this.s.set({ instrument: i.id }), { hint: i.model })
+          : { label: i.name, hint: app.dl.has(i.id) ? `${Math.round(app.dl.get(i.id) * 100)}% · ${M.dlCancel}` : `${M.dlGet} · ${mb(i.size)}`,
+            act: () => (app.dl.has(i.id) ? app.cancelDownload(i.id) : app.downloadInstrument(i.id)) }))]) },
         { label: M.touch, sub: [...M.touchKinds.map(([val, label]) => radio(v.velocity === val, label, () => this.s.set({ velocity: val }))),
           { sep: true }, { label: M.touchCustom, act: () => { this.tab = 'play'; this.open('settings'); } }] },
         { label: M.latch, check: app.pedalLatch ? 'tick' : '', key: 'F7', act: () => app.action('latch') },
@@ -210,6 +229,14 @@ export class UI {
     this.s.set(patch);
     this.quiet = false;
     this.refreshBar();
+  }
+
+  dlText(id) { return `${Math.round((this.app.dl.get(id) || 0) * 100)}% · ${T.settings.dlCancel}`; }
+
+  // live download percentage on the instrument rows
+  dlProgress(id) {
+    const b = document.querySelector(`[data-dl="${id}"]`);
+    if (b) b.textContent = this.dlText(id);
   }
 
   refresh() {
@@ -364,6 +391,13 @@ export class UI {
     }
   }
 
+  // middle / left pedal readouts show only while pressed
+  setPedalFlag(which, on) {
+    const el = $(which === 'soft' ? '#softFlag' : '#sostFlag');
+    el.hidden = !on;
+    el.classList.toggle('on', on);
+  }
+
   setSustain(on, latched) {
     const b = $('#susFlag');
     b.classList.toggle('on', on);
@@ -407,8 +441,9 @@ export class UI {
     const P = this.app.player;
     const RATES = [0.25, 0.5, 0.6, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2];
     $('#tpParts').textContent = T.score.parts;
+    $('#tpPractice').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.openPracticeMenu(); });
     $('#tpMidi').textContent = T.score.midi;
-    $('#tpPlay').addEventListener('click', () => P.toggle());
+    $('#tpPlay').addEventListener('click', () => this.app.toggleScore());
     $('#tpStop').addEventListener('click', () => P.stop());
     $('#tpClose').addEventListener('click', () => this.app.closeScore());
     $('#tpMidi').addEventListener('click', () => this.app.exportScoreMidi());
@@ -443,9 +478,11 @@ export class UI {
       legend.dataset.key = key;
       const ink = this.app.stage.theme.inkSim;
       legend.replaceChildren(...(hands ? [['rh', T.score.rh], ['lh', T.score.lh]].map(([k, label]) =>
-        h('span', {}, h('i', { class: 'chip', style: `background:${ink ? (k === 'rh' ? '#15130f' : '#a3271a') : HAND_COLORS[k]}` }), label)) : []));
+        h('span', {}, h('i', { class: 'chip', style: `background:${ink ? (k === 'rh' ? '#15130f' : '#a3271a') : (this.s.get(k === 'rh' ? 'rhColor' : 'lhColor') || HAND_COLORS[k])}` }), label)) : []));
     }
     $('#tpPlay i').className = `ic ${P.playing ? 'pause' : 'play'}`;
+    $('#tpPractice').textContent = this.app.practice?.active ? T.practice.running : T.practice.title;
+    $('#tpPractice').classList.toggle('on', !!this.app.practice?.active);
     const now = P.now();
     if (!this.seeking) {
       $('#tpPos').textContent = fmtTime(now);
@@ -482,6 +519,64 @@ export class UI {
     menu.style.top = `${r.bottom + 2}px`;
     menu.hidden = false;
     this.menuOpen = 'parts';
+  }
+
+  // Title card before a score plays: letters rise in, a hairline draws, the composer settles,
+  // then it all lifts away. Click or any key skips. Resolves when it's gone.
+  showIntro(song) {
+    const box = $('#intro');
+    const t = box.querySelector('.t');
+    t.replaceChildren(...[...song.title].map((ch, i) => h('span', { style: `--i:${i}` }, ch === ' ' ? '\u00a0' : ch)));
+    box.querySelector('.c').textContent = song.composer || '';
+    box.querySelector('.sub').textContent = song.subtitle || '';
+    const never = box.querySelector('.never input');
+    never.checked = false;
+    never.onchange = () => this.s.set({ introCard: !never.checked });
+    box.classList.remove('out', 'play');
+    box.hidden = false;
+    void box.offsetWidth; // restart the animation
+    box.classList.add('play');
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('keydown', onKey, true);
+        box.removeEventListener('pointerdown', onPtr);
+        box.classList.add('out');
+        setTimeout(() => { box.hidden = true; box.classList.remove('play', 'out'); resolve(); }, 420);
+      };
+      const onKey = (e) => { e.preventDefault(); e.stopPropagation(); finish(); };
+      const onPtr = (e) => { if (!e.target.closest('.never')) finish(); };
+      const timer = setTimeout(finish, Math.min(4200, 2400 + song.title.length * 30));
+      window.addEventListener('keydown', onKey, true);
+      box.addEventListener('pointerdown', onPtr);
+    });
+  }
+
+  // practice: which hand, how strict, start / stop
+  openPracticeMenu() {
+    if (this.menuOpen === 'practice') { this.openMenu(null); return; }
+    this.openMenu(null);
+    const Pr = this.app.practice, v = this.s.v, Q = T.practice;
+    const radio = (on, label, act) => ({ label, check: on ? 'dot' : '', act });
+    const items = [
+      { group: Q.hand },
+      ...[['rh', T.score.rh], ['lh', T.score.lh], ['both', Q.both]].map(([k, l]) => radio(v.practiceHand === k, l, () => this.s.set({ practiceHand: k }))),
+      { group: Q.judge },
+      radio(v.practiceJudge === 'rhythm', Q.rhythm, () => this.s.set({ practiceJudge: 'rhythm' })),
+      radio(v.practiceJudge === 'pitch', Q.pitch, () => this.s.set({ practiceJudge: 'pitch' })),
+      { sep: true },
+      Pr.active ? { label: Q.stop, act: () => { this.app.player.pause(); Pr.stop(); } } : { label: Q.start, act: () => Pr.start() },
+    ];
+    const menu = $('#menu');
+    this.renderMenu(menu, items);
+    const r = $('#tpPractice').getBoundingClientRect();
+    menu.style.left = `${Math.min(r.left, window.innerWidth - 260)}px`;
+    menu.style.top = `${r.bottom + 2}px`;
+    menu.hidden = false;
+    this.menuOpen = 'practice';
   }
 
   // ---------- help ----------
@@ -528,6 +623,12 @@ export class UI {
     return [inp, out];
   }
 
+  colorPick(value, onChange, label) {
+    const inp = h('input', { type: 'color', value });
+    inp.addEventListener('input', () => onChange(inp.value));
+    return h('label', { class: 'colorpick' }, inp, h('span', {}, label));
+  }
+
   toggle(value, flip) {
     return h('button', { class: `switch${value ? ' on' : ''}`, role: 'switch', 'aria-checked': String(!!value), onclick: () => flip(!value) });
   }
@@ -548,6 +649,8 @@ export class UI {
       this.row(S.velocity, this.slider(20, 127, 1, v.velocity, (x) => `${x}`, (x) => this.set({ velocity: x }))),
       this.row(S.humanize, this.slider(0, 24, 1, v.humanize, (x) => `±${x}`, (x) => this.set({ humanize: x }))),
       this.row(S.sustainKey, this.seg([['Space', S.sustainSpace], ['', S.sustainNone]], v.sustainKey, (x) => this.s.set({ sustainKey: x }))),
+      this.row(S.sostKey, this.seg([['ControlLeft', S.keyLCtrl], ['ShiftRight', S.keyRShift], ['', S.sustainNone]], v.sostKey, (x) => this.s.set({ sostKey: x })), S.sostHint),
+      this.row(S.softKey, this.seg([['ShiftLeft', S.keyLShift], ['ControlRight', S.keyRCtrl], ['', S.sustainNone]], v.softKey, (x) => this.s.set({ softKey: x })), S.softHint),
       this.row(T.menu.pedal, this.seg(Object.entries(T.menu.pedalKinds), v.pedalMode, (x) => this.s.set({ pedalMode: x }))),
     ];
   }
@@ -556,9 +659,23 @@ export class UI {
     const v = this.s.v, S = T.settings;
     return [
       h('div', { class: 'group-title' }, S.instrument),
-      h('div', { class: 'insts' }, ...this.app.instruments.map((i) =>
-        h('button', { class: `inst-row${i.id === v.instrument ? ' on' : ''}`, onclick: () => this.s.set({ instrument: i.id }) },
-          h('span', { class: 'r' }), h('span', {}, h('b', {}, i.name), h('small', {}, `${i.model} · ${i.license}`))))),
+      h('div', { class: 'insts' }, ...byFamily(this.app.instruments).flatMap(([fam, list]) => [h('div', { class: 'inst-fam' }, T.families[fam] || fam), ...list.map((i) => {
+        const dl = this.app.dl.has(i.id);
+        let side = null;
+        if (dl) side = h('button', { class: 'btn sm', 'data-dl': i.id, onclick: () => this.app.cancelDownload(i.id) }, this.dlText(i.id));
+        else if (!i.installed) side = h('button', { class: 'btn sm', onclick: () => this.app.downloadInstrument(i.id) }, `${S.dlGet} · ${mb(i.size)}`);
+        else if (!i.bundled) {
+          // two clicks to delete
+          side = h('button', { class: 'btn sm ghost', onclick: (e) => {
+            if (e.currentTarget.dataset.armed) this.app.removeInstrument(i.id);
+            else { e.currentTarget.dataset.armed = '1'; e.currentTarget.textContent = S.dlRemoveSure; }
+          } }, S.dlRemove);
+        }
+        return h('div', { class: `inst-row${i.id === v.instrument ? ' on' : ''}${i.installed ? '' : ' off'}` },
+          h('button', { class: 'pick', disabled: !i.installed, onclick: () => this.s.set({ instrument: i.id }) },
+            h('span', { class: 'r' }), h('span', {}, h('b', {}, i.name), h('small', {}, `${i.model} · ${i.license}`))),
+          side);
+      })])),
       this.row('', h('button', { class: 'btn', onclick: () => this.open('mixer') }, `${T.mixer.title}  F4`)),
     ];
   }
@@ -588,6 +705,15 @@ export class UI {
       this.row(T.menu.zoom, this.seg([[1, '100'], [1.25, '125'], [1.5, '150'], [2, '200'], [3, '300']], v.kbZoom, (x) => this.s.set({ kbZoom: x }))),
       this.row(T.menu.noteColor, this.select(Object.entries(T.menu.noteColorKinds), v.noteColor, (x) => this.s.set({ noteColor: x }))),
       this.row(T.menu.barWidth, this.seg([[0.7, T.menu.thin], [1, T.menu.normal], [1.4, T.menu.thick]], v.barWidth, (x) => this.s.set({ barWidth: x }))),
+      h('div', { class: 'group-title' }, S.scoreGroup),
+      this.row(S.scoreFall, this.toggle(v.scoreFall, (x) => this.s.set({ scoreFall: x })), S.scoreFallHint),
+      this.row(S.introCard, this.toggle(v.introCard, (x) => this.s.set({ introCard: x })), S.introCardHint),
+      this.row(T.score.hands, this.toggle(v.scoreHands, (x) => this.s.set({ scoreHands: x }))),
+      this.row(S.handColors, [
+        this.colorPick(v.rhColor, (x) => this.set({ rhColor: x }), S.rh),
+        this.colorPick(v.lhColor, (x) => this.set({ lhColor: x }), S.lh),
+        h('button', { class: 'btn sm ghost', onclick: () => this.s.set({ rhColor: '#ffb27a', lhColor: '#7fb0ff' }) }, S.resetColors),
+      ]),
       this.row(T.menu.background, [
         h('button', { class: 'btn', onclick: () => this.app.pickBackground() }, T.menu.bgPick),
         v.bgImage ? h('button', { class: 'btn', onclick: () => this.s.set({ bgImage: '' }) }, T.settings.clear) : null,

@@ -1,23 +1,65 @@
 {
   "name": "melofi",
   "version": "0.1.0",
-  "description": "Keyboard piano with a visualizer",
+  "description": "Virtual piano with a visualizer, score playback and practice",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "set MELOFI_DEV=1&& electron .",
-    "build:instruments": "node tools/build-instruments.mjs"
+    "build:instruments": "node tools/build-instruments.mjs",
+    "dist": "electron-builder --win nsis"
   },
-  "author": "",
+  "author": "mikatz1",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
     "electron": "^45.2.3",
+    "electron-builder": "^26.0.12",
     "linkedom": "^0.18.9"
   },
   "dependencies": {
-    "lamejs": "^1.2.1"
+    "lamejs": "^1.2.1",
+    "mp4-muxer": "^5.2.2"
   },
   "productName": "MeloFi",
-  "private": true
+  "private": true,
+  "build": {
+    "appId": "io.github.mikatz1.melofi",
+    "productName": "MeloFi",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "renderer/**/*",
+      "!renderer/_test/**",
+      "instruments/*/manifest.json",
+      "instruments/splendid/s/**"
+    ],
+    "asarUnpack": [
+      "instruments/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "renderer/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "MeloFi",
+      "installerIcon": "renderer/assets/icon.ico",
+      "uninstallerIcon": "renderer/assets/icon.ico"
+    }
+  }
 }

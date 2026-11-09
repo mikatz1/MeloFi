@@ -113,8 +113,10 @@ const NOTE_COLORS = {
 };
 
 export class Stage {
-  constructor(canvas, { gpu = true } = {}) {
+  // size: { w, h } in device pixels for an off-screen stage (video rendering); offline: no load shedding
+  constructor(canvas, { gpu = true, size = null } = {}) {
     this.c = canvas;
+    this.fixed = size; // (this.size is the particle-size array)
     // GPU (WebGL2) when asked for and available; Canvas2D otherwise
     this.glr = gpu ? GLRenderer.create(canvas) : null;
     this.ctx = this.glr ? null : canvas.getContext('2d', { alpha: false });
@@ -132,6 +134,7 @@ export class Stage {
     this.active = new Map();
     this.inkQueue = [];
     this.noteColors = new Map();
+    this.heat = new Map(); // note -> { v, t }: how hard a key is being hammered right now
     this.ringing = new Set(); // notes still sounding, held or carried by the pedal
     this.bars = [];
     this.wisps = [];
@@ -199,6 +202,8 @@ export class Stage {
     return this.theme.spark.length + i;
   }
 
+  fullRange() { return RANGES[this.opts.range] || RANGES[88]; }
+
   // most zoomed-in step that still shows every key from lo to hi, plus a key either side
   fitZoom(lo, hi, steps) {
     const [rlo, rhi] = RANGES[this.opts.range] || RANGES[88];
@@ -264,9 +269,10 @@ export class Stage {
   }
 
   layout() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const cw = this.c.clientWidth || window.innerWidth;
-    const ch = this.c.clientHeight || window.innerHeight;
+    // an off-screen stage is laid out as if on a 1080p screen, scaled up (so 4K looks like 1080p, only sharper)
+    const dpr = this.fixed ? this.fixed.h / 1080 : Math.min(2, window.devicePixelRatio || 1);
+    const cw = this.fixed ? this.fixed.w / dpr : this.c.clientWidth || window.innerWidth;
+    const ch = this.fixed ? this.fixed.h / dpr : this.c.clientHeight || window.innerHeight;
     const W = Math.max(2, Math.round(cw * dpr) & ~1);
     const H = Math.max(2, Math.round(ch * dpr) & ~1);
     this.dpr = dpr;
@@ -505,12 +511,17 @@ export class Stage {
   noteOn(note, vel, color = null) {
     if (note < this.lo || note > this.hi) return;
     if (color) this.noteColors.set(note, color); else this.noteColors.delete(note);
-    this.active.set(note, { t: this.time, vel, off: null, color });
+    // fast repeats of one key (trills, repeated notes) light up less each time instead of piling up to white
+    const h = this.heat.get(note);
+    const heat = (h ? h.v * Math.pow(0.5, (this.time - h.t) / 0.25) : 0) + 1;
+    this.heat.set(note, { v: heat, t: this.time });
+    const rep = clamp(1.6 / (heat + 0.6), 0.3, 1);
+    this.active.set(note, { t: this.time, vel, off: null, color, rep });
     this.ringing.add(note);
     if (this.opts.visualizer) {
-      this.bars.push({ note, t0: this.time, t1: null, vel, color });
+      if (!this.fall) this.bars.push({ note, t0: this.time, t1: null, vel, color });
       if (this.bars.length > 300) this.bars.shift();
-      this.burst(note, vel);
+      this.burst(note, vel, rep);
     }
   }
 
@@ -562,14 +573,14 @@ export class Stage {
     this.seed[i] = Math.random() * 1000; this.rot[i] = Math.random() * 6.28; this.vr[i] = rand(-2, 2);
   }
 
-  burst(note, vel) {
+  burst(note, vel, rep = 1) {
     const q = this.q();
     if (q <= 0) return;
     const k = this.keys[note];
     const d = this.dpr, H = this.H, t = this.theme;
     const vf = 0.45 + (vel / 127) * 0.9;
     const sc = H / 900;
-    const n = Math.round(30 * q * vf);
+    const n = Math.round(30 * q * vf * rep);
     const tint = this.tintIndex(note);
     for (let i = 0; i < n; i++) {
       const a = -Math.PI / 2 + rand(-1.15, 1.15);
@@ -598,7 +609,7 @@ export class Stage {
       }
       for (let i = 0; i < 3; i++) this.spawn(INK, k.cx + rand(-0.6, 0.6) * k.w, this.top - rand(6, 40) * d, rand(-10, 10) * d, -rand(15, 50) * d * sc, rand(1.6, 2.8), rand(8, 18) * d, (Math.random() * 3) | 0);
     }
-    if (q >= 0.5 && t.motes !== 'ink' && !t.pixel) {
+    if (q >= 0.5 && t.motes !== 'ink' && !t.pixel && rep > 0.6) {
       const count = (vel > 100 ? 2 : 1) * (t.wispBoost || 1);
       for (let i = 0; i < count; i++) this.spawnWisp(k.cx + rand(-0.3, 0.3) * k.w, this.top - 2 * d, vf, tint);
     }
@@ -625,7 +636,7 @@ export class Stage {
     if (q <= 0) return;
     const d = this.dpr, t = this.theme, sc = this.H / 900;
     const sources = [];
-    for (const [note, a] of this.active) if (a.off == null) sources.push([note, a.t, 1]);
+    for (const [note, a] of this.active) if (a.off == null) sources.push([note, a.t, a.rep ?? 1]);
     for (const b of this.bars) {
       // pedal-sustained notes keep breathing a little after the key comes up
       if (b.t1 == null && !(this.active.get(b.note)?.off == null && this.active.has(b.note))) sources.push([b.note, b.t0, 0.4]);
@@ -780,7 +791,7 @@ export class Stage {
       if (a.off == null) v = 1 - 0.35 * Math.min(1, (this.time - a.t) / 0.45);
       else v = 0.65 * (1 - (this.time - a.off) / 0.35) * (a.off - a.t < 0.45 ? 1 + 0.35 * (1 - (a.off - a.t) / 0.45) : 1);
       if (v <= 0 || !this.keys[note]) { this.active.delete(note); continue; }
-      lit.push([note, Math.min(1, v), a]);
+      lit.push([note, Math.min(1, v) * (a.rep ?? 1), a]);
     }
 
     this.crowd = Math.min(1, 2.2 / Math.sqrt(Math.max(1, lit.length)));
@@ -933,19 +944,45 @@ export class Stage {
     f.globalAlpha = 1;
   }
 
-  drawBars(f) {
-    const { top, H, dpr, theme: t } = this;
+  // Note bars for this frame, the same list for both renderers:
+  // rising bars for what was played, or (falling mode) a loaded score's notes coming down to the keys.
+  barShapes() {
+    const { top, H, dpr } = this;
     const speed = H * 0.21 * this.opts.speed;
+    const out = [];
+    if (this.fall) {
+      const F = this.fall, N = F.notes, now = F.now();
+      const ahead = top / speed + 0.1;
+      let lo = 0, hi = N.length;
+      const from = now - F.maxD;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (N[m].t < from) lo = m + 1; else hi = m; }
+      for (let i = lo; i < N.length && N[i].t <= now + ahead; i++) {
+        const x = N[i];
+        if (x.t + x.d < now) continue;
+        const k = this.keys[x.n];
+        if (!k) continue;
+        const live = x.t <= now;
+        out.push({ note: x.n, k, y1: top - (x.t + x.d - now) * speed, y2: Math.min(top - dpr, top - (x.t - now) * speed), color: x.color, live, fresh: live ? 1 : 0.8, seed: x.t });
+      }
+      return out;
+    }
     const T = this.time;
-    const keep = [];
-    f.save();
     for (const b of this.bars) {
       const k = this.keys[b.note];
       if (!k) continue;
-      const y1 = top - (T - b.t0) * speed;
       const y2 = b.t1 == null ? top - dpr : top - (T - b.t1) * speed;
       if (y2 < -40 * dpr) continue;
-      keep.push(b);
+      out.push({ note: b.note, k, y1: top - (T - b.t0) * speed, y2, color: b.color, live: b.t1 == null,
+        fresh: b.t1 == null ? 1 : Math.max(0.75, 1 - (T - b.t1) * 0.1), seed: b.t0 });
+    }
+    return out;
+  }
+
+  drawBars(f) {
+    const { theme: t } = this;
+    f.save();
+    for (const b of this.barShapes()) {
+      const { k, y1, y2 } = b;
       const w = (k.black ? k.w * 0.7 : this.ww * 0.46) * this.opts.barWidth;
       const nc = b.color || this.colorOf(b.note);
       const x = k.cx - w / 2;
@@ -957,7 +994,7 @@ export class Stage {
         f.globalAlpha = 0.35;
         f.drawImage(nc ? this.glow(nc, 64, 0) : this.sp.barGlow, px - pw, py - pw, pw * 3, ph + pw * 2);
         f.globalCompositeOperation = 'source-over';
-        f.globalAlpha = b.t1 == null ? 1 : 0.85;
+        f.globalAlpha = b.live ? 1 : 0.85;
         f.fillStyle = nc || t.bar;
         f.fillRect(px, py, pw, ph);
         continue;
@@ -969,7 +1006,7 @@ export class Stage {
       // core
       f.globalCompositeOperation = 'source-over';
       const g = f.createLinearGradient(0, yy, 0, yy + h);
-      const fresh = b.t1 == null ? 1 : Math.max(0.75, 1 - (T - b.t1) * 0.1);
+      const fresh = b.fresh;
       g.addColorStop(0, rgba(nc || t.bar, 0.55 * fresh));
       g.addColorStop(1, rgba(nc || t.bar, 0.95 * fresh));
       f.globalAlpha = 1;
@@ -979,7 +1016,7 @@ export class Stage {
       f.fill();
     }
     f.restore();
-    this.bars = keep;
+    this.pruneBars();
   }
 
   drawWisps(f) {
@@ -1077,6 +1114,7 @@ export class Stage {
   }
 
   adapt(dt) {
+    if (this.fixed) return; // rendering a video: always full quality
     // Keep frame time sane on weaker GPUs by thinning particles, never by dropping the look entirely.
     if (dt > 0.024) this.slow = Math.min(60, this.slow + 1);
     else this.slow = Math.max(0, this.slow - 1);

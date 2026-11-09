@@ -73,9 +73,10 @@ function parseOpcodes(text) {
   return blocks;
 }
 
-export function readSfz(file) {
+// opts.cc: { [cc]: value } overrides the program's own CC defaults (e.g. pick a mic position)
+export function readSfz(file, opts = {}) {
   const rootDir = path.dirname(file);
-  const vars = {};
+  const vars = { ...(opts.vars || {}) }; // opts.vars: values a host would #define (e.g. sample_dir)
   const text = preprocess(file, rootDir, vars);
   const blocks = parseOpcodes(text);
 
@@ -88,6 +89,7 @@ export function readSfz(file) {
 
   for (const b of blocks) {
     const h = b.header;
+    for (const [k, v] of Object.entries(opts.cc || {})) cc[+k] = v;
     if (h === 'control') {
       for (const [k, v] of Object.entries(b.ops)) {
         let mm;

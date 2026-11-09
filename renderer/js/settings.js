@@ -6,6 +6,8 @@ export const DEFAULTS = {
   velocity: 90,
   humanize: 8,
   sustainKey: 'Space',
+  softKey: 'ShiftLeft',     // left pedal (una corda)
+  sostKey: 'ControlLeft',   // middle pedal (sostenuto)
   pedalMode: 'hold',
   midiIn: true,
   metro: false,
@@ -34,6 +36,12 @@ export const DEFAULTS = {
   kbZoom: 1,
   noteColor: 'theme',
   scoreHands: true,
+  scoreFall: false,
+  introCard: true,          // title card before a score's first play
+  practiceHand: 'rh',       // practice: 'rh' | 'lh' | 'both'
+  practiceJudge: 'rhythm',  // 'rhythm' (any key plays the next notes) | 'pitch' (the right key)   // a loaded score's notes come down to the keys instead of rising after they play
+  rhColor: '#ffb27a', // score hand colours
+  lhColor: '#7fb0ff',
   barWidth: 1,
   bgImage: '',
   bgDim: 0.55,

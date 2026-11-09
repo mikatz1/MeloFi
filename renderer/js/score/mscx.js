@@ -180,7 +180,14 @@ export function parseMscx(xml, fallbackTitle = 'Score') {
   const score = doc.querySelector('Score');
   if (!score) throw new Error('MuseScore 파일에서 Score를 찾지 못했습니다.');
 
-  const title = [...score.querySelectorAll('metaTag')].find((m) => m.getAttribute('name') === 'workTitle')?.textContent?.trim() || fallbackTitle;
+  // title / composer: score properties first, else the title frame's text
+  const meta = (n) => [...score.querySelectorAll('metaTag')].find((m) => m.getAttribute('name') === n)?.textContent?.trim() || '';
+  const frameText = (style) => [...score.querySelectorAll('VBox > Text')].find((t) => t.querySelector('style')?.textContent?.trim().toLowerCase() === style)
+    ?.querySelector('text')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+  const realTitle = meta('workTitle') || frameText('title');
+  const title = realTitle || fallbackTitle;
+  const composer = frameText('composer') || meta('composer'); // the frame text is how the engraver wrote it
+  const subtitle = meta('subtitle') || frameText('subtitle');
 
   // parts and which staves belong to them
   const staffInfo = new Map();
@@ -461,6 +468,9 @@ export function parseMscx(xml, fallbackTitle = 'Score') {
   const toSec = tempoMap(buildTempos(tempos, fermatas));
   return {
     title,
+    composer,
+    subtitle,
+    hasTitle: !!realTitle,
     lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, notes: finishLine(l.notes, toSec) })).filter((l) => l.notes.length),
     pedals: pedals.sort((a, b) => a.tick - b.tick).map((p) => ({ t: toSec(p.tick), on: p.on })),
   };

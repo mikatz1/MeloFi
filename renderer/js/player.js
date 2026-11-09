@@ -119,6 +119,7 @@ export class ScorePlayer {
 
   setLine(id, on) {
     if (on) this.enabled.add(id); else this.enabled.delete(id);
+    this.app.updateFall?.();
     if (this.playing) { const p = this.now(); this.pause(); this.pos = p; this.play(); } else this.onChange();
   }
 
