@@ -6,3 +6,7 @@ instruments/_dl/
 instruments/*/s/
 # local test copies
 renderer/_test/
+server/data/
+native/JUCE/
+native/build/
+docs/*.wav

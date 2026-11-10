@@ -82,7 +82,7 @@ function trimPcm(pcm, startMs, lastEventMs) {
   return { left: pcm.left.subarray(start, end), right: pcm.right.subarray(start, end), rate: pcm.rate, offsetMs: (start / pcm.rate) * 1000 };
 }
 
-function mp3(pcm, kbps) {
+export function mp3(pcm, kbps) {
   return new Promise((res, rej) => {
     const w = new Worker('melofi://app/renderer/js/mp3-worker.js');
     w.onmessage = (e) => { w.terminate(); res(e.data); };

@@ -1,7 +1,8 @@
 // Each theme: background, note bars, light, particle palette and a "flavour"
 // that changes what kind of particles float up.
 //   blend: how light is composited ('lighter' for glowing themes, 'source-over' for ink)
-//   motes: extra ambient particle type — 'none' | 'petal' | 'ember' | 'snow' | 'ink'
+//   motes: extra ambient particle type — 'none' | 'petal' | 'ember' | 'snow' | 'ink' | 'bubble' | 'twinkle'
+//   grid / stars / rays: painted backdrops (retro sun + neon floor, starfield + nebula, light shafts)
 //   pixel: 8-bit look — particles are square pixels on a grid, notes are square-cut, no smooth wisps or mist
 
 export const THEMES = {
@@ -15,7 +16,7 @@ export const THEMES = {
     dust: '#5c56ff', haze: '#2f2ab8', wisp: '#b3adff',
     keyLit: '#9c95ff',
     blend: 'lighter', motes: 'none', bloom: 0.75,
-    white: ['#f2eee6', '#d6d0c3'], black: ['#1c1c20', '#060607'], felt: '#2a0b16',
+    white: ['#eeecf2', '#cfcbdc'], black: ['#1a1a26', '#05050a'], felt: '#2a0b16', keyEdge: '#6a62ff', blackRim: '#8c84ff',
   },
   ember: {
     name: 'Ember',
@@ -27,7 +28,7 @@ export const THEMES = {
     dust: '#ff7a2a', haze: '#a8300c', wisp: '#ffb066',
     keyLit: '#ff9a4a',
     blend: 'lighter', motes: 'ember', bloom: 0.8,
-    white: ['#f1ebe2', '#d3c9bb'], black: ['#1d1a18', '#070605'], felt: '#3a1205',
+    white: ['#f6ead7', '#d9c2a2'], black: ['#2a1a12', '#0c0604'], felt: '#3a1205', keyEdge: '#ff8a3c', blackRim: '#ff9a4a',
   },
   sakura: {
     name: '벚꽃',
@@ -39,7 +40,7 @@ export const THEMES = {
     dust: '#ff7fb5', haze: '#8a2357', wisp: '#ffb3d2',
     keyLit: '#ff9cc6',
     blend: 'lighter', motes: 'petal', bloom: 0.6,
-    white: ['#f4eeea', '#d9cfca'], black: ['#1e1a1d', '#070506'], felt: '#3b0d22',
+    white: ['#fbeef1', '#e6cbd3'], black: ['#3a1a2a', '#12060c'], felt: '#3b0d22', keyEdge: '#ff7fb0', blackRim: '#ff9cc6',
   },
   aurora: {
     name: 'Aurora',
@@ -51,7 +52,7 @@ export const THEMES = {
     dust: '#2fd8b0', haze: '#0b6c63', wisp: '#7affd8',
     keyLit: '#5cf2c4',
     blend: 'lighter', motes: 'none', bloom: 0.55, wispBoost: 2,
-    white: ['#eef1ec', '#cfd6cf'], black: ['#18201e', '#040706'], felt: '#06281f',
+    white: ['#eaf7f2', '#c4ddd5'], black: ['#0f2a26', '#030a09'], felt: '#06281f', keyEdge: '#2fe0b0', blackRim: '#5cf2c4',
   },
   snow: {
     name: '첫눈',
@@ -63,7 +64,7 @@ export const THEMES = {
     dust: '#7fb2ff', haze: '#1f416b', wisp: '#cfe4ff',
     keyLit: '#9cc6ff',
     blend: 'lighter', motes: 'snow', bloom: 0.4,
-    white: ['#f3f4f2', '#d4d8d9'], black: ['#1a1d22', '#05070a'], felt: '#14233a',
+    white: ['#f5f9fd', '#d2dce8'], black: ['#1d2838', '#06090e'], felt: '#14233a', keyEdge: '#a9cfff', blackRim: '#cfe4ff',
   },
   ink: {
     name: '먹',
@@ -93,6 +94,55 @@ export const THEMES = {
     keyLit: '#3cf0ff',
     blend: 'lighter', motes: 'none', bloom: 0.5, pixel: true,
     white: ['#ececec', '#c8c8d0'], black: ['#1a1a24', '#060608'], felt: '#3a0a2a',
+  },
+  synthwave: {
+    name: '신스웨이브',
+    bg: ['#0b0420', '#2a0b3d', '#52154a'],
+    lane: 'rgba(255,90,200,0.05)',
+    bar: '#ffe1f4', barGlow: '#ff2fa8',
+    hit: '#ffe9f6', hitLine: '#ff2fa8',
+    spark: ['#ffffff', '#ffd1f0', '#ff6ac8', '#34e7ff'],
+    dust: '#ff52c0', haze: '#7a1a6a', wisp: '#7af3ff',
+    keyLit: '#ff6ac8',
+    blend: 'lighter', motes: 'none', bloom: 0.85, grid: true,
+    white: ['#efeaf2', '#cfc6d8'], black: ['#1c1424', '#07040a'], felt: '#3a0a2e', keys: 'neon',
+  },
+  deepsea: {
+    name: '심해',
+    bg: ['#010812', '#03182a', '#062a40'],
+    lane: 'rgba(120,220,255,0.04)',
+    bar: '#d8f7ff', barGlow: '#1fb6ff',
+    hit: '#e6fbff', hitLine: '#2fd0ff',
+    spark: ['#ffffff', '#bff3ff', '#5fd8ff', '#2a9dff'],
+    dust: '#4cc8ff', haze: '#0a4a6e', wisp: '#9ff0ff',
+    keyLit: '#5fd8ff',
+    blend: 'lighter', motes: 'bubble', bloom: 0.6, rays: true,
+    white: ['#eef4f6', '#cbd9de'], black: ['#14202a', '#03080c'], felt: '#04263a', keys: 'glass',
+  },
+  space: {
+    name: '우주',
+    bg: ['#000004', '#04030f', '#0a0820'],
+    lane: 'rgba(180,170,255,0.035)',
+    bar: '#f2eeff', barGlow: '#8d6bff',
+    hit: '#ffffff', hitLine: '#b49bff',
+    spark: ['#ffffff', '#e3dcff', '#a993ff', '#ff9ed8'],
+    dust: '#9b8cff', haze: '#2b1f6b', wisp: '#d9ccff',
+    keyLit: '#a993ff',
+    blend: 'lighter', motes: 'twinkle', bloom: 0.7, stars: true,
+    white: ['#f0eef6', '#d0cbe0'], black: ['#16121f', '#050308'], felt: '#120a2a', keys: 'lacquer',
+  },
+  contrast: {
+    name: '고대비',
+    // for readability: black, white and one strong colour, nothing soft
+    bg: ['#000000', '#000000', '#000000'],
+    lane: 'rgba(255,255,255,0.12)',
+    bar: '#ffe600', barGlow: '#ffe600',
+    hit: '#ffffff', hitLine: '#ffffff',
+    spark: ['#ffffff', '#ffe600', '#ffe600', '#ffffff'],
+    dust: '#ffe600', haze: '#000000', wisp: '#ffffff',
+    keyLit: '#ffe600',
+    blend: 'lighter', motes: 'none', bloom: 0, sparse: true,
+    white: ['#ffffff', '#ffffff'], black: ['#000000', '#000000'], felt: '#ffffff', keys: 'contrast',
   },
   mono: {
     name: 'Mono',

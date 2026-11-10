@@ -1,0 +1,39 @@
+/* Start-up card: shown while the main window loads the audio engine, the screen and the samples.
+   A quiet gradient (charcoal into warm amber, a touch of teal) with a few thin lines like a waveform. */
+:root { --accent: #e0a440; --text: #d8d5ce; --dim: #8b8983; --faint: #5d5c58; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1013; color: var(--text);
+  font: 12.5px/1.45 "Segoe UI Variable Text", "Segoe UI", "Malgun Gothic", sans-serif; user-select: none; cursor: default; }
+.card {
+  position: relative; height: 100%; display: grid; grid-template-rows: 1fr auto; overflow: hidden;
+  border: 1px solid #25262c; -webkit-app-region: drag;
+  background:
+    radial-gradient(420px 260px at 92% -8%, rgba(224, 164, 64, .20), transparent 70%),
+    radial-gradient(380px 240px at -6% 108%, rgba(64, 150, 160, .12), transparent 70%),
+    linear-gradient(160deg, #13151a 0%, #101114 55%, #15130f 100%);
+}
+.lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lines .l { fill: none; stroke: rgba(236, 233, 226, .07); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lines .l2 { stroke: rgba(236, 233, 226, .05); }
+.lines .l3 { stroke: rgba(236, 233, 226, .035); }
+.lines .accent { stroke: rgba(224, 164, 64, .55); stroke-width: 1.2; stroke-dasharray: 640; stroke-dashoffset: 640; animation: draw 1.6s cubic-bezier(.3, .6, .2, 1) .15s forwards; }
+.lines .g { stroke: rgba(236, 233, 226, .035); stroke-width: 1; vector-effect: non-scaling-stroke; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .lines .accent { animation: none; stroke-dashoffset: 0; } }
+
+.head { position: relative; align-self: end; padding: 0 28px 20px; }
+.mark { width: 24px; height: 28px; fill: #ece9e2; display: block; margin-bottom: 12px; }
+.mark .line { fill: var(--accent); }
+.name { display: flex; align-items: baseline; gap: 10px; }
+.name b { font-size: 30px; font-weight: 600; letter-spacing: .005em; color: #f2efe8; }
+.name span { color: var(--dim); font-variant-numeric: tabular-nums; }
+.tag { margin-top: 2px; color: #a5a29b; letter-spacing: .01em; }
+.tag sup { font-size: 8px; margin-left: 1px; vertical-align: 5px; line-height: 0; }
+
+.status { position: relative; padding: 14px 28px 18px; border-top: 1px solid rgba(255, 255, 255, .06); background: rgba(10, 11, 14, .55); }
+.row { display: flex; justify-content: space-between; gap: 12px; }
+#label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pct { color: var(--dim); font-variant-numeric: tabular-nums; }
+.bar { height: 2px; margin-top: 8px; background: rgba(255, 255, 255, .07); }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .18s linear; }
+.detail { margin-top: 7px; min-height: 16px; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

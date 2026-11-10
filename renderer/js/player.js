@@ -47,8 +47,10 @@ export class ScorePlayer {
     this.song = song;
     this.events = song.lines.flatMap((l) => l.notes.map((n) => ({ ...n, line: l.id }))).sort((a, b) => a.t - b.t);
     this.pedals = song.pedals || [];
-    const piano = song.lines.filter((l) => l.piano);
-    this.enabled = new Set((piano.length ? piano : song.lines).map((l) => l.id));
+    // every part plays on its own instrument (app.prepareParts), so all of them are on, except
+    // sound effects that have nothing to play them
+    // (a part waiting for its instrument to download is on, and silent until it arrives)
+    this.enabled = new Set(song.lines.filter((l) => { const a = this.app.scoreParts?.get(l.id); return !(a && a.inst === null && !a.wanted); }).map((l) => l.id));
     this.hands = handsOf(song);
     this.pos = 0;
     this.onChange();

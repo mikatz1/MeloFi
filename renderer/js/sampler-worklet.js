@@ -63,9 +63,14 @@ class Sampler extends AudioWorkletProcessor {
       case 'on': {
         const s = this.samples.get(m.id);
         if (!s) { this.port.postMessage({ type: 'end', vid: m.vid }); break; }
+        // optional (studio): attack seconds, loop [start, end) frames, pan -1..1
+        const pan = m.pan || 0;
         const v = {
           vid: m.vid, s, pos: PAD + (m.off || 0), step: m.step, exact: m.step === 1,
-          amp: m.gain * SCALE, g: 0, atk: m.gain * SCALE / 96, rc: 1, releasing: false,
+          amp: m.gain * SCALE, g: 0, atk: m.gain * SCALE / (m.attack ? Math.max(96, m.attack * sampleRate) : 96), rc: 1, releasing: false,
+          ls: m.loop ? PAD + m.loop[0] : 0, le: m.loop ? PAD + m.loop[1] : 0,
+          pl: pan ? Math.cos((pan + 1) * Math.PI / 4) * Math.SQRT2 : 1, pr: pan ? Math.sin((pan + 1) * Math.PI / 4) * Math.SQRT2 : 1,
+          bendTo: 0, bendInc: 0,
           peak: 0, age: 0, quietFor: 0, quiet: false,
           // scheduled start (score playback / video rendering): sample frame to start on
           start: m.at ? Math.round(m.at * sampleRate) : currentFrame, wait: 0,
@@ -88,6 +93,18 @@ class Sampler extends AudioWorkletProcessor {
         }
         const rc = Math.exp(-1 / (Math.max(0.005, m.tau) * sampleRate));
         for (const v of this.voices) if (v.vid === m.vid) { v.releasing = true; v.rc = Math.min(v.rc === 1 ? rc : v.rc, rc); }
+        break;
+      }
+      case 'bend': { // glide a voice to a new pitch over `time` seconds
+        if (m.at && m.at > currentTime) {
+          const po = this.pendingOffs;
+          if (po.length && po[po.length - 1].at > m.at) { po.push(m); po.sort((a, b) => a.at - b.at); } else po.push(m);
+          break;
+        }
+        for (const v of this.voices) if (v.vid === m.vid) {
+          const n = Math.max(1, m.time * sampleRate);
+          v.exact = false; v.bendTo = m.step; v.bendInc = (m.step - v.step) / n;
+        }
         break;
       }
       case 'cancel': // drop everything scheduled but not yet sounding
@@ -131,7 +148,9 @@ class Sampler extends AudioWorkletProcessor {
       const { L, R, len } = v.s;
       const last = len - PAD;
       let pos = v.pos, g = v.g;
-      const step = v.step, amp = v.amp, atk = v.atk, rc = v.rc, rel = v.releasing;
+      let step = v.step;
+      const amp = v.amp, atk = v.atk, rc = v.rc, rel = v.releasing, le = v.le, pl = v.pl, pr = v.pr;
+      let binc = v.bendInc;
       let done = false;
       let blockPeak = 0;
       let i0 = 0;
@@ -155,14 +174,16 @@ class Sampler extends AudioWorkletProcessor {
           l = 0; r = 0;
           for (let j = 0; j < TAPS; j++) { const w = K[ko + j]; l += L[o + j] * w; r += R[o + j] * w; }
           pos += step;
+          if (binc) { step += binc; if ((binc > 0 && step >= v.bendTo) || (binc < 0 && step <= v.bendTo)) { step = v.bendTo; v.bendInc = 0; binc = 0; } }
         }
-        const yl = l * g, yr = r * g;
+        if (le && pos >= le && !rel) pos -= le - v.ls;
+        const yl = l * g * pl, yr = r * g * pr;
         oL[i] += yl;
         oR[i] += yr;
         const a = (yl < 0 ? -yl : yl) + (yr < 0 ? -yr : yr);
         if (a > blockPeak) blockPeak = a;
       }
-      v.pos = pos; v.g = g;
+      v.pos = pos; v.g = g; v.step = step;
       // Audibility: once the voice has fallen ~30 dB under its attack peak it
       // reads as finished, even if the sample keeps a faint tail.
       if (!v.quiet && !done) {

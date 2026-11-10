@@ -1,0 +1,1 @@
+{"name":"Log Drum","model":"로그 드럼 (아마피아노)","maker":"MeloFi (synthesised)","license":"CC0","url":"https://github.com/mikatz1/MeloFi","strings":false,"gain":1,"order":28,"family":"bass","credit":"Log Drum — rendered by MeloFi from its own synth patch. CC0.","tags":["pop","kpop"],"use":"아마피아노·아프로비츠 비트용 로그 드럼","procedural":{"patch":"logdrum","step":3,"layers":2,"lo":24,"hi":72}}

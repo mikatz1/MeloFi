@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { readSfz } from './sfz.mjs';
 import { fetchLib } from './fetch-lib.mjs';
 import { vcslMap } from './vcsl-map.mjs';
+import { POP_LIBS } from './libs-pop.mjs';
+import { TAGS } from './tags.mjs';
+import { retune } from './retune.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DL = path.join(ROOT, 'instruments', '_dl');
@@ -75,6 +78,68 @@ export const LIBS = {
     sfz: 'VCSL-master/_melofi/harp.sfz',
     gen: (blobs) => vcslMap(blobs, 'Chordophones/Composite Chordophones/Concert Harp/', /^KSHarp_([A-G]#?-?\d)_(p|mf|f)\d\.wav$/, { layers: ['p', 'mf', 'f'], release: 0.8, file: 'harp' }),
   },
+  // ---- for the studio: winds, mallets, organ, strings, acoustic drums ----
+  // (VCSL names these with C3 = middle C; every mapping checked with tools/check-pitch.mjs)
+  organ: {
+    order: 50, family: 'organ', name: 'Pipe Organ', model: '파이프 오르간', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/organ.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Aerophones/Edge-blown Aerophones/Pipe Organ/Loud/', /^Rode_Man3Open_([A-G]#?-?\d)\.wav$/, { release: 0.5, file: 'organ' }),
+  },
+  tenorsax: {
+    order: 60, family: 'winds', name: 'Tenor Saxophone', model: '테너 색소폰', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/tenorsax.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Aerophones/Reed Aerophones/Tenor Saxophone/Non-Vibrato/', /^BrettTenor_NV_Main_([A-G]#?-?\d)_vl(\d)_rr1\.wav$/, { release: 0.25, file: 'tenorsax', c3: true }),
+  },
+  recorder: {
+    order: 61, family: 'winds', name: 'Alto Recorder', model: '리코더', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/recorder.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Aerophones/Edge-blown Aerophones/Baroque Alto Recorder/Sustain/', /^AltRecorder_Sus_([A-G]#?-?\d)_rr1_Main\.wav$/, { release: 0.15, file: 'recorder', c3: true }),
+  },
+  harmonica: {
+    order: 62, family: 'winds', name: 'Harmonica', model: '하모니카', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/harmonica.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Aerophones/Free Aerophones/Harmonica-Hohner-Special20-C/Sustains/Normal/', /^Hohner-Special20_Normal_([A-G]#?-?\d)\.wav$/, { release: 0.15, file: 'harmonica', c3: true }),
+  },
+  vibraphone: {
+    order: 70, family: 'mallets', name: 'Vibraphone', model: '비브라폰', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/vibraphone.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Idiophones/Struck Idiophones/Vibraphone/Hard Mallets/', /^Vibes_hard_([A-G]#?-?\d)_v(\d)_rr1_Main\.wav$/, { release: 0.8, file: 'vibraphone', c3: true }),
+  },
+  marimba: {
+    order: 71, family: 'mallets', name: 'Marimba', model: '마림바', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/marimba.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Idiophones/Struck Idiophones/Marimba/', /^Marimba_hit_Outrigger_([A-G]#?-?\d)_(soft|med|loud)_01\.wav$/, { layers: ['soft', 'med', 'loud'], release: 0.4, file: 'marimba', c3: true }),
+  },
+  glockenspiel: {
+    order: 72, family: 'mallets', name: 'Glockenspiel', model: '글로켄슈필', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/glockenspiel.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Idiophones/Struck Idiophones/Glockenspiel/', /^glock_loud_([A-G]#?-?\d)_01\.wav$/, { release: 0.8, file: 'glockenspiel', c3: true }),
+  },
+  xylophone: {
+    order: 73, family: 'mallets', name: 'Xylophone', model: '실로폰', maker: 'Versilian Studios (VCSL)',
+    license: 'CC0', url: 'https://github.com/sgossner/VCSL', strings: false,
+    sfz: 'VCSL-master/_melofi/xylophone.sfz',
+    gen: (blobs) => vcslMap(blobs, 'Idiophones/Struck Idiophones/Xylophone/Hard Mallets/', /^Xylo_Hard_([A-G]#?-?\d)_(pp|ff)_01_far\.wav$/, { layers: ['pp', 'ff'], release: 0.3, file: 'xylophone', c3: true }),
+  },
+  cello: {
+    order: 32, family: 'strings', name: 'Cello', model: '첼로', maker: 'Karoryfer Samples & Bigcat Instruments',
+    license: 'CC0', url: 'https://github.com/sfzinstruments/karoryfer-bigcat.cello',
+    sfz: 'karoryfer-bigcat.cello-master/Programs/01- Bowed (velocity layer).sfz', strings: false,
+    filter: (r) => r.lo < 84, // noises parked on the top keys
+    shift: 12, // mapped an octave low (lowest key C1; a cello's lowest string is C2) — checked by spectrum
+  },
+  acousticdrums: {
+    order: 42, family: 'drums', name: "Sam's Sonor Kit", model: '어쿠스틱 드럼', maker: 'Sam Greene · SFZ by kinwie',
+    license: 'CC BY-SA 4.0', url: 'https://github.com/sfzinstruments/SamsSonor',
+    sfz: 'SamsSonor-master/SamsSonor.sfz', strings: false, kit: true,
+  },
   acoustic: {
     order: 20, family: 'guitar', name: 'Shinyguitar Acoustic', model: '어쿠스틱 기타', maker: 'Karoryfer Samples',
     license: 'CC0', url: 'https://github.com/sfzinstruments/karoryfer.shinyguitar',
@@ -102,6 +167,8 @@ export const LIBS = {
     filter: (r) => !(r.lv === 1 && r.hv === 127),
   },
 };
+
+Object.assign(LIBS, POP_LIBS);
 
 function run(cmd, args) {
   return new Promise((res, rej) => {
@@ -135,6 +202,13 @@ export function respanKeys(regions) {
 }
 
 // Velocity bands must tile 1..127 with no holes.
+// drum kits: every key has its own velocity layers; tile each key's bands to 1..127 separately
+export function tileVelocityPerKey(regions) {
+  const byKey = new Map();
+  for (const r of regions) { const k = `${r.lo}-${r.hi}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(r); }
+  return [...byKey.values()].flatMap((list) => tileVelocity(list));
+}
+
 export function tileVelocity(regions) {
   const bands = [...new Set(regions.map((r) => r.lv))].sort((a, b) => a - b);
   const hiOf = new Map(regions.map((r) => [r.lv, r.hv]));
@@ -169,7 +243,7 @@ async function build(id) {
   let regions = readSfz(sfzPath, { cc: cfg.cc, vars: cfg.vars }).filter((r) => r.hi >= 0 && r.lo <= 127);
   if (cfg.filter) regions = regions.filter(cfg.filter);
   if (cfg.shift) regions = regions.map((r) => ({ ...r, lo: r.lo + cfg.shift, hi: r.hi + cfg.shift, center: r.center + cfg.shift }));
-  regions = tileVelocity(respanKeys(regions));
+  regions = cfg.kit ? tileVelocityPerKey(regions) : tileVelocity(respanKeys(regions));
 
   const outDir = path.join(ROOT, 'instruments', id);
   fs.rmSync(outDir, { recursive: true, force: true });
@@ -213,6 +287,9 @@ async function build(id) {
     strings: cfg.strings !== false,
     samples,
     family: cfg.family || 'piano',
+    tags: cfg.tags || TAGS[id]?.[0] || [],
+    use: cfg.use || TAGS[id]?.[1] || '',
+    ...(cfg.keys ? { keys: cfg.keys } : {}),
     source: { repo, branch, archive: `https://codeload.github.com/${repo}/zip/refs/heads/${branch}`, root: top, bytes: srcBytes, files: srcFiles },
     regions: regions
       .sort((a, b) => a.lo - b.lo || a.lv - b.lv)
@@ -222,6 +299,7 @@ async function build(id) {
       })),
   };
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest));
+  if (cfg.retune) retune(id);
   const layers = new Set(regions.map((r) => r.lv)).size;
   console.log(`${id}: ${layers} layers, ${files.length} samples, ${(bytes / 1e6).toFixed(0)} MB FLAC, ${(seconds / 60).toFixed(1)} ch-min audio, gain ${manifest.gain}`);
 }

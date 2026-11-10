@@ -1,0 +1,1 @@
+{"name":"Clavinet","model":"클라비넷","maker":"MeloFi (synthesised)","license":"CC0","url":"https://github.com/mikatz1/MeloFi","strings":false,"gain":1,"order":13,"family":"keys","credit":"Clavinet — rendered by MeloFi from its own synth patch. CC0.","tags":["pop","jpop"],"use":"펑크·디스코·시티팝 리듬 기타처럼 치는 클라비넷","procedural":{"patch":"clavinet","step":3,"layers":2}}

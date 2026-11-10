@@ -5,6 +5,7 @@
 // to disk. It runs faster or slower than real time depending on the machine; nothing is dropped.
 import { Engine } from './audio.js';
 import { Stage } from './stage.js';
+import { dbFromSamples } from './spectrum.js';
 import { Muxer, StreamTarget } from '../../node_modules/mp4-muxer/build/mp4-muxer.mjs';
 
 const SR = 48000;
@@ -36,12 +37,15 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
   const progress = ui.progress || (() => {});
   const cancelled = ui.cancelled || (() => false);
   const P = app.player, v = app.settings.v;
-  const song = P.song;
+  // ui.source (the composer): { title, duration, notes: [{ t, d, n, v, color }], render(lead, dur, progress) -> AudioBuffer }
+  const src = ui.source || null;
+  const song = src ? { title: src.title, duration: src.duration, pedals: [] } : P.song;
   const width = Math.round((height * 16) / 9 / 2) * 2;
 
   // ---- what to play ----
   const notes = [];
-  for (const l of song.lines) {
+  if (src) for (const n of src.notes) { if (n.n >= 21 && n.n <= 108) notes.push({ ...n, t: n.t + LEAD }); }
+  else for (const l of song.lines) {
     if (!P.enabled.has(l.id)) continue;
     for (const n of l.notes) if (n.n >= 21 && n.n <= 108) notes.push({ t: n.t + LEAD, d: n.d, n: n.n, v: n.v, color: app.lineColor(l.id, n.n) });
   }
@@ -53,6 +57,11 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
 
   // ---- audio, offline ----
   progress('audio', 0);
+  let audio;
+  if (src) audio = await src.render(LEAD, dur, (p) => progress('audio', p));
+  else audio = await pianoAudio();
+  if (cancelled() || !audio) return null;
+  async function pianoAudio() {
   const octx = new OfflineAudioContext(2, Math.ceil(dur * SR), SR);
   const eng = new Engine(octx);
   await eng.init();
@@ -78,8 +87,8 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
   // pedal resonance follows the pedal, as live
   for (const p of pedals) eng.resGate.gain.setTargetAtTime(p.on ? 1 : 0, p.t, p.on ? 0.03 : 0.09);
   const tick = setInterval(() => progress('audio', Math.min(0.99, octx.currentTime / dur)), 200);
-  const audio = await octx.startRendering().finally(() => clearInterval(tick));
-  if (cancelled()) return null;
+  return octx.startRendering().finally(() => clearInterval(tick));
+  }
 
   // ---- encoders + file ----
   const vcfg = await pickVideoConfig(width, height, fps);
@@ -120,7 +129,7 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
     st.setTheme(v.theme, v.customTheme);
     st.setOptions({
       visualizer: true, particles: 'high', bloom: v.bloom, speed: v.speed, labels: 'none', range: v.range,
-      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: app.zoomNow(), fit: app.stage.opts.fit, center: app.stage.opts.center, fxExtra: v.fxExtra,
+      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: app.zoomNow(), fit: app.stage.opts.fit, center: app.stage.opts.center, fxExtra: v.fxExtra, spec: app.specOpts(v),
     });
     if (v.bgImage) {
       st.setBackground(v.bgImage);
@@ -154,6 +163,7 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
         else if (e.k === 2) st.soundOff(e.x.n);
         else st.setPedal(e.on);
       }
+      if (v.spectrum) st.spec.update(dbFromSamples(L, R, Math.round(tf * SR) - 2048, 4096), SR, v.specBars, v.specSmooth, 1 / fps);
       st.frame(tf * 1000);
       const frame = new VideoFrame(canvas, { timestamp: Math.round(tf * 1e6), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: f % (fps * 2) === 0 });

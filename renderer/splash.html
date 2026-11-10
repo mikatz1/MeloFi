@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' melofi:; style-src 'self' 'unsafe-inline' melofi:; img-src 'self' melofi: data:; script-src 'self' melofi:">
+  <title>MeloFi</title>
+  <link rel="stylesheet" href="splash.css">
+</head>
+<body>
+<div class="card">
+  <svg class="lines" viewBox="0 0 560 330" preserveAspectRatio="none" aria-hidden="true">
+    <path class="l l1" d="M-20 174 C 110 134, 210 206, 330 152 S 520 88, 590 114"/>
+    <path class="l l2" d="M-20 192 C 120 160, 230 224, 350 174 S 530 116, 590 136"/>
+    <path class="l l3" d="M-20 210 C 130 186, 250 238, 370 196 S 540 142, 590 158"/>
+    <path class="l accent" d="M-20 156 C 100 108, 200 190, 310 132 S 510 60, 590 90"/>
+    <line class="g" x1="0" y1="64" x2="560" y2="64"/>
+    <line class="g" x1="0" y1="128" x2="560" y2="128"/>
+  </svg>
+  <div class="head">
+    <svg class="mark" viewBox="56 48 144 168" aria-hidden="true"><rect x="74" y="88" width="26" height="104" rx="13"/><rect x="115" y="56" width="26" height="136" rx="13"/><rect x="156" y="110" width="26" height="82" rx="13"/><rect class="line" x="64" y="200" width="128" height="9" rx="4.5"/></svg>
+    <div class="name"><b>MeloFi</b><span id="ver"></span></div>
+    <div class="tag">Note your idea with MeloFi<sup>™</sup></div>
+  </div>
+  <div class="status">
+    <div class="row"><span id="label">시작하는 중…</span><span id="pct">0%</span></div>
+    <div class="bar"><i id="fill"></i></div>
+    <div id="detail" class="detail"></div>
+  </div>
+</div>
+<script type="module" src="js/splash.js"></script>
+</body>
+</html>

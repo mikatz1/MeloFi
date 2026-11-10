@@ -62,6 +62,10 @@ export function parseMidi(bytes, fallbackTitle = 'MIDI') {
 
   const lines = [];
   const pedals = [];
+  // a channel's first program change anywhere in the file (format-1 files often set them in a
+  // track of their own)
+  const chanProg = new Map();
+  for (const tr of tracks) for (const e of tr.events) if (e.type === 0xc0 && !chanProg.has(e.ch)) chanProg.set(e.ch, e.a);
   tracks.forEach((tr, ti) => {
     const prog = new Map();
     const open = new Map();
@@ -83,10 +87,10 @@ export function parseMidi(bytes, fallbackTitle = 'MIDI') {
       }
     }
     for (const [ch, notes] of byCh) {
-      const pg = prog.get(ch) ?? 0;
+      const pg = prog.get(ch) ?? chanProg.get(ch) ?? 0;
       const name = tr.name || (ch === 9 ? 'Drums' : GM[pg] || `Track ${ti + 1}`);
       const piano = ch !== 9 && (pg <= 7 || PIANO_RE.test(tr.name));
-      lines.push({ name: byCh.size > 1 ? `${name} (ch ${ch + 1})` : name, piano, ch, notes: notes.sort((a, b) => a.t - b.t || a.n - b.n) });
+      lines.push({ name: byCh.size > 1 ? `${name} (ch ${ch + 1})` : name, piano, ch, program: ch === 9 ? null : pg, notes: notes.sort((a, b) => a.t - b.t || a.n - b.n) });
     }
   });
 
@@ -94,7 +98,7 @@ export function parseMidi(bytes, fallbackTitle = 'MIDI') {
   return {
     title: title || fallbackTitle,
     hasTitle: !!title,
-    lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, notes: l.notes })),
+    lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, drum: l.ch === 9, program: l.program, notes: l.notes })),
     pedals: pedals.filter((pd) => pianoCh.has(pd.ch)).sort((a, b) => a.t - b.t).map(({ t, on }) => ({ t, on })),
   };
 }
