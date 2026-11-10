@@ -4,9 +4,10 @@
 //                                   ├─ hp ─ hall ─ wet ───────────────┤
 //                                   └─ resonance ─ pedal gate ─ level ┴─ master ─ limiter ─ out
 import { buildResonance } from './resonance.js';
+import { expand, renderSample } from './synth-gen.js';
 
-const BASE = 'melofi://app/instruments/';
-const PAD = 17; // must match PAD in sampler-worklet.js (TAPS / 2 + 1)
+export const BASE = 'melofi://app/instruments/';
+export const PAD = 17; // must match PAD in sampler-worklet.js (TAPS / 2 + 1)
 const MAX_VOICES = 80;
 
 // Reverb spaces: tail length, how fast highs die, pre-delay, early reflection spread.
@@ -16,7 +17,7 @@ export const ROOMS = {
   church: { seconds: 5.0, decay: 0.75, dark: 0.88, pre: 0.028, taps: [0.031, 0.047, 0.071, 0.097] },
 };
 
-function makeImpulse(ctx, kind = 'hall') {
+export function makeImpulse(ctx, kind = 'hall') {
   // Synthetic space: sparse early reflections, then a darkening exponential tail.
   const R = ROOMS[kind] || ROOMS.hall;
   const rate = ctx.sampleRate;
@@ -44,7 +45,7 @@ function makeImpulse(ctx, kind = 'hall') {
 // default (resonance = 0.5) about 20 dB under it.
 const RES_UNITY = Math.pow(10, -45 / 20) * 2;
 
-function toInt16(src, out) {
+export function toInt16(src, out) {
   // TPDF dither; noise floor sits ~96 dB down.
   for (let i = 0; i < src.length; i++) {
     let v = src[i] * 32767 + (Math.random() - Math.random());
@@ -52,6 +53,19 @@ function toInt16(src, out) {
     out[i + PAD] = Math.round(v);
   }
   return out;
+}
+
+// the no-lookahead safety limiter (renderer/js/limiter-worklet.js, loaded into the context first)
+// GM drum numbers a kit may lack, and what to play instead (nearest sound of the same kind)
+const GM_FALLBACK = {
+  35: [36], 36: [35], 37: [38, 39], 39: [38], 40: [38], 41: [43, 45], 43: [41, 45], 44: [42, 46], 45: [47, 43], 47: [45, 48], 48: [50, 47], 50: [48],
+  49: [57, 55, 52], 51: [59, 53], 52: [49, 57], 53: [51, 59], 54: [39, 42, 70], 55: [49, 57], 56: [75, 37], 57: [49, 55], 59: [51, 53],
+  60: [62, 48], 61: [64, 47], 62: [60, 48], 63: [62, 48], 64: [61, 45], 65: [41], 66: [43], 67: [76, 37], 68: [77, 37], 69: [70, 42], 70: [69, 42],
+  71: [42], 72: [46], 73: [42], 74: [46], 75: [37], 76: [37], 77: [37], 78: [42], 79: [46], 80: [42], 81: [46], 82: [70, 42],
+};
+
+export function safetyLimiter(ctx) {
+  return new AudioWorkletNode(ctx, 'melofi-limiter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' });
 }
 
 export class Engine {
@@ -93,13 +107,9 @@ export class Engine {
     this.resEnabled = true;
 
     this.master = c.createGain();
-    // Safety limiter only: levels are set so it rarely engages.
-    this.limiter = c.createDynamicsCompressor();
-    this.limiter.threshold.value = -1.5;
-    this.limiter.knee.value = 0;
-    this.limiter.ratio.value = 20;
-    this.limiter.attack.value = 0.001;
-    this.limiter.release.value = 0.12;
+    // Safety limiter only: levels are set so it rarely engages. A pass-through until init() swaps in
+    // the no-lookahead worklet (the browser's compressor would add 6 ms to every note).
+    this.limiter = c.createGain();
     this.out = c.createGain();
 
     this.input.connect(this.bass).connect(this.tone);
@@ -117,6 +127,13 @@ export class Engine {
     // output meters
     const split = c.createChannelSplitter(2);
     this.out.connect(split);
+    // spectrum for the background visualiser
+    this.specNode = c.createAnalyser();
+    this.specNode.fftSize = 4096;
+    this.specNode.smoothingTimeConstant = 0;
+    this.out.connect(this.specNode);
+    this.specBuf = new Float32Array(this.specNode.frequencyBinCount);
+
     this.meters = [0, 1].map((i) => {
       const a = c.createAnalyser();
       a.fftSize = 1024;
@@ -139,6 +156,12 @@ export class Engine {
 
   async init() {
     await this.ctx.audioWorklet.addModule('melofi://app/renderer/js/sampler-worklet.js');
+    await this.ctx.audioWorklet.addModule('melofi://app/renderer/js/limiter-worklet.js');
+    const lim = safetyLimiter(this.ctx);
+    this.master.disconnect();
+    this.limiter.disconnect();
+    this.master.connect(lim).connect(this.out);
+    this.limiter = lim;
     this.node = new AudioWorkletNode(this.ctx, 'melofi-sampler', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     this.node.connect(this.input);
     this.node.port.onmessage = (e) => {
@@ -214,6 +237,7 @@ export class Engine {
       const res = await fetch(`${BASE}${id}/manifest.json`);
       if (!res.ok) throw new Error(`manifest ${id}: ${res.status}`);
       m = await res.json();
+      if (m.procedural) m = expand(m); // synthesised: samples are rendered here, not downloaded
     }
     const switching = this.inst?.id !== id;
     let regs = m.regions.filter((r) => r.hv >= vlo && r.lv <= vhi);
@@ -237,9 +261,13 @@ export class Engine {
       while (i < todo.length) {
         const s = todo[i++];
         const meta = m.samples[s];
-        const ab = await (await fetch(`${BASE}${id}/${s}`)).arrayBuffer();
-        if (token !== this.loadToken) return;
-        const buf = await this.decoder(meta.rate, meta.ch).decodeAudioData(ab);
+        let buf;
+        if (m.procedural) buf = await renderSample(m, s);
+        else {
+          const ab = await (await fetch(`${BASE}${id}/${s}`)).arrayBuffer();
+          if (token !== this.loadToken) return;
+          buf = await this.decoder(meta.rate, meta.ch).decodeAudioData(ab);
+        }
         if (token !== this.loadToken) return;
         const n = buf.length + PAD * 2;
         const L = toInt16(buf.getChannelData(0), new Int16Array(n));
@@ -276,6 +304,79 @@ export class Engine {
     }
     this.wantNow = want;
     return true;
+  }
+
+  // Part instruments: other instruments loaded next to the piano, for scores with several parts
+  // (a MIDI file's strings, bass, drums…). Their samples live in the worklet under "part:" ids, so
+  // changing the piano keeps them. Each part keeps the velocity layers that fit its memory budget.
+  async loadPart(id, { budgetMB = 120 } = {}) {
+    this.parts ||= new Map();
+    if (this.parts.has(id)) return this.parts.get(id).ready;
+    const part = { id, manifest: null, byKey: null, names: [] };
+    part.ready = (async () => {
+      const res = await fetch(`${BASE}${id}/manifest.json`);
+      if (!res.ok) throw new Error(`manifest ${id}: ${res.status}`);
+      let m = await res.json();
+      if (m.procedural) m = expand(m);
+      let regs = m.regions;
+      const bands = [...new Set(regs.map((r) => r.lv))].sort((a, b) => a - b);
+      const bytes = (list) => [...new Set(list.map((r) => r.s))].reduce((t, x) => { const q = m.samples[x]; return t + q.dur * q.rate * q.ch * 2; }, 0);
+      for (let n = bands.length; n >= 1; n--) {
+        const pick = new Set(n === 1 ? [bands[Math.floor(bands.length / 2)]] : Array.from({ length: n }, (_, k) => bands[Math.round((k * (bands.length - 1)) / (n - 1))]));
+        const sel = regs.filter((r) => pick.has(r.lv));
+        if (n === 1 || bytes(sel) <= budgetMB * 1e6) { regs = sel; break; }
+      }
+      const names = [...new Set(regs.map((r) => r.s))];
+      let i = 0;
+      const worker = async () => {
+        while (i < names.length) {
+          const x = names[i++], meta = m.samples[x];
+          const buf = m.procedural ? await renderSample(m, x)
+            : await this.decoder(meta.rate, meta.ch).decodeAudioData(await (await fetch(`${BASE}${id}/${x}`)).arrayBuffer());
+          const len = buf.length + PAD * 2;
+          const L = toInt16(buf.getChannelData(0), new Int16Array(len));
+          const R = buf.numberOfChannels > 1 ? toInt16(buf.getChannelData(1), new Int16Array(len)) : null;
+          this.node.port.postMessage({ type: 'sample', id: `part:${id}:${x}`, L, R }, R ? [L.buffer, R.buffer] : [L.buffer]);
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
+      const byKey = Array.from({ length: 128 }, () => []);
+      for (const r of regs) for (let k = Math.max(0, r.lo); k <= Math.min(127, r.hi); k++) byKey[k].push(r);
+      for (const list of byKey) list.sort((a, b) => a.lv - b.lv);
+      Object.assign(part, { manifest: m, byKey, names });
+      return true;
+    })();
+    this.parts.set(id, part);
+    part.ready.catch(() => this.parts.delete(id));
+    return part.ready;
+  }
+
+  // free the part instruments a closed score no longer needs
+  dropParts(keep = []) {
+    for (const [id, part] of this.parts || []) {
+      if (keep.includes(id)) continue;
+      this.node.port.postMessage({ type: 'drop', ids: part.names.map((x) => `part:${id}:${x}`) });
+      this.parts.delete(id);
+    }
+  }
+
+  // A note on a part instrument, scheduled at `at` for `dur` seconds. drum: a GM drum number on a
+  // kit (missing ones fall back to the nearest sound of the same kind) that rings out on its own.
+  partNote(id, note, vel, at, dur, drum = false, shift = 0) {
+    const part = this.parts?.get(id);
+    if (!part?.byKey) return;
+    let key = note;
+    if (!part.byKey[key]?.length) key = drum ? (GM_FALLBACK[note] || (note < 35 ? [36, 35] : [42, 46])).find((x) => part.byKey[x]?.length) : null;
+    if (key == null) return;
+    const list = part.byKey[key];
+    const r = list.find((x) => vel >= x.lv && vel <= x.hv)
+      || list.reduce((b, x) => (Math.abs((x.lv + x.hv) / 2 - vel) < Math.abs((b.lv + b.hv) / 2 - vel) ? x : b));
+    const meta = part.manifest.samples[r.s];
+    const x = vel / 127;
+    const step = Math.pow(2, ((drum ? key + shift : note) - r.c) / 12 + r.t / 1200) * (meta.rate / this.ctx.sampleRate);
+    const vid = this.nextVid++;
+    this.node.port.postMessage({ type: 'on', vid, id: `part:${id}:${r.s}`, step, gain: (this.partGain ?? 1) * part.manifest.gain * r.g * (0.4 + 0.6 * x * x), off: r.off, at });
+    if (!drum) this.node.port.postMessage({ type: 'off', vid, tau: Math.max(0.03, (r.r || 0.3) / 4), at: (at || this.ctx.currentTime) + Math.max(0.05, dur) });
   }
 
   region(note, vel) {

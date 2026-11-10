@@ -5,6 +5,8 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' melofi:; script-src 'self' melofi:; style-src 'self' 'unsafe-inline' melofi:; img-src 'self' data: blob: melofi:; media-src 'self' blob: melofi:; connect-src 'self' melofi:; worker-src 'self' melofi:">
 <title>MeloFi</title>
 <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="studio/studio.css">
+  <link rel="stylesheet" href="studio/studio2.css">
 </head>
 <body>
 <header id="bar">
@@ -12,9 +14,13 @@
 
   <nav class="menubar">
     <button data-menu="file" data-t="menu.file"></button>
+    <button data-menu="score" data-t="menu.score"></button>
+    <button data-menu="rec" data-t="menu.rec"></button>
     <button data-menu="sound" data-t="menu.sound"></button>
+    <button data-menu="view" data-t="menu.view"></button>
     <button data-menu="settings" data-t="menu.settings"></button>
   </nav>
+  <button id="studioBtn" class="studio-btn" data-t="menu.studioWindow"></button>
 
   <div class="readout">
     <div class="cell rec" id="recCell" hidden><span class="dot"></span><b id="recTime">00:00</b><em id="recFmt"></em></div>
@@ -42,9 +48,9 @@
   <input type="range" id="tpSeek" min="0" max="1000" step="1" value="0">
   <span class="tp-time" id="tpDur">0:00</span>
   <div class="tp-rate"><button class="btn" id="tpSlower">−</button><b id="tpRate">100%</b><button class="btn" id="tpFaster">+</button></div>
-  <button class="btn" id="tpPractice"></button>
   <button class="btn" id="tpParts"></button>
   <button class="btn" id="tpMidi"></button>
+  <button class="tp-btn" id="tpHide"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 7.5 6 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>
   <button class="x" id="tpClose"></button>
 </div>
 
@@ -62,24 +68,6 @@
   <div id="intro" hidden>
     <div class="in"><div class="sub"></div><h1 class="t"></h1><i class="rule"></i><div class="c"></div></div>
     <label class="never"><input type="checkbox"><span data-t="intro.never"></span></label>
-  </div>
-  <div id="hud" hidden><b class="grade"></b><span class="acc"></span><span class="combo"></span><div class="judge"></div></div>
-  <div id="result" hidden>
-    <div class="card">
-      <div class="big"></div>
-      <dl>
-        <dt data-t="practice.accuracy"></dt><dd class="acc"></dd>
-        <dt data-t="practice.score"></dt><dd class="score"></dd>
-        <dt data-t="practice.maxCombo"></dt><dd class="combo"></dd>
-      </dl>
-      <ul class="counts">
-        <li data-kind="perfect"><span data-t="practice.perfect"></span><b class="n-perfect"></b></li>
-        <li data-kind="great"><span data-t="practice.great"></span><b class="n-great"></b></li>
-        <li data-kind="good"><span data-t="practice.good"></span><b class="n-good"></b></li>
-        <li data-kind="miss"><span data-t="practice.miss"></span><b class="n-miss"></b></li>
-      </ul>
-      <div class="row"><button class="btn" data-act="again" data-t="practice.again"></button><button class="btn" data-act="close" data-t="practice.close"></button></div>
-    </div>
   </div>
 </main>
 
@@ -121,6 +109,13 @@
   <div class="sheet-card mixer-card">
     <div class="sheet-head"><h2 data-t="mixer.title"></h2><button class="x" data-close aria-label="닫기"></button></div>
     <div class="mixer-body"></div>
+  </div>
+</section>
+
+<section id="store" class="sheet" hidden>
+  <div class="sheet-card store-card">
+    <div class="sheet-head"><h2 data-t="store.title"></h2><button class="x" aria-label="닫기"></button></div>
+    <div class="store-main"></div>
   </div>
 </section>
 

@@ -1,3 +1,5 @@
+import { fitToPiano, unfitPiano } from './score/range.js';
+import { instrumentFor, kitFor, drumHit } from './gm.js';
 import { Settings, DEFAULTS } from './settings.js';
 import { Engine } from './audio.js';
 import { Stage } from './stage.js';
@@ -17,15 +19,23 @@ export const ZOOMS = [1, 1.25, 1.5, 2, 3];
 export const TOUCH_STEPS = [24, 40, 56, 72, 88, 100, 112, 120, 127]; // number keys 1-9
 const SOFT = 0.72; // soft pedal: velocity scale
 import { HAND_COLORS } from './app-colors.js';
-import { Practice } from './practice.js';
+import { Studio } from '../studio/ui/studio.js';
+import { Store } from './store.js';
 import { renderVideo } from './render-video.js';
 
 class App {
+  // Start-up runs while the window is still hidden behind the start-up card (main.js): every slow
+  // thing — the audio worklets, the renderer, the background picture, the instrument's samples, the
+  // video encoder — is done here, so nothing stalls once the window shows. Each step is reported.
   async start() {
+    const boot = (p, label, detail = '') => window.melofi.bootProgress?.({ p, label, detail });
+    const studioWin = new URLSearchParams(location.search).has('studio');
+    boot(0.02, '설정을 불러오는 중…');
     this.settings = new Settings();
     await this.settings.load();
     this.env = await window.melofi.envInfo();
     this.instruments = await window.melofi.listInstruments();
+    boot(0.07, '오디오 엔진을 준비하는 중…', '샘플러 · 리미터 · 리버브');
     this.dl = new Map(); // instrument id -> download progress 0..1
     this.recent = [];
     this.loadRecent();
@@ -33,20 +43,33 @@ class App {
 
     this.engine = new Engine();
     await this.engine.init();
+    boot(0.13, '화면을 준비하는 중…');
     this.stage = new Stage(document.getElementById('stage'), { gpu: this.settings.get('gpu') });
     console.log('renderer:', this.stage.renderer);
+    const bg = this.settings.get('bgImage');
+    if (bg) await new Promise((r) => { const im = new Image(); im.onload = im.onerror = r; im.src = bg; }); // decoded before the first frame
     this.engine.onSoundEnd = (n) => this.stage.soundOff(n); // bars last as long as the sound does
     this.metronome = new Metronome(this.engine.ctx);
     this.metronome.onBeat = (b) => this.ui?.beat(b);
     this.midiDevices = [];
+    // two MeloFi windows hear the same MIDI keyboard: only the one used last plays it
+    this.role = new URLSearchParams(location.search).has('studio') ? 'studio' : 'piano';
+    this.studioWindow = this.role === 'studio';
+    const mark = () => { try { localStorage.setItem('melofi.activeWindow', this.role); } catch { /* storage off */ } };
+    window.addEventListener('focus', mark);
+    if (this.studioWindow) { mark(); window.addEventListener('beforeunload', () => { try { localStorage.setItem('melofi.activeWindow', 'piano'); } catch { /* */ } }); }
+    const mine = () => { try { return (localStorage.getItem('melofi.activeWindow') || 'piano') === this.role; } catch { return true; } };
     this.midi = new MidiInput({
       onNote: (n, vel, on) => {
+        if (on && !mine()) return;
         if (on) this.midiHeld.set(n, this.userDown(n, vel));
         else { this.userUp(this.midiHeld.get(n) ?? [n]); this.midiHeld.delete(n); }
       },
-      onSustain: (on) => this.sustain(on),
+      onSustain: (on) => { if (mine()) this.sustain(on); },
       onSostenuto: (on) => this.setSostenuto(on),
       onSoft: (on) => this.setSoft(on),
+      // composer: MIDI learn and mapped controllers (true = handled there)
+      onCC: (cc, v, ch) => { const S = this.studio; if (!S?.isOpen || !(S.learn || S.proj?.midiMap?.some((m) => m.cc === cc && m.ch === ch))) return false; S.cc(cc, v, ch); return true; },
       onDevices: (list) => {
         const had = this.midiActive();
         this.midiDevices = list;
@@ -59,7 +82,8 @@ class App {
       instrumentName: () => this.instruments.find((i) => i.id === this.settings.get('instrument'))?.name || 'Piano',
     });
     this.player = new ScorePlayer(this);
-    this.practice = new Practice(this);
+    this.studio = new Studio(this);
+    this.store = new Store(this);
     this.ui = new UI(this);
 
     this.held = new Map();          // KeyboardEvent.code -> note
@@ -79,14 +103,46 @@ class App {
     window.melofi.onFullscreen((on) => { this.fullscreen = on; this.ui.setFullscreen(on); });
     this.midi.enabled = this.settings.get('midiIn');
     this.midi.init();
-    this.loop = (t) => { this.practice.tick(); this.stage.frame(t); this.recorder.tick(); requestAnimationFrame(this.loop); };
+    this.loop = (t) => {
+      if (!this.studio.isOpen) { this.feedSpectrum(t); this.stage.frame(t); } // the studio covers the stage
+      this.recorder.tick();
+      requestAnimationFrame(this.loop);
+    };
     requestAnimationFrame(this.loop);
     new ResizeObserver(() => this.stage.layout()).observe(this.stage.c);
 
+    const ready = () => { boot(1, '준비 완료'); window.melofi.bootReady?.(); };
+    if (studioWin) { await this.bootStudioWindow(boot); ready(); return; } // the composer loads its own instruments
+
+    // the video encoder warms up meanwhile (its first start is slow), then the instrument's samples
+    const warm = this.recorder.warmup();
     const usable = this.instruments.filter((i) => i.installed);
-    if (!usable.length) { this.ui.toast(T.toast.noInstruments, { err: true, ms: 10000 }); return; }
+    if (!usable.length) { ready(); this.ui.toast(T.toast.noInstruments, { err: true, ms: 10000 }); return; }
     if (!usable.some((i) => i.id === this.settings.get('instrument'))) this.settings.set({ instrument: (usable.find((i) => i.bundled) || usable[0]).id });
-    else this.loadInstrument();
+    this.booting = (p, meta) => boot(0.2 + 0.68 * p, `악기 샘플을 불러오는 중… ${meta.name}`, `${meta.model || ''}${meta.maker ? ` · ${meta.maker}` : ''}`);
+    await this.loadInstrument();
+    this.booting = null;
+    boot(0.9, '녹화 준비 중…');
+    await warm;
+    // one frame drawn before the window shows
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    ready();
+  }
+
+  // MeloFi Studio in its own window: the composer fills it, and the piano window can send it
+  // commands (new / open / import…)
+  async bootStudioWindow(boot = () => {}) {
+    document.body.classList.add('studio-window');
+    document.title = 'MeloFi Studio';
+    const brand = document.querySelector('#bar .brand');
+    if (brand) brand.lastChild.textContent = 'MeloFi Studio';
+    boot(0.3, '작곡 스튜디오를 준비하는 중…');
+    await this.studio.open();
+    await this.studio.syncAudio(); // the project's instruments, loaded before the window shows
+    const run = (cmd) => this.studio.command(cmd);
+    window.melofi.onStudioCommand(run);
+    const first = await window.melofi.studioTakeCommand();
+    if (first) run(first);
   }
 
   // ---------- settings → subsystems ----------
@@ -101,13 +157,13 @@ class App {
     this.engine.setBrightness(v.brightness);
     this.stage.setTheme(v.theme, v.customTheme);
     this.stage.setOptions({ visualizer: v.visualizer, particles: v.particles, bloom: v.bloom, speed: v.speed, labels: v.labels, range: v.range,
-      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode, fxExtra: v.fxExtra });
+      noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode, fxExtra: v.fxExtra, spec: this.specOpts(v) });
     this.applyStream(v.streamMode);
     this.stage.setBackground(v.bgImage);
     this.metronome.setTempo(v.bpm);
     this.metronome.setBeats(v.beats);
     this.metronome.setVolume(v.metroVol);
-    if (v.metro) this.metronome.start();
+    if (v.metro && !this.studioWindow) this.metronome.start(); // the piano's metronome belongs to the piano window
     this.updateLabels();
 
     this.settings.on((p) => {
@@ -126,11 +182,12 @@ class App {
       if ('bpm' in p) this.metronome.setTempo(p.bpm);
       if ('beats' in p) this.metronome.setBeats(p.beats);
       if ('metroVol' in p) this.metronome.setVolume(p.metroVol);
-      if ('metro' in p) { if (p.metro) this.metronome.start(); else { this.metronome.stop(); this.ui.beat(null); } }
+      if ('metro' in p) { if (p.metro && !this.studioWindow) this.metronome.start(); else { this.metronome.stop(); this.ui.beat(null); } }
       if ('midiIn' in p) { this.midi.enabled = p.midiIn; this.loadInstrument(true); }
       if ('pedalMode' in p) { this.pedalHeld = false; this.setLatch(false); }
       if (Object.keys(so).length) this.stage.setOptions(so);
       if ('range' in p && this.player.song) this.fitScore(this.player.song);
+      if (Object.keys(p).some((k) => k === 'spectrum' || k.startsWith('spec'))) this.stage.setOptions({ spec: this.specOpts() });
       if ('streamMode' in p) { this.stage.setOptions({ stream: p.streamMode }); this.applyStream(p.streamMode); }
       if (['scoreFall', 'scoreHands', 'rhColor', 'lhColor', 'theme'].some((k) => k in p)) { this.updateFall(); this.ui.updateTransport?.(); }
       if (['octave', 'transpose', 'keyPreset', 'customMap', 'labels', 'noteNames', 'range'].some((k) => k in p)) this.updateLabels();
@@ -162,16 +219,24 @@ class App {
     return [clamp(v.velocity - v.humanize, 1, 127), clamp(v.velocity + v.humanize, 1, 127)];
   }
 
-  async loadInstrument(layersOnly = false) {
+  loadInstrument(layersOnly = false) {
+    if (this.studioWindow) return Promise.resolve(); // the studio window plays its channels, not the piano
     const id = this.settings.get('instrument');
+    if (!layersOnly && this._loading?.id === id) return this._loading.p;
+    const p = this._loadInstrument(id, layersOnly);
+    if (!layersOnly) { this._loading = { id, p }; p.finally(() => { if (this._loading?.p === p) this._loading = null; }); }
+    return p;
+  }
+
+  async _loadInstrument(id, layersOnly) {
     const meta = this.instruments.find((i) => i.id === id);
     if (!meta?.installed) return;
     const [lo, hi] = this.velRange();
     if (!layersOnly) this.ui.setProgress(0);
     try {
-      const ok = await this.engine.load(id, lo, hi, (p) => this.ui.setProgress(p), { budgetMB: 700 });
+      const ok = await this.engine.load(id, lo, hi, (p) => { this.ui.setProgress(p); this.booting?.(p, meta); }, { budgetMB: 700 });
       this.ui.setProgress(null);
-      if (ok && !layersOnly) this.ui.toast(T.toast.instLoaded(meta.name), { ms: 1600 });
+      if (ok && !layersOnly && !this.booting) this.ui.toast(T.toast.instLoaded(meta.name), { ms: 1600 });
       if (ok) setTimeout(() => this.recorder.warmup(), 300);
     } catch (err) {
       console.error(err);
@@ -232,12 +297,15 @@ class App {
   // A key / MIDI note / click from the player (judged first when practising).
   // Returns the notes it sounded, which key-up releases.
   userDown(note, vel) {
-    this.practice?.press(note);
+    if (this.studio?.isOpen) { this.studio.liveOn(note, vel ?? this.velocity()); return [note]; } // plays the studio's selected channel
     this.play(note, vel);
     return [note];
   }
 
-  userUp(notes) { for (const n of notes) this.release(n); }
+  userUp(notes) {
+    if (this.studio?.isOpen) { for (const n of notes) this.studio.liveOff(n); return; }
+    for (const n of notes) this.release(n);
+  }
 
   release(note) {
     if (note < 21 || note > 108 || !this.count[note]) return;
@@ -322,6 +390,8 @@ class App {
       const typing = tag === 'INPUT' && e.target.type !== 'range';
       if (typing) return;
 
+      if (e.code === 'F12') { e.preventDefault(); if (!e.repeat && !this.studioWindow) window.melofi.openStudioWindow(); return; }
+      if (this.studio.key(e)) return;
       if (/^F([1-9]|10)$/.test(e.code)) {
         e.preventDefault();
         if (!e.repeat) this.action({ F1: 'help', F2: 'record', F3: 'keymap', F4: 'mixer', F5: 'fullscreen', F6: 'metro', F7: 'latch', F8: 'scorePlay', F9: 'scoreStop', F10: 'settings' }[e.code]);
@@ -366,6 +436,7 @@ class App {
       // after a score ended restarted the score). Keys belong to the piano unless typing.
       const tag = e.target?.tagName;
       if (!((tag === 'INPUT' && e.target.type !== 'range') || tag === 'SELECT' || tag === 'TEXTAREA')) e.preventDefault();
+      if (this.studio.keyUp(e)) return;
       const v0 = this.settings.v;
       if (v0.softKey && e.code === v0.softKey) { this.setSoft(false); return; }
       if (v0.sostKey && e.code === v0.sostKey) { this.setSostenuto(false); return; }
@@ -431,6 +502,22 @@ class App {
     window.melofi.openFolder(dir);
   }
 
+  // ---------- background spectrum ----------
+
+  specOpts(v = this.settings.v) {
+    return { on: v.spectrum, style: v.specStyle, pos: v.specPos, height: v.specHeight, bars: v.specBars, color: v.specColor, custom: v.specCustom, opacity: v.specOpacity, peaks: v.specPeaks };
+  }
+
+  feedSpectrum(t) {
+    const v = this.settings.v;
+    if (!v.spectrum) return;
+    const dt = Math.min(0.05, (t - (this._specT ?? t)) / 1000);
+    this._specT = t;
+    const e = this.engine;
+    e.specNode.getFloatFrequencyData(e.specBuf);
+    this.stage.spec.update(e.specBuf, e.ctx.sampleRate, v.specBars, v.specSmooth, dt || 1 / 60);
+  }
+
   // ---------- stream mode ----------
 
   // Window at a size in real screen pixels (what a screen share sends).
@@ -457,8 +544,9 @@ class App {
 
   // ---------- high-quality video of the score ----------
 
-  async renderVideo(opts) {
-    if (this.rendering || !this.player.song) return;
+  // source: optional (the composer's arrangement), see render-video.js
+  async renderVideo(opts, source = null) {
+    if (this.rendering || (!source && !this.player.song)) return;
     this.player.pause();
     this.rendering = true;
     const box = document.getElementById('renderBox');
@@ -469,6 +557,7 @@ class App {
     const fmt = (s) => (s >= 60 ? `${Math.floor(s / 60)}${T.render.min} ${Math.round(s % 60)}${T.render.sec}` : `${Math.round(s)}${T.render.sec}`);
     try {
       const out = await renderVideo(this, opts, {
+        source,
         cancelled: () => cancel,
         progress: (ph, p, left) => {
           if (cancel) return;
@@ -494,16 +583,17 @@ class App {
     this.ui.refresh();
   }
 
-  async downloadInstrument(id) {
+  async downloadInstrument(id, { quiet = false } = {}) {
     const meta = this.instruments.find((i) => i.id === id);
-    if (!meta || this.dl.has(id)) return;
+    if (!meta || this.dl.has(id)) return { ok: false, busy: true };
     this.dl.set(id, 0);
     this.ui.refresh();
     const r = await window.melofi.downloadInstrument(id);
     this.dl.delete(id);
     await this.refreshInstruments();
-    if (r.ok) this.ui.toast(T.toast.instReady(meta.name), { action: { label: T.toast.useNow, fn: () => this.settings.set({ instrument: id }) } });
-    else if (!r.cancelled) this.ui.toast(`${T.toast.dlFail(meta.name)} ${r.error || ''}`, { err: true, ms: 7000 });
+    if (r.ok && !quiet) this.ui.toast(T.toast.instReady(meta.name), { action: { label: T.toast.useNow, fn: () => this.settings.set({ instrument: id }) } });
+    else if (!r.ok && !r.cancelled) this.ui.toast(`${T.toast.dlFail(meta.name)} ${r.error || ''}`, { err: true, ms: 7000 });
+    return r;
   }
 
   cancelDownload(id) { window.melofi.cancelDownload(id); }
@@ -537,11 +627,27 @@ class App {
   async openScore(name, bytes) {
     try {
       const song = await readScore(name, bytes);
+      await this.prepareParts(song);
+      // notes past the 88 keys, moved in by octaves (score/range.js); drum parts left alone
+      const fit = fitToPiano(song, (l) => !!this.scoreParts.get(l.id)?.kit);
       this.player.load(song);
       this.fitScore(song, true);
       this.updateFall();
       const piano = song.lines.filter((l) => l.piano).length;
-      this.ui.toast(T.toast.scoreLoaded(song.title, piano, song.lines.length), { ms: 3500 });
+      if (fit.changed) {
+        this.ui.toast(T.toast.scoreFolded(song.title, fit.moved, fit.shifted.length), { ms: 9000, action: { label: T.toast.scoreUnfold, fn: () => {
+          if (this.player.song !== song) return;
+          const was = this.player.playing, at = was ? this.player.now() : this.player.pos, enabled = new Set(this.player.enabled);
+          unfitPiano(song);
+          this.player.load(song);
+          this.player.enabled = enabled;
+          if (at) this.player.seek(at);
+          if (was) this.player.play();
+          this.fitScore(song);
+          this.ui.toast(T.toast.scoreUnfolded, { ms: 3500 });
+        } } });
+      } else this.ui.toast(T.toast.scoreLoaded(song.title, piano, song.lines.length), { ms: 3500 });
+      this.fetchMissingParts(song);
     } catch (err) {
       console.error(err);
       this.ui.toast(`${T.toast.scoreFail} ${err.message || ''}`, { err: true, ms: 6000 });
@@ -552,14 +658,15 @@ class App {
   // (the fitted zoom is not saved, so quitting with a score open leaves the user's own zoom alone)
   fitScore(song, warn = false) {
     let lo = 127, hi = 0;
-    for (const l of song.lines) for (const n of l.notes) { if (n.n < lo) lo = n.n; if (n.n > hi) hi = n.n; }
+    const perc = (l) => this.scoreParts?.get(l.id)?.kit;
+    for (const l of song.lines) if (!perc(l)) for (const n of l.notes) { if (n.n < lo) lo = n.n; if (n.n > hi) hi = n.n; }
     if (hi < lo) return;
     this.scoreZoom = this.stage.fitZoom(lo, hi, ZOOMS);
     this.stage.setOptions({ fit: [lo, hi], zoom: this.scoreZoom });
     // keys the chosen keyboard size can't show
     const [rlo, rhi] = this.stage.fullRange();
     let out = 0;
-    for (const l of song.lines) for (const n of l.notes) if (n.n < rlo || n.n > rhi) out++;
+    for (const l of song.lines) if (!perc(l)) for (const n of l.notes) if ((n.n < rlo || n.n > rhi) && n.n >= 21 && n.n <= 108) out++;
     if (warn && out) {
       this.ui.toast(T.toast.scoreRange(out, this.settings.get('range')), { action: { label: T.toast.use88, fn: () => this.settings.set({ range: 88 }) }, ms: 9000 });
     }
@@ -588,10 +695,10 @@ class App {
   // falling notes: the enabled parts of the loaded score, coloured by hand
   updateFall() {
     const P = this.player;
-    if (!P?.song || !(this.settings.get('scoreFall') || this.practice?.active)) { this.stage.fall = null; return; }
+    if (!P?.song || !this.settings.get('scoreFall')) { this.stage.fall = null; return; }
     const notes = [];
     for (const l of P.song.lines) {
-      if (!P.enabled.has(l.id)) continue;
+      if (!P.enabled.has(l.id) || this.scoreParts?.get(l.id)?.kit) continue;
       for (const n of l.notes) if (n.n >= 21 && n.n <= 108) notes.push({ t: n.t, d: n.d, n: n.n, color: this.lineColor(l.id, n.n) });
     }
     notes.sort((a, b) => a.t - b.t);
@@ -600,8 +707,6 @@ class App {
   }
 
   closeScore() {
-    this.practice.stop();
-    this.practice.hideResult();
     this.player.unload();
     this.stage.fall = null;
     this.scoreZoom = null;
@@ -621,10 +726,75 @@ class App {
     return others[line % others.length];
   }
 
+  // Every part of a score plays on its own instrument: its General MIDI program picks a MeloFi
+  // instrument (gm.js; the nearest installed one), piano parts play on the chosen piano, and drum
+  // parts — MIDI channel 10 or a part named like one — play on a kit (Sam's Sonor Kit when it is
+  // installed, else the 808 kit MeloFi synthesises). Drums don't light keys or rise as bars.
+  async prepareParts(song) {
+    const kit = kitFor(this.instruments);
+    this.scoreParts = new Map();
+    for (const l of song.lines) this.scoreParts.set(l.id, { line: l, ...instrumentFor(l, this.instruments, kit) });
+    const need = [...new Set([...this.scoreParts.values()].map((a) => a.inst).filter((id) => id && id !== 'piano'))];
+    // many parts stacked would sit on the safety limiter: the more parts, the softer each of them
+    // (the piano parts stay as they are, so the piano leads)
+    const sounding = [...this.scoreParts.values()].filter((a) => a.inst !== null).length;
+    this.engine.partGain = Math.max(0.3, Math.min(1, 1.8 / Math.sqrt(Math.max(1, sounding))));
+    this.engine.dropParts(need);
+    if (!need.length) return;
+    this.ui.toast(`악기 ${need.length}개를 불러오는 중…`, { ms: 20000 });
+    const t0 = performance.now();
+    await Promise.all(need.map((id) => this.engine.loadPart(id).catch((err) => console.error(err))));
+    console.log(`score parts: ${need.join(', ')} in ${Math.round(performance.now() - t0)} ms`);
+  }
+
+  // Instruments a score's parts want but that aren't downloaded yet: fetched now (from each
+  // library's own repository, like the download center), the parts play on a stand-in meanwhile
+  // and switch over as each one arrives. Drum parts want the recorded kit over the synthesised 808.
+  fetchMissingParts(song) {
+    const parts = [...(this.scoreParts?.values() || [])];
+    const missing = new Map(); // id -> parts that want it
+    const want = (id, a) => {
+      const m = this.instruments.find((i) => i.id === id);
+      if (!m || m.installed || !m.downloadable) return;
+      if (!missing.has(id)) missing.set(id, []);
+      missing.get(id).push(a);
+    };
+    for (const a of parts) {
+      if (a.kit) { if (a.inst !== 'acousticdrums') want('acousticdrums', a); }
+      else if (a.wanted && a.wanted !== a.inst && a.wanted !== 'piano') want(a.wanted, a);
+    }
+    if (!missing.size) return 0;
+    const names = [...missing.keys()].map((id) => this.instruments.find((i) => i.id === id)?.name || id);
+    this.ui.toast(`이 곡에 필요한 악기 ${missing.size}개를 받는 중입니다 (${names.slice(0, 3).join(', ')}${names.length > 3 ? ' …' : ''}). 받는 동안은 비슷한 악기로 연주합니다.`, { ms: 8000 });
+    for (const [id, list] of missing) {
+      this.downloadInstrument(id, { quiet: true }).then(async (r) => {
+        if (!r?.ok || this.player.song !== song) return;
+        await this.engine.loadPart(id);
+        for (const a of list) { a.inst = id; this.player.setLine(a.line.id, true); }
+        const name = this.instruments.find((i) => i.id === id)?.name || id;
+        this.ui.toast(`${name} 받기 완료 — ${list.length}파트를 원래 악기로 연주합니다`, { ms: 3500 });
+      });
+    }
+    return missing.size;
+  }
+
+  // a part's instrument changed from the parts menu
+  async setPartInstrument(lineId, id) {
+    const a = this.scoreParts?.get(lineId);
+    if (!a) return;
+    if (id && id !== 'piano' && id !== this.settings.get('instrument')) await this.engine.loadPart(id);
+    a.inst = id;
+    a.kit = !!this.instruments.find((i) => i.id === id)?.family?.startsWith('drum');
+    if (a.kit && !a.kind) a.kind = 'named';
+  }
+
   scoreNote(n, v, at, dur, player, line) {
+    const part = this.scoreParts?.get(line);
+    if (part && part.inst === null) return; // a sound effect with no counterpart here
+    if (part?.kit) { const d = drumHit(part.kind || 'gm', part.line, n); this.engine.partNote(part.inst, d.key, v, at, dur, true, d.shift); return; }
     if (n < 21 || n > 108) return;
-    if (this.practice?.isTarget(line, n)) return; // the player's own part
-    const vid = this.engine.noteOn(n, v, at);
+    const own = part && part.inst !== 'piano' && part.inst !== this.settings.get('instrument');
+    const vid = own ? (this.engine.partNote(part.inst, n, v, at, dur), null) : this.engine.noteOn(n, v, at);
     const delay = (at - this.engine.ctx.currentTime) * 1000;
     const color = this.lineColor(line, n);
     player.later(() => { this.stage.noteOn(n, v, color); this.recorder.event({ type: 'on', note: n, vel: v }); }, delay);
@@ -672,6 +842,11 @@ class App {
     if (!url) return;
     this.settings.set({ bgImage: url });
     await this.themeFromBackground(); // a new picture gets matching colours straight away
+  }
+
+  async useSampleBackground(id) {
+    this.settings.set({ bgImage: `melofi://app/renderer/assets/bg/${id}.jpg` });
+    await this.themeFromBackground();
   }
 
   async themeFromBackground() {
@@ -734,4 +909,4 @@ class App {
 
 const app = new App();
 window.__melofi = app;
-app.start().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;color:#e5484d;padding:12px">${String(e.stack || e)}</pre>`); });
+app.start().catch((e) => { console.error(e); window.melofi.bootReady?.(); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;color:#e5484d;padding:12px">${String(e.stack || e)}</pre>`); });

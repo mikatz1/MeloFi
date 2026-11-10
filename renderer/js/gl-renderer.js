@@ -3,7 +3,7 @@
 // draw calls, and bloom is a downsample + separable Gaussian blur on the GPU.
 // The simulation (particle motion, bars, key state) stays in stage.js.
 
-const SPARK = 0, DUST = 1, HAZE = 2, PETAL = 3, EMBER = 4, SNOW = 5, INK = 6;
+const SPARK = 0, DUST = 1, HAZE = 2, PETAL = 3, EMBER = 4, SNOW = 5, INK = 6, BUBBLE = 7, STAR = 8;
 const SH_GLOW = 0, SH_PETAL = 1, SH_FLAKE = 2, SH_BLOT = 3, SH_PIXEL = 4, SH_RING = 5, SH_BEAM = 6;
 
 const VS_QUAD = `#version 300 es
@@ -835,6 +835,12 @@ export class GLRenderer {
           } else if (k === SNOW) {
             const lf = L[i] / M[i];
             this.sprite(X[i], Y[i], S[i], S[i], 0, [1, 1, 1], Math.min(1, lf * 4) * 0.8, 0, SH_FLAKE);
+          } else if (k === BUBBLE) {
+            const lf = L[i] / M[i];
+            this.sprite(X[i], Y[i], S[i], S[i], 0, sparkCols[1] || sparkCols[0], Math.min(1, lf * 3) * 0.6, 0, SH_RING);
+          } else if (k === STAR) {
+            const lf = L[i] / M[i], z = S[i] * 3;
+            this.sprite(X[i], Y[i], z, z, 0, sparkCols[0], Math.sin(lf * Math.PI) * 0.9, 0.6, SH_GLOW);
           }
         }
       });
@@ -860,6 +866,11 @@ export class GLRenderer {
       mark('rings', () => { if (FX) for (const r of FX.rings) this.sprite(r.x, r.y, r.rx, r.ry, 0, this.rgb(r.color), r.a, 0, SH_RING); });
     }
     const fxRects = this.rects.n;
+
+    // spectrum (drawn right after the background)
+    const specStart = this.rects.n;
+    for (const r of st.specRects()) this.rect(r.x, r.y, r.w, r.h, 0, r.c2 || r.c, r.c);
+    const specCount = this.rects.n - specStart;
 
     // keyboard overlays: tints (rects) and light (sprites)
     const kb = { whiteTints: [0, 0], blackTints: [0, 0] };
@@ -918,6 +929,7 @@ export class GLRenderer {
     this.blend('copy');
     this.blit(this.tex.bg, 0, 0, W, H);
     this.blend('over');
+    if (specCount) rects(specStart, specCount);
     this.blit(this.tex.white, 0, top, W, st.kbH);
     rects(...kb.whiteTints);
     this.blit(this.tex.black, 0, top, W, st.kbH);

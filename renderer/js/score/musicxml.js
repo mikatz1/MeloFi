@@ -51,7 +51,8 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
     const name = txt(sp, 'part-name') || 'Part';
     const inst = sp.querySelector('score-instrument > instrument-name')?.textContent || '';
     const prog = +(sp.querySelector('midi-instrument > midi-program')?.textContent || 0); // 1-based
-    partMeta.set(sp.getAttribute('id'), { name, piano: PIANO_RE.test(`${name} ${inst}`) || (prog >= 1 && prog <= 8) });
+    const chan = +(sp.querySelector('midi-instrument > midi-channel')?.textContent || 0);
+    partMeta.set(sp.getAttribute('id'), { name, piano: PIANO_RE.test(`${name} ${inst}`) || (prog >= 1 && prog <= 8), program: prog ? prog - 1 : null, drum: chan === 10 });
   }
 
   const parts = kids(root, 'part');
@@ -308,7 +309,7 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
     }
     for (const [staff, notes] of [...byStaff.entries()].sort((a, b) => a[0] - b[0])) {
       const hand = staves === 2 ? (staff === 1 ? '오른손' : '왼손') : staves > 2 ? `${staff}단` : '';
-      lines.push({ name: hand ? `${meta.name} · ${hand}` : meta.name, piano: meta.piano, notes });
+      lines.push({ name: hand ? `${meta.name} · ${hand}` : meta.name, piano: meta.piano, program: meta.program, drum: !!meta.drum, notes });
     }
   });
 
@@ -318,7 +319,7 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
     composer,
     subtitle,
     hasTitle: !!realTitle,
-    lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, notes: finishLine(l.notes, toSec) })).filter((l) => l.notes.length),
+    lines: lines.map((l, i) => ({ id: i, name: l.name, piano: l.piano, program: l.program, drum: l.drum, notes: finishLine(l.notes, toSec) })).filter((l) => l.notes.length),
     pedals: pedals.sort((a, b) => a.tick - b.tick).map((p) => ({ t: toSec(p.tick), on: p.on })),
   };
 }

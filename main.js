@@ -4,6 +4,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { spawn } = require('node:child_process');
+const daw = require('./daw.js');
+const account = require('./account.js');
+const studioFiles = require('./studio-files.js');
+const claude = require('./claude.js');
 
 app.setName('MeloFi');
 if (process.platform === 'win32') app.setAppUserModelId('com.melofi.app'); // taskbar groups under our icon
@@ -25,6 +29,7 @@ if (!HEADLESS && !app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 app.on('second-instance', () => {
+  if (splash) { splash.focus(); return; } // still starting up
   if (!win) return;
   if (win.isMinimized()) win.restore();
   win.show();
@@ -43,14 +48,61 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let win = null;
+let studioWin = null; // MeloFi Studio, the composer, in a window of its own
+let studioCmd = null; // what the studio window should do once it is up (new / open / import…)
+// the window a dialog belongs to: the one the user is working in
+const ownerWin = () => BrowserWindow.getFocusedWindow() || win || studioWin;
+
+// Start-up card: a small window shown at once while the main window, still hidden, loads the audio
+// engine, the screen and the instrument's samples (it reports each step: boot:progress / boot:ready).
+let splash = null;
+function createSplash() {
+  splash = new BrowserWindow({
+    width: 560, height: 330, frame: false, resizable: false, maximizable: false, fullscreenable: false,
+    show: false, center: true, backgroundColor: '#101115', title: 'MeloFi',
+    icon: path.join(ROOT, 'renderer', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: { preload: path.join(ROOT, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
+  });
+  splash.loadURL('melofi://app/renderer/splash.html');
+  if (HEADLESS) {
+    // test runs: invisible, and the card is captured part-way and the steps logged
+    splash.once('ready-to-show', () => { splash.setOpacity(0); splash.showInactive(); });
+    const t0 = Date.now();
+    splash.webContents.on('ipc-message', () => {});
+    ipcMain.on('boot:progress', (_e, m) => console.log(`[boot] ${Date.now() - t0}ms ${Math.round(m.p * 100)}% ${m.label} ${m.detail || ''}`));
+    setTimeout(async () => { if (splash) fs.writeFileSync(path.join(process.env.MELOFI_SHOT, 'splash.png'), (await splash.webContents.capturePage()).toPNG()); }, 2000);
+  } else splash.once('ready-to-show', () => splash?.show());
+  splash.on('closed', () => { splash = null; });
+}
 
 function createWindow() {
-  win = new BrowserWindow({
-    width: 1360,
-    height: 800,
-    minWidth: 640,  // small enough for a 1280×720 share on a 200% display
-    minHeight: 360,
-    title: 'MeloFi',
+  if (!HEADLESS || process.env.MELOFI_SPLASH_TEST) createSplash();
+  win = makeWindow({ width: 1360, height: 800, minWidth: 640, minHeight: 360, title: 'MeloFi' }, '', 'index.html', { waitBoot: true });
+  win.on('closed', () => { win = null; });
+  const fsChanged = () => win?.webContents.send('win:fullscreen', win.isFullScreen());
+  win.on('enter-full-screen', fsChanged);
+  win.on('leave-full-screen', fsChanged);
+  if (process.env.MELOFI_SHOT) runShotScript(win, process.env.MELOFI_SCRIPT);
+}
+
+// show a window that waited for its page to finish loading; the main window takes over from the card
+function revealWindow(w) {
+  if (w.isDestroyed() || w.isVisible() || HEADLESS) return;
+  w.show();
+  w.focus();
+  if (w === win && splash) { const s = splash; splash = null; setTimeout(() => { if (!s.isDestroyed()) s.close(); }, 120); }
+}
+
+function createStudioWindow() {
+  studioWin = makeWindow({ width: 1480, height: 900, minWidth: 960, minHeight: 600, title: 'MeloFi Studio' }, '?studio=1', 'index.html', { waitBoot: true });
+  studioWin.on('closed', () => { studioWin = null; });
+  // headless tests can drive the studio window with their own script
+  if (process.env.MELOFI_SHOT && process.env.MELOFI_STUDIO_SCRIPT) runShotScript(studioWin, process.env.MELOFI_STUDIO_SCRIPT, 'studio');
+}
+
+function makeWindow(size, query, page = 'index.html', { waitBoot = false } = {}) {
+  const w = new BrowserWindow({
+    ...size,
     backgroundColor: '#08090d',
     show: false,
     paintWhenInitiallyHidden: true,
@@ -67,30 +119,33 @@ function createWindow() {
       spellcheck: false,
     },
   });
-  win.loadURL('melofi://app/renderer/index.html');
-  if (!HEADLESS) win.once('ready-to-show', () => win.show());
-  else win.once('ready-to-show', () => { win.setOpacity(0); win.showInactive(); }); // invisible, no taskbar, no focus
-  const fsChanged = () => win.webContents.send('win:fullscreen', win.isFullScreen());
-  win.on('enter-full-screen', fsChanged);
-  win.on('leave-full-screen', fsChanged);
+  w.loadURL(`melofi://app/renderer/${page}${query}`);
+  if (HEADLESS) w.once('ready-to-show', () => { w.setOpacity(0); w.showInactive(); }); // invisible, no taskbar, no focus
+  else if (!waitBoot) w.once('ready-to-show', () => w.show());
+  else {
+    // shown once the page says it is ready (boot:ready), or after 30 s whatever happens
+    const t = setTimeout(() => revealWindow(w), 30000);
+    w.once('closed', () => clearTimeout(t));
+  }
 
   // F-keys / Ctrl combos belong to the piano, not to Chromium.
-  win.webContents.on('before-input-event', (e, input) => {
+  w.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
-    if (input.key === 'F12' && process.env.MELOFI_DEV) { win.webContents.toggleDevTools(); e.preventDefault(); }
+    if (input.key === 'F12' && process.env.MELOFI_DEV) { w.webContents.toggleDevTools(); e.preventDefault(); }
   });
-  if (process.env.MELOFI_DEV) win.webContents.openDevTools({ mode: 'detach' });
+  if (process.env.MELOFI_DEV) w.webContents.openDevTools({ mode: 'detach' });
   if (process.env.MELOFI_LOG || process.env.MELOFI_SHOT) {
-    win.webContents.on('console-message', (e) => console.log(`[renderer:${e.level}] ${e.message}`));
+    const tag = page !== 'index.html' ? 'picker' : query ? 'studio' : 'renderer';
+    w.webContents.on('console-message', (e) => console.log(`[${tag}:${e.level}] ${e.message}`));
   }
-  if (process.env.MELOFI_SHOT) runShotScript(win);
+  return w;
 }
 
 // Dev aid: MELOFI_SHOT=<dir> [MELOFI_SCRIPT=<file.js>] plays a scripted take and saves screenshots.
-function runShotScript(w) {
+function runShotScript(w, file, prefix = 'shot') {
   const dir = process.env.MELOFI_SHOT;
   fs.mkdirSync(dir, { recursive: true });
-  const script = process.env.MELOFI_SCRIPT ? fs.readFileSync(process.env.MELOFI_SCRIPT, 'utf8') : 'return [1500]';
+  const script = file ? fs.readFileSync(file, 'utf8') : 'return [1500]';
   w.webContents.once('did-finish-load', async () => {
     try {
       const shots = await w.webContents.executeJavaScript(`(async () => { ${script} })()`);
@@ -98,10 +153,12 @@ function runShotScript(w) {
       for (const at of shots || []) {
         await new Promise((r) => setTimeout(r, at));
         const img = await w.webContents.capturePage();
-        fs.writeFileSync(path.join(dir, `shot-${i++}.png`), img.toPNG());
+        fs.writeFileSync(path.join(dir, `${prefix}-${i++}.png`), img.toPNG());
       }
     } catch (err) { console.error('shot script failed', err); }
-    app.quit();
+    // the piano's script ends the run, unless the studio window is still running its own
+    if (prefix === 'shot' && !(process.env.MELOFI_STUDIO_SCRIPT && studioWin) && !process.env.MELOFI_PICKER_SCRIPT) app.quit();
+    if (prefix === 'studio' || prefix === 'picker') app.quit();
   });
 }
 
@@ -118,7 +175,7 @@ function defaultRecordDir() {
 
 // installed = every sample is on disk, either shipped with the app or downloaded into userData
 function instrumentState(id, m) {
-  const names = Object.keys(m.samples);
+  const names = Object.keys(m.samples || {}); // (synthesised instruments have none: always installed)
   const bundled = names.every((n) => fs.existsSync(path.join(INSTRUMENTS_DIR, id, n)));
   const installed = bundled || names.every((n) => fs.existsSync(path.join(USER_INST(), id, n)) || fs.existsSync(path.join(INSTRUMENTS_DIR, id, n)));
   return { installed, bundled };
@@ -149,7 +206,7 @@ app.whenReady().then(() => {
   // Everything the page loads comes from melofi://app/... so workers, worklets and
   // sample fetches are all same-origin.
   const ALLOWED = ['renderer', 'instruments', path.join('node_modules', 'lamejs'), path.join('node_modules', 'mp4-muxer')].map((p) => path.join(ROOT, p) + path.sep);
-  const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.ogg': 'audio/ogg', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+  const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.ogg': 'audio/ogg', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
   protocol.handle('melofi', async (req) => {
     const url = new URL(req.url);
     if (url.host !== 'app') return new Response('not found', { status: 404 });
@@ -188,8 +245,8 @@ app.whenReady().then(() => {
       try {
         const m = JSON.parse(await fsp.readFile(path.join(INSTRUMENTS_DIR, ent.name, 'manifest.json'), 'utf8'));
         const st = instrumentState(ent.name, m);
-        out.push({ id: ent.name, name: m.name, maker: m.maker, model: m.model, license: m.license, credit: m.credit, url: m.url, order: m.order ?? 99, regionCount: m.regions.length,
-          family: m.family || 'piano', installed: st.installed, bundled: st.bundled, size: m.source?.bytes || 0, downloadable: !!m.source, downloading: downloads.has(ent.name) });
+        out.push({ id: ent.name, name: m.name, maker: m.maker, model: m.model, license: m.license, credit: m.credit, url: m.url, order: m.order ?? 99, regionCount: (m.regions || []).length,
+          family: m.family || 'piano', tags: m.tags || [], use: m.use || '', keyNames: m.keys || null, kitKeys: m.family === 'drums' && m.regions ? [...new Set(m.regions.map((r) => r.lo))].sort((a, b) => a - b) : null, procedural: m.procedural?.patch || null, installed: st.installed, bundled: st.bundled, size: m.source?.bytes || 0, downloadable: !!m.source, downloading: downloads.has(ent.name) });
       } catch { /* not built yet */ }
     }
     return out.sort((a, b) => a.order - b.order);
@@ -257,9 +314,69 @@ app.whenReady().then(() => {
   ipcMain.handle('settings:load', async () => {
     try { return JSON.parse(await fsp.readFile(SETTINGS_FILE(), 'utf8')); } catch { return null; }
   });
-  ipcMain.handle('settings:save', async (_e, data) => {
-    await fsp.mkdir(path.dirname(SETTINGS_FILE()), { recursive: true });
-    await fsp.writeFile(SETTINGS_FILE(), JSON.stringify(data, null, 2));
+  // Two windows share the settings: each saves only what it changed, merged into the file, and
+  // the other window hears about it.
+  let settingsWrite = Promise.resolve();
+  ipcMain.handle('settings:save', (e, patch) => {
+    settingsWrite = settingsWrite.then(async () => {
+      let cur = {};
+      try { cur = JSON.parse(await fsp.readFile(SETTINGS_FILE(), 'utf8')); } catch { /* first save */ }
+      await fsp.mkdir(path.dirname(SETTINGS_FILE()), { recursive: true });
+      await fsp.writeFile(SETTINGS_FILE(), JSON.stringify({ ...cur, ...patch }, null, 2));
+    });
+    for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send('settings:changed', patch);
+    return settingsWrite.then(() => true);
+  });
+
+  // ---------- start-up ----------
+  ipcMain.on('boot:progress', (e, m) => { if (splash && e.sender === win?.webContents) splash.webContents.send('boot:progress', m); });
+  ipcMain.on('boot:ready', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) revealWindow(w); });
+
+  // ---------- MeloFi Studio window ----------
+  ipcMain.handle('studio:openWindow', (_e, cmd = null) => {
+    if (studioWin) {
+      if (studioWin.isMinimized()) studioWin.restore();
+      studioWin.show(); studioWin.focus();
+      if (cmd) studioWin.webContents.send('studio:command', cmd);
+    } else {
+      studioCmd = cmd;
+      createStudioWindow();
+    }
+    return true;
+  });
+  ipcMain.handle('studio:takeCommand', () => { const c = studioCmd; studioCmd = null; return c; });
+
+  // ---------- instrument picker window (belongs to the window that opened it) ----------
+  let pickerWin = null, picker = null; // picker: { sender, opts }
+  ipcMain.handle('picker:open', (e, opts = {}) => {
+    const parent = BrowserWindow.fromWebContents(e.sender);
+    picker = { sender: e.sender, opts };
+    if (pickerWin && pickerWin.getParentWindow() !== parent) { pickerWin.destroy(); pickerWin = null; }
+    if (pickerWin) {
+      pickerWin.webContents.send('picker:setup', opts);
+      if (pickerWin.isMinimized()) pickerWin.restore();
+      pickerWin.show(); pickerWin.focus();
+      return true;
+    }
+    pickerWin = makeWindow({ width: 600, height: 720, minWidth: 440, minHeight: 380, title: '악기 선택', parent }, '', 'picker.html');
+    pickerWin.on('closed', () => { pickerWin = null; });
+    if (process.env.MELOFI_SHOT && process.env.MELOFI_PICKER_SCRIPT) runShotScript(pickerWin, process.env.MELOFI_PICKER_SCRIPT, 'picker');
+    return true;
+  });
+  ipcMain.handle('picker:options', () => picker?.opts || {});
+  ipcMain.handle('picker:choose', (_e, id) => {
+    if (picker && !picker.sender.isDestroyed()) picker.sender.send('picker:chosen', { token: picker.opts.token, id });
+    if (picker?.opts.closeOnPick) pickerWin?.close();
+    return true;
+  });
+  ipcMain.handle('picker:store', () => {
+    if (picker && !picker.sender.isDestroyed()) picker.sender.send('picker:store');
+    BrowserWindow.fromWebContents(picker?.sender)?.focus();
+    return true;
+  });
+  ipcMain.handle('win:focusMain', () => {
+    if (!win) createWindow();
+    else { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
     return true;
   });
 
@@ -271,13 +388,13 @@ app.whenReady().then(() => {
   }));
 
   ipcMain.handle('dialog:pickFolder', async (_e, current) => {
-    const r = await dialog.showOpenDialog(win, { defaultPath: current || defaultRecordDir(), properties: ['openDirectory', 'createDirectory'] });
+    const r = await dialog.showOpenDialog(ownerWin(), { defaultPath: current || defaultRecordDir(), properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
 
   ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
-  ipcMain.handle('win:toggleFullscreen', () => { if (win) win.setFullScreen(!win.isFullScreen()); });
-  ipcMain.handle('win:setFullscreen', (_e, on) => { if (win) win.setFullScreen(!!on); });
+  ipcMain.handle('win:toggleFullscreen', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setFullScreen(!w.isFullScreen()); });
+  ipcMain.handle('win:setFullscreen', (e, on) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setFullScreen(!!on); });
   // exact window size (the whole window is content: the title bar is drawn by the page)
   // Size in real screen pixels (what a screen share captures). Electron sizes windows in
   // scaled units, so divide by the display scale; if it doesn't fit the screen, take the
@@ -300,7 +417,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('score:pick', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [
+    const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [
       { name: 'Scores', extensions: ['mscz', 'mscx', 'mxl', 'musicxml', 'xml', 'mid', 'midi'] },
       { name: 'All files', extensions: ['*'] },
     ] });
@@ -315,7 +432,7 @@ app.whenReady().then(() => {
   ipcMain.handle('score:clearRecent', async () => { await saveRecent([]); return []; });
 
   ipcMain.handle('bg:pick', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
+    const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     const src = r.filePaths[0];
     const dir = path.join(app.getPath('userData'), 'user', 'backgrounds');
@@ -326,6 +443,12 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('shell:showItem', (_e, p) => { if (p) shell.showItemInFolder(p); });
+  daw.register(ipcMain, { defaultDir: () => path.join(defaultRecordDir(), 'DAW'), iconPath: path.join(ROOT, 'renderer', 'assets', 'icon.png'), shell });
+  account.register(ipcMain, { app });
+  studioFiles.register(ipcMain, { app, dialog, getWin: ownerWin, defaultDir: defaultRecordDir });
+  claude.register(ipcMain, { app });
+  require('./vocal').register(ipcMain, { app });
+  require('./vsthost').register(ipcMain, { app });
   ipcMain.handle('shell:openFolder', async (_e, p) => {
     const dir = p || defaultRecordDir();
     await fsp.mkdir(dir, { recursive: true });
@@ -336,6 +459,14 @@ app.whenReady().then(() => {
   // Video rendering streams the MP4 straight to disk (it can be gigabytes at 4K).
   const renders = new Map(); // id -> { fh, path }
   let renderId = 0;
+  // ---- studio projects (.mfproj) ----
+  const STUDIO_AUTOSAVE = () => path.join(app.getPath('userData'), 'studio-autosave.mfproj');
+  ipcMain.handle('studio:openMidi', async () => {
+    const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [{ name: 'MIDI', extensions: ['mid', 'midi'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return { name: path.basename(r.filePaths[0]).replace(/\.[^.]+$/, ''), data: new Uint8Array(await fsp.readFile(r.filePaths[0])) };
+  });
+
   ipcMain.handle('render:open', async (_e, { dir, base }) => {
     const target = dir || defaultRecordDir();
     await fsp.mkdir(target, { recursive: true });

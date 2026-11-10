@@ -1,7 +1,10 @@
 // Hardware MIDI keyboards (Web MIDI). Listens to every connected input.
 
 export class MidiInput {
-  constructor({ onNote, onSustain, onDevices }) {
+  constructor({ onNote, onSustain, onDevices, onSostenuto, onSoft, onCC }) {
+    this.onSostenuto = onSostenuto;
+    this.onSoft = onSoft;
+    this.onCC = onCC;
     this.onNote = onNote;
     this.onSustain = onSustain;
     this.onDevices = onDevices;
@@ -36,6 +39,7 @@ export class MidiInput {
     const type = d[0] & 0xf0;
     if (type === 0x90 && d[2] > 0) this.onNote(d[1], d[2], true);
     else if (type === 0x80 || (type === 0x90 && d[2] === 0)) this.onNote(d[1], 0, false);
+    else if (type === 0xb0 && this.onCC?.(d[1], d[2], d[0] & 15)) return; // taken by the composer (MIDI learn)
     else if (type === 0xb0 && d[1] === 64) this.onSustain(d[2] >= 64);
     else if (type === 0xb0 && d[1] === 66) this.onSostenuto?.(d[2] >= 64);
     else if (type === 0xb0 && d[1] === 67) this.onSoft?.(d[2] >= 64);

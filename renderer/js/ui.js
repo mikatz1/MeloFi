@@ -1,9 +1,13 @@
 // DOM side: title bar readouts, settings drawer, help, key mapping, menus, toasts.
 import { T } from './strings.js';
 import { THEMES } from './themes.js';
+import { openPicker } from './picker-client.js';
 
+// background pictures that ship with the app (drawn by tools/make-backgrounds.py, CC0)
+export const SAMPLE_BGS = [['dusk-mountains', '저녁 산'], ['night-city', '밤의 도시'], ['nebula', '성운'], ['misty-forest', '안개 숲'], ['sunset-sea', '노을 바다']];
+export const bgUrl = (id) => `melofi://app/renderer/assets/bg/${id}.jpg`;
 const WINDOW_SIZES = [[1280, 720], [1600, 900], [1920, 1080]]; // 16:9, for screen sharing
-const FAMILY_ORDER = ['piano', 'keys', 'synth', 'strings', 'guitar', 'bass'];
+const FAMILY_ORDER = ['piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'drums', 'fx'];
 const byFamily = (list) => {
   const groups = new Map();
   for (const i of list) { const f = i.family || 'piano'; if (!groups.has(f)) groups.set(f, []); groups.get(f).push(i); }
@@ -39,6 +43,10 @@ export class UI {
     for (const el of document.querySelectorAll('[data-t]')) el.textContent = path(T, el.dataset.t);
     for (const el of document.querySelectorAll('[data-t-title]')) el.title = path(T, el.dataset.tTitle);
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.close());
+    $('#instName').parentElement.title = '악기 선택 창 열기';
+    $('#instName').parentElement.addEventListener('click', () => this.pickInstrument());
+    $('#studioBtn').title = T.menu.studioWindowTip;
+    $('#studioBtn').addEventListener('click', () => { this.toast('MeloFi Studio를 여는 중…', { ms: 2500 }); window.melofi.openStudioWindow(); });
     $('#fsBtn').title = T.menu.fsTip;
     $('#fsBtn').addEventListener('click', () => app.action('fullscreen'));
     $('#susFlag').title = T.menu.latchTip;
@@ -59,7 +67,7 @@ export class UI {
   }
 
   get modal() {
-    for (const id of ['keymap', 'mixer', 'help', 'settings']) if (!$(`#${id}`).hidden) return id;
+    for (const id of ['store', 'daw', 'cloud', 'keymap', 'mixer', 'help', 'settings']) if ($(`#${id}`) && !$(`#${id}`).hidden) return id;
     return null;
   }
 
@@ -75,19 +83,31 @@ export class UI {
   }
 
   close() {
-    for (const id of ['help', 'keymap', 'settings', 'mixer']) $(`#${id}`).hidden = true;
+    for (const id of ['help', 'keymap', 'settings', 'mixer', 'store', 'daw', 'cloud']) if ($(`#${id}`)) $(`#${id}`).hidden = true;
     this.openMenu(null);
     this.kmSel = null;
   }
 
   syncFkeys() {}
 
+  // the instrument picker window: stays open, every click switches the piano's instrument
+  pickInstrument() {
+    const app = this.app;
+    openPicker({ title: '피아노', current: this.s.v.instrument, closeOnPick: false },
+      async (id) => { await app.refreshInstruments(); this.s.set({ instrument: id }); },
+      () => app.store.show());
+  }
+
   // ---------- menu bar ----------
 
   menuItems(name) {
-    const v = this.s.v, M = T.menu, app = this.app;
+    const v = this.s.v, M = T.menu, S = T.settings, app = this.app;
     const radio = (on, label, act, extra = {}) => ({ label, check: on ? 'dot' : '', act, ...extra });
+    const tick = (on, label, act, extra = {}) => ({ label, check: on ? 'tick' : '', act, ...extra });
     const opts = (key, list) => list.map(([val, label]) => radio(v[key] === val, label, () => this.s.set({ [key]: val })));
+    const song = !!app.player?.song;
+    const St = app.studio;
+    const inStudio = (fn) => async () => { if (!St.isOpen) await St.open(); fn(); };
     if (name === 'file') {
       return [
         { label: M.openScore, act: () => app.pickScore() },
@@ -95,126 +115,186 @@ export class UI {
           ? [...app.recent.map((r) => ({ label: r.name, hint: r.path.split(/[\\/]/).slice(-2, -1)[0] || '', act: () => app.openRecent(r.path) })),
             { sep: true }, { label: M.recentClear, act: async () => { app.recent = await window.melofi.clearRecentScores(); } }]
           : [{ label: M.recentNone, disabled: true }] },
-        { label: M.renderVideo, disabled: !app.player?.song || app.rendering, sub: [
+        { sep: true },
+        { label: M.projNew, act: () => window.melofi.openStudioWindow('new') },
+        { label: M.projOpen, act: () => window.melofi.openStudioWindow('open') },
+        { sep: true },
+        { label: M.openRecDir, act: () => app.openRecDir() },
+        { sep: true },
+        { label: M.quit, key: 'Alt+F4', act: () => window.close() },
+      ];
+    }
+    if (name === 'score') {
+      return [
+        { label: M.scorePlay, key: 'F8', act: () => app.action('scorePlay'), disabled: !song },
+        { label: M.scoreStop, key: 'F9', act: () => app.action('scoreStop'), disabled: !song },
+        { sep: true },
+        { label: M.partsPick, disabled: !song, act: () => this.openPartsMenu() },
+        { sep: true },
+        tick(v.scoreFall, S.scoreFall, () => this.s.set({ scoreFall: !v.scoreFall })),
+        tick(v.scoreHands, T.score.hands, () => this.s.set({ scoreHands: !v.scoreHands })),
+        tick(v.scoreBarHidden, T.score.hideBar, () => this.s.set({ scoreBarHidden: !v.scoreBarHidden })),
+        tick(v.introCard, S.introCard, () => this.s.set({ introCard: !v.introCard })),
+        { sep: true },
+        { label: M.saveMidi, disabled: !song, act: () => app.exportScoreMidi() },
+      ];
+    }
+    if (name === 'compose') {
+      return [
+        { label: St.isOpen ? M.studioClose : M.studioOpen, key: 'F12', act: () => St.toggle() },
+        { sep: true },
+        { label: M.projNew, act: inStudio(() => St.newFile()) },
+        { label: M.projOpen, key: St.isOpen ? 'Ctrl+O' : '', act: inStudio(() => St.openFile()) },
+        { label: M.projSave, key: St.isOpen ? 'Ctrl+S' : '', act: () => St.save(), disabled: !St.isOpen },
+        { label: M.projSaveAs, act: () => St.save(true), disabled: !St.isOpen },
+        { sep: true },
+        { label: M.midiImport, act: inStudio(() => St.importMidi()) },
+        { label: M.midiExport, act: () => St.exportMidi(), disabled: !St.isOpen },
+        { label: M.wavExport, act: () => St.exportWav(), disabled: !St.isOpen },
+        { label: 'AI로 곡 분석 · 재구성…', act: inStudio(() => St.aiSheet.show()) },
+        { label: T.daw.open, act: inStudio(() => St.dawSheet.show()) },
+        { sep: true },
+        { label: T.cloud.menuSave, act: inStudio(() => St.cloudSheet.show('projects')) },
+        { label: T.cloud.menuShared, act: inStudio(() => St.cloudSheet.show('shared')) },
+        { label: T.cloud.menuAccount, act: inStudio(() => St.cloudSheet.show('account')) },
+      ];
+    }
+    if (name === 'rec') {
+      return [
+        { label: app.recorder?.recording ? M.recStop : M.recStart, key: 'F2', act: () => app.action('record'), danger: app.recorder?.recording },
+        { label: M.recFormat, sub: opts('recFormat', Object.entries(S.recFormats)) },
+        { label: M.recRes, sub: opts('recRes', Object.entries(M.recResKinds)) },
+        { sep: true },
+        { label: M.renderVideo, disabled: !song || app.rendering, sub: [
           ...[[2160, 60], [2160, 30], [1440, 60], [1080, 60]].map(([hh, fps]) => ({ label: `${hh === 2160 ? '4K' : `${hh}p`} · ${fps}fps`, hint: `${Math.round((hh * 16) / 9)}×${hh}`, act: () => app.renderVideo({ height: hh, fps }) })),
           { sep: true }, { label: M.renderHint, disabled: true }] },
-        { label: M.scorePlay, key: 'F8', act: () => app.action('scorePlay'), disabled: !app.player?.song },
-        { label: M.scoreStop, key: 'F9', act: () => app.action('scoreStop'), disabled: !app.player?.song },
-        { sep: true },
-        { label: app.recorder?.recording ? M.recStop : M.recStart, key: 'F2', act: () => app.action('record'), danger: app.recorder?.recording },
-        { sep: true },
-        { label: M.recFormat, sub: opts('recFormat', Object.entries(T.settings.recFormats)) },
-        { label: M.recRes, sub: opts('recRes', Object.entries(M.recResKinds)) },
         { sep: true },
         { label: M.openRecDir, act: () => app.openRecDir() },
         { label: M.changeRecDir, act: async () => { const p = await window.melofi.pickFolder(v.recDir || app.env.recordDir); if (p) this.s.set({ recDir: p }); } },
-        { sep: true },
-        { label: M.quit, key: 'Alt+F4', act: () => window.close() },
       ];
     }
     if (name === 'sound') {
       const devs = app.midiDevices || [];
       return [
-        { label: M.instrument, sub: byFamily(app.instruments).flatMap(([fam, list], gi) => [
-          ...(gi ? [{ sep: true }] : []), { group: T.families[fam] || fam }, ...list.map((i) => (i.installed
-          ? radio(v.instrument === i.id, i.name, () => this.s.set({ instrument: i.id }), { hint: i.model })
-          : { label: i.name, hint: app.dl.has(i.id) ? `${Math.round(app.dl.get(i.id) * 100)}% · ${M.dlCancel}` : `${M.dlGet} · ${mb(i.size)}`,
-            act: () => (app.dl.has(i.id) ? app.cancelDownload(i.id) : app.downloadInstrument(i.id)) }))]) },
+        { label: `${M.instrument}…`, hint: app.instruments.find((i) => i.id === v.instrument)?.name || '', act: () => { this.openMenu(null); this.pickInstrument(); } },
+        { label: T.store.open, act: () => { this.close(); this.app.store.show(); } },
+        { sep: true },
         { label: M.touch, sub: [...M.touchKinds.map(([val, label]) => radio(v.velocity === val, label, () => this.s.set({ velocity: val }))),
           { sep: true }, { label: M.touchCustom, act: () => { this.tab = 'play'; this.open('settings'); } }] },
-        { label: M.latch, check: app.pedalLatch ? 'tick' : '', key: 'F7', act: () => app.action('latch') },
+        { sep: true },
+        tick(app.pedalLatch, M.latch, () => app.action('latch'), { key: 'F7' }),
         { label: M.pedal, sub: opts('pedalMode', Object.entries(M.pedalKinds)) },
         { sep: true },
-        { label: M.metro, check: v.metro ? 'tick' : '', key: 'F6', act: () => app.action('metro') },
+        tick(v.metro, M.metro, () => app.action('metro'), { key: 'F6' }),
         { label: M.tempo, sub: [...[60, 72, 80, 90, 100, 110, 120, 140, 160].map((b) => radio(v.bpm === b, `${b} BPM`, () => this.s.set({ bpm: b }))),
           { sep: true }, { label: M.tempoCustom, act: () => this.open('mixer') }] },
         { label: M.meter, sub: opts('beats', [[2, '2/4'], [3, '3/4'], [4, '4/4'], [6, '6/8']]) },
         { sep: true },
         { label: M.midiIn, sub: [
-          { label: M.midiUse, check: v.midiIn ? 'tick' : '', act: () => this.s.set({ midiIn: !v.midiIn }) },
+          tick(v.midiIn, M.midiUse, () => this.s.set({ midiIn: !v.midiIn })),
           { sep: true },
           ...(devs.length ? devs.map((d) => ({ label: d, disabled: true })) : [{ label: M.midiNone, disabled: true }]),
         ] },
-        { sep: true },
         { label: M.mixer, key: 'F4', act: () => this.open('mixer') },
+      ];
+    }
+    if (name === 'view') {
+      return [
+        tick(app.fullscreen, M.fullscreen, () => app.action('fullscreen'), { key: 'F5' }),
+        tick(v.streamMode, M.stream, () => this.s.set({ streamMode: !v.streamMode })),
+        { label: M.winSize, sub: [
+          ...WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })),
+          { sep: true },
+          { label: M.winCustom, act: () => { this.tab = 'look'; this.open('settings'); setTimeout(() => $('#winW')?.focus(), 50); } },
+        ] },
+        { sep: true },
+        { label: M.theme, sub: [
+          ...Object.entries(THEMES).map(([id, th]) => radio(v.theme === id, th.name, () => this.s.set({ theme: id }))),
+          ...(v.customTheme ? [radio(v.theme === 'custom', M.customTheme, () => this.s.set({ theme: 'custom' }))] : []),
+          { sep: true },
+          { label: M.bgTheme, act: () => app.themeFromBackground(), disabled: !v.bgImage },
+        ] },
+        { label: M.background, sub: [
+          { label: M.bgPick, act: () => app.pickBackground() },
+          { label: M.bgSamples, sub: SAMPLE_BGS.map(([id, nm]) => radio(v.bgImage === bgUrl(id), nm, () => app.useSampleBackground(id))) },
+          { sep: true },
+          ...[[0.3, M.bgDim30], [0.55, M.bgDim55], [0.75, M.bgDim75]].map(([val, label]) => radio(v.bgDim === val, label, () => this.s.set({ bgDim: val }), { disabled: !v.bgImage })),
+          { sep: true },
+          { label: M.bgTheme, act: () => app.themeFromBackground(), disabled: !v.bgImage },
+          { label: M.bgClear, act: () => this.s.set({ bgImage: '' }), disabled: !v.bgImage },
+        ] },
+        { label: S.specGroup, sub: [
+          tick(v.spectrum, M.specShow, () => this.s.set({ spectrum: !v.spectrum })),
+          { sep: true },
+          { group: S.specStyle }, ...opts('specStyle', Object.entries(S.specStyles)),
+          { group: S.specPos }, ...opts('specPos', Object.entries(S.specPositions)),
+          { group: S.specColor }, ...opts('specColor', Object.entries(S.specColors)),
+          { sep: true },
+          { label: M.specMore, act: () => { this.tab = 'look'; this.open('settings'); } },
+        ] },
+        { sep: true },
+        { label: M.noteColor, sub: opts('noteColor', Object.entries(M.noteColorKinds)) },
+        { label: M.barWidth, sub: opts('barWidth', [[0.7, M.thin], [1, M.normal], [1.4, M.thick]]) },
+        { label: M.particles, sub: opts('particles', Object.entries(S.particleLevels)) },
+        tick(v.visualizer, M.visualizer, () => this.s.set({ visualizer: !v.visualizer })),
+        { sep: true },
+        { label: M.labels, sub: opts('labels', Object.entries(S.labelKinds)) },
+        { label: M.zoom, sub: [...opts('kbZoom', [[1, '100%'], [1.25, '125%'], [1.5, '150%'], [2, '200%'], [3, '300%']]), { sep: true }, { label: M.zoomHint, disabled: true }] },
+        tick(v.gpu, M.gpu, () => app.setGpu(!v.gpu), { hint: app.stage.glr ? 'WebGL2' : 'Canvas2D' }),
       ];
     }
     return [
       { label: M.prefs, key: 'F10', act: () => this.open('settings') },
-      { label: M.fullscreen, key: 'F5', check: app.fullscreen ? 'tick' : '', act: () => app.action('fullscreen') },
       { label: M.keymap, key: 'F3', act: () => this.open('keymap') },
       { label: M.layout, sub: Object.entries(T.presets).filter(([k]) => k !== 'custom' || v.customMap).map(([k, label]) => radio(v.keyPreset === k, label, () => this.s.set({ keyPreset: k }))) },
-      { sep: true },
-      { label: M.zoom, sub: [...opts('kbZoom', [[1, '100%'], [1.25, '125%'], [1.5, '150%'], [2, '200%'], [3, '300%']]), { sep: true }, { label: M.zoomHint, disabled: true }] },
-      { label: M.theme, sub: [
-        ...Object.entries(THEMES).map(([id, th]) => radio(v.theme === id, th.name, () => this.s.set({ theme: id }))),
-        ...(v.customTheme ? [radio(v.theme === 'custom', M.customTheme, () => this.s.set({ theme: 'custom' }))] : []),
-        { sep: true },
-        { label: M.bgTheme, act: () => app.themeFromBackground(), disabled: !v.bgImage },
-      ] },
-      { label: M.noteColor, sub: opts('noteColor', Object.entries(M.noteColorKinds)) },
-      { label: M.barWidth, sub: opts('barWidth', [[0.7, M.thin], [1, M.normal], [1.4, M.thick]]) },
-      { label: M.particles, sub: opts('particles', Object.entries(T.settings.particleLevels)) },
-      { label: M.background, sub: [
-        { label: M.bgPick, act: () => app.pickBackground() },
-        { sep: true },
-        ...[[0.3, M.bgDim30], [0.55, M.bgDim55], [0.75, M.bgDim75]].map(([val, label]) => radio(v.bgDim === val, label, () => this.s.set({ bgDim: val }), { disabled: !v.bgImage })),
-        { sep: true },
-        { label: M.bgTheme, act: () => app.themeFromBackground(), disabled: !v.bgImage },
-        { label: M.bgClear, act: () => this.s.set({ bgImage: '' }), disabled: !v.bgImage },
-      ] },
-      { label: M.labels, sub: opts('labels', Object.entries(T.settings.labelKinds)) },
-      { label: M.visualizer, check: v.visualizer ? 'tick' : '', act: () => this.s.set({ visualizer: !v.visualizer }) },
-      { label: M.gpu, check: v.gpu ? 'tick' : '', hint: app.stage.glr ? 'WebGL2' : 'Canvas2D', act: () => app.setGpu(!v.gpu) },
-      { label: M.stream, check: v.streamMode ? 'tick' : '', act: () => this.s.set({ streamMode: !v.streamMode }) },
-      { label: M.winSize, sub: [
-        ...WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })),
-        { sep: true },
-        { label: M.winCustom, act: () => { this.tab = 'look'; this.open('settings'); setTimeout(() => $('#winW')?.focus(), 50); } },
-      ] },
       { sep: true },
       { label: M.help, key: 'F1', act: () => this.open('help') },
     ];
   }
 
-  renderMenu(el, items) {
+  // level: 0 = the drop-down itself, 1 = its submenu, 2 = a submenu of that (화면 > 배경 > 샘플 배경)…
+  renderMenu(el, items, level = 0) {
     el.replaceChildren(...items.map((it) => {
       if (it.sep) return h('div', { class: 'sep' });
       if (it.group) return h('div', { class: 'grp' }, it.group);
       const b = h('button', {
         role: 'menuitem', class: `${it.danger ? 'danger' : ''}${it.sub ? ' has-sub' : ''}`, disabled: !!it.disabled,
-        onclick: () => { if (it.sub || it.disabled) return; this.openMenu(null); it.act(); },
+        onclick: () => {
+          if (it.disabled) return;
+          if (it.sub) { this.openSub(b, it.sub, level + 1); return; } // a click opens it too (touch, or a quick click)
+          this.openMenu(null); it.act();
+        },
       }, h('span', { class: `chk ${it.check || ''}` }), h('span', { class: 'lbl' }, it.chip ? h('i', { class: 'chip', style: `background:${it.chip}` }) : null, it.label, it.hint ? h('small', {}, it.hint) : null),
       h('span', { class: 'key' }, it.sub ? h('i', { class: 'arrow' }) : it.key || ''));
       b.addEventListener('pointerenter', () => {
-        if (el === this.subEl) return;
-        if (it.sub) this.openSub(b, it.sub); else this.closeSub();
+        if (it.sub && !it.disabled) this.openSub(b, it.sub, level + 1); else this.closeSub(level + 1);
       });
       return b;
     }));
   }
 
-  openSub(anchor, items) {
-    if (this.subAnchor === anchor) return;
-    this.closeSub();
+  openSub(anchor, items, level = 1) {
+    if (this.subs?.[level - 1]?.anchor === anchor) return;
+    this.closeSub(level);
     const sub = h('div', { class: 'menu sub', role: 'menu' });
-    this.renderMenu(sub, items);
+    this.renderMenu(sub, items, level);
     document.body.append(sub);
     const r = anchor.getBoundingClientRect();
     const w = sub.offsetWidth, hh = sub.offsetHeight;
     const left = r.right + w > window.innerWidth ? r.left - w : r.right;
     sub.style.left = `${left}px`;
     sub.style.top = `${Math.max(4, Math.min(r.top - 4, window.innerHeight - hh - 4))}px`;
-    this.subEl = sub;
     anchor.classList.add('open');
-    this.subAnchor = anchor;
+    (this.subs ||= []).push({ el: sub, anchor });
   }
 
-  closeSub() {
-    this.subEl?.remove();
-    this.subEl = null;
-    this.subAnchor?.classList.remove('open');
-    this.subAnchor = null;
+  // close the submenus from `level` down (1 = all of them)
+  closeSub(level = 1) {
+    while ((this.subs?.length || 0) >= level) {
+      const s = this.subs.pop();
+      s.el.remove();
+      s.anchor.classList.remove('open');
+    }
   }
 
   openMenu(name) {
@@ -251,6 +331,7 @@ export class UI {
     if (!$('#settings').hidden) this.renderDrawer();
     if (!$('#keymap').hidden) this.renderKeymap();
     if (!$('#mixer').hidden) this.renderMixer();
+    this.app.store?.render();
   }
 
   // ---------- mixer ----------
@@ -448,7 +529,6 @@ export class UI {
     const P = this.app.player;
     const RATES = [0.25, 0.5, 0.6, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2];
     $('#tpParts').textContent = T.score.parts;
-    $('#tpPractice').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.openPracticeMenu(); });
     $('#tpMidi').textContent = T.score.midi;
     $('#tpPlay').addEventListener('click', () => this.app.toggleScore());
     // transport buttons don't keep keyboard focus (keys are for playing)
@@ -456,6 +536,17 @@ export class UI {
     $('#tpStop').addEventListener('click', () => P.stop());
     $('#tpClose').addEventListener('click', () => this.app.closeScore());
     $('#tpMidi').addEventListener('click', () => this.app.exportScoreMidi());
+    $('#tpHide').title = T.score.hideTip;
+    $('#tpHide').addEventListener('click', () => this.s.set({ scoreBarHidden: true }));
+    // hidden play bar: peek while the mouse is at the top edge or over the bar itself
+    document.addEventListener('mousemove', (e) => {
+      if (!document.body.classList.contains('tp-hidden')) return;
+      const barH = $('#bar').offsetHeight;
+      document.body.classList.toggle('tp-peek', e.clientY < barH + 8 || !!e.target.closest?.('#transport, .menu'));
+    });
+    const applyHidden = (on) => { document.body.classList.toggle('tp-hidden', !!on); document.body.classList.remove('tp-peek'); requestAnimationFrame(() => this.app.stage.layout()); };
+    applyHidden(this.s.get('scoreBarHidden'));
+    this.s.on((p) => { if ('scoreBarHidden' in p) applyHidden(p.scoreBarHidden); });
     const step = (dir) => {
       const i = RATES.findIndex((r) => r >= P.rate - 1e-6);
       P.setRate(RATES[Math.max(0, Math.min(RATES.length - 1, (i < 0 ? 5 : i) + dir))]);
@@ -490,8 +581,6 @@ export class UI {
         h('span', {}, h('i', { class: 'chip', style: `background:${ink ? (k === 'rh' ? '#15130f' : '#a3271a') : (this.s.get(k === 'rh' ? 'rhColor' : 'lhColor') || HAND_COLORS[k])}` }), label)) : []));
     }
     $('#tpPlay i').className = `ic ${P.playing ? 'pause' : 'play'}`;
-    $('#tpPractice').textContent = this.app.practice?.active ? T.practice.running : T.practice.title;
-    $('#tpPractice').classList.toggle('on', !!this.app.practice?.active);
     const now = P.now();
     if (!this.seeking) {
       $('#tpPos').textContent = fmtTime(now);
@@ -503,6 +592,28 @@ export class UI {
     $('#tpRate').textContent = `${Math.round(P.rate * 100)}%`;
   }
 
+  // what plays a score part: its instrument's name, the drum kit, or nothing (sound effects)
+  partInstName(lineId) {
+    const a = this.app.scoreParts?.get(lineId);
+    const name = (id) => this.app.instruments.find((i) => i.id === id)?.name || id;
+    if (!a) return '';
+    if (a.inst === null) return '효과음 · 소리 없음';
+    if (a.inst === 'piano') return name(this.s.get('instrument'));
+    return a.kit ? `${name(a.inst)} · 드럼` : name(a.inst);
+  }
+
+  pickPartInstrument(l) {
+    const a = this.app.scoreParts?.get(l.id);
+    openPicker({ title: `파트 · ${l.name}`, current: a?.inst === 'piano' ? this.s.get('instrument') : a?.inst, closeOnPick: true },
+      async (id) => {
+        await this.app.refreshInstruments();
+        await this.app.setPartInstrument(l.id, id);
+        if (!this.app.player.enabled.has(l.id)) this.app.player.setLine(l.id, true);
+        this.toast(`${l.name} 파트를 ${this.partInstName(l.id)}(으)로 연주합니다`, { ms: 2500 });
+      },
+      () => this.app.store.show());
+  }
+
   openPartsMenu() {
     const P = this.app.player;
     if (!P.song) return;
@@ -510,12 +621,14 @@ export class UI {
     this.closeSub();
     const lines = P.song.lines;
     const items = [
-      ...lines.map((l) => ({ label: l.name, hint: l.piano ? T.score.piano : `${l.notes.length}`, chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
+      ...lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
       { sep: true },
       { label: T.score.hands, check: this.s.get('scoreHands') ? 'tick' : '', act: () => { this.s.set({ scoreHands: !this.s.get('scoreHands') }); this.openPartsMenu(); this.updateTransport(); } },
       { sep: true },
       { label: T.score.pianoOnly, act: () => { for (const l of lines) P.setLine(l.id, l.piano); }, disabled: !lines.some((l) => l.piano) },
       { label: T.score.all, act: () => { for (const l of lines) P.setLine(l.id, true); } },
+      { sep: true },
+      { label: '파트 악기 바꾸기', sub: lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), act: () => this.pickPartInstrument(l) })) },
     ];
     this.renderMenu(menu, items);
     // keep the menu open while toggling parts
@@ -562,27 +675,6 @@ export class UI {
       window.addEventListener('keydown', onKey, true);
       box.addEventListener('pointerdown', onPtr);
     });
-  }
-
-  // practice: which hand, how strict, start / stop
-  openPracticeMenu() {
-    if (this.menuOpen === 'practice') { this.openMenu(null); return; }
-    this.openMenu(null);
-    const Pr = this.app.practice, v = this.s.v, Q = T.practice;
-    const radio = (on, label, act) => ({ label, check: on ? 'dot' : '', act });
-    const items = [
-      { group: Q.hand },
-      ...[['rh', T.score.rh], ['lh', T.score.lh], ['both', Q.both]].map(([k, l]) => radio(v.practiceHand === k, l, () => this.s.set({ practiceHand: k }))),
-      { sep: true },
-      Pr.active ? { label: Q.stop, act: () => { this.app.player.pause(); Pr.stop(); } } : { label: Q.start, act: () => Pr.start() },
-    ];
-    const menu = $('#menu');
-    this.renderMenu(menu, items);
-    const r = $('#tpPractice').getBoundingClientRect();
-    menu.style.left = `${Math.min(r.left, window.innerWidth - 260)}px`;
-    menu.style.top = `${r.bottom + 2}px`;
-    menu.hidden = false;
-    this.menuOpen = 'practice';
   }
 
   // ---------- help ----------
@@ -727,6 +819,19 @@ export class UI {
       this.row(T.menu.zoom, this.seg([[1, '100'], [1.25, '125'], [1.5, '150'], [2, '200'], [3, '300']], v.kbZoom, (x) => this.s.set({ kbZoom: x }))),
       this.row(T.menu.noteColor, this.select(Object.entries(T.menu.noteColorKinds), v.noteColor, (x) => this.s.set({ noteColor: x }))),
       this.row(T.menu.barWidth, this.seg([[0.7, T.menu.thin], [1, T.menu.normal], [1.4, T.menu.thick]], v.barWidth, (x) => this.s.set({ barWidth: x }))),
+      h('div', { class: 'group-title' }, S.specGroup),
+      this.row(S.spectrum, this.toggle(v.spectrum, (x) => this.s.set({ spectrum: x })), S.spectrumHint),
+      ...(v.spectrum ? [
+        this.row(S.specStyle, this.seg(Object.entries(S.specStyles), v.specStyle, (x) => this.s.set({ specStyle: x }))),
+        this.row(S.specPos, this.seg(Object.entries(S.specPositions), v.specPos, (x) => this.s.set({ specPos: x }))),
+        this.row(S.specBars, this.seg([[32, '32'], [64, '64'], [96, '96'], [128, '128']], v.specBars, (x) => this.s.set({ specBars: x }))),
+        this.row(S.specHeight, this.slider(0.1, 0.9, 0.05, v.specHeight, (x) => `${Math.round(x * 100)}%`, (x) => this.set({ specHeight: x }))),
+        this.row(S.specColor, [this.seg(Object.entries(S.specColors), v.specColor, (x) => this.s.set({ specColor: x })),
+          v.specColor === 'custom' ? this.colorPick(v.specCustom, (x) => this.set({ specCustom: x }), '') : null]),
+        this.row(S.specOpacity, this.slider(0.1, 1, 0.05, v.specOpacity, (x) => `${Math.round(x * 100)}%`, (x) => this.set({ specOpacity: x }))),
+        this.row(S.specSmooth, this.slider(0, 0.95, 0.05, v.specSmooth, (x) => `${Math.round(x * 100)}%`, (x) => this.set({ specSmooth: x }))),
+        this.row(S.specPeaks, this.toggle(v.specPeaks, (x) => this.s.set({ specPeaks: x }))),
+      ] : []),
       h('div', { class: 'group-title' }, S.streamGroup),
       this.row(T.menu.stream, this.toggle(v.streamMode, (x) => this.s.set({ streamMode: x })), S.streamHint),
       this.row(T.menu.winSize, h('div', { class: 'seg' }, ...WINDOW_SIZES.map(([w, hh]) => h('button', { onclick: () => this.app.setWindowSize(w, hh) }, `${w}×${hh}`)))),
@@ -744,6 +849,10 @@ export class UI {
         h('button', { class: 'btn', onclick: () => this.app.pickBackground() }, T.menu.bgPick),
         v.bgImage ? h('button', { class: 'btn', onclick: () => this.s.set({ bgImage: '' }) }, T.settings.clear) : null,
       ]),
+      h('div', { class: 'bg-samples' }, ...SAMPLE_BGS.map(([id, name]) => h('button', {
+        class: `bg-sample${v.bgImage === bgUrl(id) ? ' on' : ''}`, title: name, onclick: () => this.app.useSampleBackground(id),
+        style: `background-image:url(${bgUrl(id)})`,
+      }, h('span', {}, name)))),
       v.bgImage ? this.row(S.bgDim, this.slider(0, 0.9, 0.05, v.bgDim, (x) => `${Math.round(x * 100)}%`, (x) => this.set({ bgDim: x }))) : null,
     ];
   }

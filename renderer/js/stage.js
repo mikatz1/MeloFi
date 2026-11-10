@@ -3,10 +3,12 @@
 import { THEMES } from './themes.js';
 import { isBlack } from './keymap.js';
 import { GLRenderer } from './gl-renderer.js';
+import { Spectrum } from './spectrum.js';
 
 const QUALITY = { off: 0, low: 0.35, medium: 0.65, high: 1, ultra: 1.7 };
 const POOL = 24000;
-const SPARK = 0, DUST = 1, HAZE = 2, PETAL = 3, EMBER = 4, SNOW = 5, INK = 6;
+const BAR_CAP = 6000; // rising bars on screen at once (safety net only; they leave by floating off the top)
+const SPARK = 0, DUST = 1, HAZE = 2, PETAL = 3, EMBER = 4, SNOW = 5, INK = 6, BUBBLE = 7, STAR = 8;
 const BLACK_SHIFT = { 1: -0.07, 3: 0.07, 6: -0.09, 8: 0, 10: 0.09 };
 const RANGES = { 88: [21, 108], 61: [36, 96], 49: [36, 84] };
 
@@ -139,6 +141,7 @@ export class Stage {
     this.fxs = { pulse: 0, intensity: 64, rings: [], beams: new Map(), flash: null, shake: 0, recent: [] };
     this.fxNow = null;
     this.pedal = false;
+    this.spec = new Spectrum();
     this.ringing = new Set(); // notes still sounding, held or carried by the pedal
     this.bars = [];
     this.wisps = [];
@@ -351,6 +354,9 @@ export class Stage {
     b.fillStyle = g;
     b.fillRect(0, 0, W, H);
     if (t.paper) this.paintPaper(b, W, top);
+    if (t.stars) this.paintStars(b, W, top);
+    if (t.rays) this.paintRays(b, W, top);
+    if (t.grid) this.paintGrid(b, W, top);
     if (this.bgImg) {
       // cover-fit the user's picture over the play area, then dim it so the light still reads
       const img = this.bgImg;
@@ -411,6 +417,7 @@ export class Stage {
     const fontPx = (sz) => `${Math.round(sz)}px "Segoe UI Variable Text","Segoe UI","Malgun Gothic",sans-serif`;
     const showLabels = this.opts.labels !== 'none' && !this.opts.stream;
     if (t.keys === 'ink') { this.paintInkKeys(w, k, kh, showLabels, fontPx); return; }
+    if (['neon', 'glass', 'lacquer', 'contrast'].includes(t.keys)) { this.paintStyledKeys(t.keys, w, k, kh, showLabels, fontPx); return; }
     if (t.keys === 'pixel') { this.paintPixelKeys(w, k, kh, showLabels); return; }
     for (let n = this.lo; n <= this.hi; n++) {
       const key = this.keys[n];
@@ -444,6 +451,8 @@ export class Stage {
     sh.addColorStop(1, 'rgba(0,0,0,0)');
     w.fillStyle = sh;
     w.fillRect(0, 0, W, 12 * dpr);
+    // a hairline of the theme's colour where the keys meet the felt
+    if (t.keyEdge) { w.fillStyle = rgba(t.keyEdge, 0.5); w.fillRect(0, 0, W, Math.max(1, dpr)); }
 
     for (let n = this.lo; n <= this.hi; n++) {
       const key = this.keys[n];
@@ -468,6 +477,8 @@ export class Stage {
       // glossy top strip
       k.fillStyle = 'rgba(255,255,255,0.06)';
       k.fillRect(x + bw * 0.2, 0, bw * 0.12, bh * 0.82);
+      // the theme's colour along the front edge
+      if (t.blackRim) { k.fillStyle = rgba(t.blackRim, 0.45); k.fillRect(x + bw * 0.12, bh - Math.max(1, dpr * 1.2), bw * 0.76, Math.max(1, dpr * 1.2)); }
       if (showLabels && this.labels.has(n)) {
         k.fillStyle = 'rgba(235,232,225,0.6)';
         k.font = fontPx(clamp(bw * 0.5, 7 * dpr, 11 * dpr));
@@ -564,6 +575,92 @@ export class Stage {
     }
   }
 
+  // 신스웨이브 'neon' / 심해 'glass' / 우주 'lacquer' / 고대비 'contrast'
+  paintStyledKeys(style, w, k, kh, showLabels, fontPx) {
+    const d = this.dpr, W = this.W, bh = this.bh, t = this.theme;
+    const gap = Math.max(1, d), rad = style === 'contrast' ? 0 : 3 * d;
+    const whiteFill = {
+      neon: ['#1d0b2e', '#2c1042'], glass: ['#e3f5fa', '#9fcfdc'], lacquer: ['#efecf6', '#cdc6df'], contrast: ['#ffffff', '#ffffff'],
+    }[style];
+    w.fillStyle = { neon: '#09030f', glass: '#06202e', lacquer: '#08060f', contrast: '#000000' }[style];
+    w.fillRect(0, 0, W, kh);
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (key.black) continue;
+      const x = key.x + gap / 2, ww = key.w - gap;
+      const g = w.createLinearGradient(0, 0, 0, kh);
+      g.addColorStop(0, whiteFill[0]); g.addColorStop(1, whiteFill[1]);
+      w.fillStyle = g;
+      w.beginPath(); w.roundRect(x, -rad, ww, kh + rad - gap, rad); w.fill();
+      if (style === 'neon') {
+        // neon outline with a glow
+        w.save();
+        w.shadowColor = '#ff2fa8'; w.shadowBlur = 6 * d;
+        w.strokeStyle = 'rgba(255,47,168,0.85)'; w.lineWidth = 1.4 * d;
+        w.beginPath(); w.roundRect(x + d, -rad, ww - 2 * d, kh + rad - gap - d, rad); w.stroke();
+        w.restore();
+      } else if (style === 'glass') {
+        // glassy: bright band at the top, a slow wave of light
+        w.fillStyle = 'rgba(255,255,255,0.45)'; w.fillRect(x, 0, ww, kh * 0.08);
+        w.strokeStyle = 'rgba(255,255,255,0.25)'; w.lineWidth = 1.2 * d;
+        w.beginPath();
+        for (let y = kh * 0.2; y < kh; y += kh * 0.28) { w.moveTo(x, y); w.quadraticCurveTo(x + ww / 2, y + kh * 0.06 * Math.sin(n), x + ww, y); }
+        w.stroke();
+      } else if (style === 'lacquer') {
+        w.fillStyle = 'rgba(255,255,255,0.35)'; w.fillRect(x, 0, Math.max(1, d * 0.75), kh - rad);
+      } else if (style === 'contrast') {
+        w.fillStyle = '#000000'; w.fillRect(x + ww - 2 * d, 0, 2 * d, kh);
+      }
+      if (showLabels && this.labels.has(n)) {
+        const big = style === 'contrast';
+        w.fillStyle = { neon: '#7af3ff', glass: 'rgba(10,50,70,0.6)', lacquer: 'rgba(40,30,70,0.55)', contrast: '#000000' }[style];
+        w.font = big ? `bold ${Math.round(clamp(ww * 0.5, 10 * d, 16 * d))}px "Segoe UI","Malgun Gothic",sans-serif` : fontPx(clamp(ww * 0.42, 8 * d, 13 * d));
+        w.textAlign = 'center'; w.textBaseline = 'alphabetic';
+        w.fillText(this.labels.get(n), x + ww / 2, kh - 9 * d);
+      }
+    }
+    const sh = w.createLinearGradient(0, 0, 0, 12 * d);
+    sh.addColorStop(0, style === 'contrast' ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0.5)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    w.fillStyle = sh; w.fillRect(0, 0, W, 12 * d);
+    for (let n = this.lo; n <= this.hi; n++) {
+      const key = this.keys[n];
+      if (!key.black) continue;
+      const x = key.x, bw = key.w;
+      if (style !== 'contrast') { k.fillStyle = 'rgba(0,0,0,0.4)'; k.beginPath(); k.roundRect(x + d * 1.5, 0, bw, bh + d * 3, rad); k.fill(); }
+      const g = k.createLinearGradient(x, 0, x + bw, 0);
+      const bf = { neon: ['#0a0412', '#140821'], glass: ['#0a2a3c', '#04121c'], lacquer: ['#1d1630', '#06040c'], contrast: ['#000000', '#000000'] }[style];
+      g.addColorStop(0, bf[1]); g.addColorStop(0.5, bf[0]); g.addColorStop(1, bf[1]);
+      k.fillStyle = g;
+      k.beginPath(); k.roundRect(x, -rad, bw, bh + rad, rad); k.fill();
+      if (style === 'neon') {
+        k.save();
+        k.shadowColor = '#34e7ff'; k.shadowBlur = 5 * d;
+        k.strokeStyle = 'rgba(52,231,255,0.9)'; k.lineWidth = 1.2 * d;
+        k.beginPath(); k.roundRect(x + 0.6 * d, -rad, bw - 1.2 * d, bh + rad - 0.6 * d, rad); k.stroke();
+        k.restore();
+      } else if (style === 'glass') {
+        k.fillStyle = 'rgba(120,220,255,0.18)'; k.fillRect(x + bw * 0.18, 0, bw * 0.14, bh * 0.85);
+        k.fillStyle = 'rgba(120,220,255,0.5)'; k.fillRect(x + bw * 0.1, bh - 1.5 * d, bw * 0.8, 1.5 * d);
+      } else if (style === 'lacquer') {
+        // a few specks of starlight in the lacquer
+        let seed = n * 97 + 13;
+        const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        for (let i = 0; i < 6; i++) { k.fillStyle = `rgba(230,220,255,${0.2 + r() * 0.5})`; k.fillRect(x + r() * bw, r() * bh * 0.9, Math.max(1, d * 0.8), Math.max(1, d * 0.8)); }
+        k.fillStyle = 'rgba(255,255,255,0.08)'; k.fillRect(x + bw * 0.2, 0, bw * 0.12, bh * 0.82);
+      } else if (style === 'contrast') {
+        k.strokeStyle = '#ffffff'; k.lineWidth = 2 * d;
+        k.strokeRect(x + d, -d, bw - 2 * d, bh);
+      }
+      if (showLabels && this.labels.has(n)) {
+        const big = style === 'contrast';
+        k.fillStyle = { neon: '#ff9ad8', glass: 'rgba(200,240,255,0.7)', lacquer: 'rgba(230,222,255,0.6)', contrast: '#ffffff' }[style];
+        k.font = big ? `bold ${Math.round(clamp(bw * 0.55, 9 * d, 14 * d))}px "Segoe UI","Malgun Gothic",sans-serif` : fontPx(clamp(bw * 0.5, 7 * d, 11 * d));
+        k.textAlign = 'center';
+        k.fillText(this.labels.get(n), x + bw / 2, bh - bh * 0.14);
+      }
+    }
+  }
+
   // 아케이드: flat colours, hard edges, chunky bevels (lit top-left, shaded bottom-right)
   paintPixelKeys(w, k, kh, showLabels) {
     const W = this.W, bh = Math.round(this.bh);
@@ -607,6 +704,83 @@ export class Stage {
         k.fillText(this.labels.get(n), x + bw / 2, bh - P - 5 * this.dpr);
       }
     }
+  }
+
+  // ---------- painted backdrops ----------
+
+  // 신스웨이브: a striped sun sinking behind a neon perspective floor
+  paintGrid(b, W, H) {
+    const d = this.dpr, hz = Math.round(H * 0.6);
+    const R = Math.min(W * 0.16, H * 0.3);
+    const cx = W / 2, cy = hz - R * 0.25;
+    const sun = b.createLinearGradient(0, cy - R, 0, cy + R);
+    sun.addColorStop(0, '#ffe36e'); sun.addColorStop(0.55, '#ff7a59'); sun.addColorStop(1, '#ff2fa8');
+    b.save();
+    b.globalAlpha = 0.9;
+    b.fillStyle = sun;
+    b.beginPath(); b.arc(cx, cy, R, 0, Math.PI * 2); b.fill();
+    // stripes cut out of the lower half
+    b.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < 7; i++) {
+      const y = cy + R * (0.05 + i * 0.14), h = R * (0.02 + i * 0.012);
+      b.fillRect(cx - R, y, R * 2, h);
+    }
+    b.restore();
+    // glow around the sun
+    const glow = b.createRadialGradient(cx, cy, R * 0.8, cx, cy, R * 2.2);
+    glow.addColorStop(0, 'rgba(255,60,170,0.22)'); glow.addColorStop(1, 'rgba(255,60,170,0)');
+    b.fillStyle = glow;
+    b.fillRect(cx - R * 2.2, cy - R * 2.2, R * 4.4, R * 4.4);
+    // floor
+    const fl = b.createLinearGradient(0, hz, 0, H);
+    fl.addColorStop(0, '#12051f'); fl.addColorStop(1, '#2a0730');
+    b.fillStyle = fl;
+    b.fillRect(0, hz, W, H - hz);
+    b.strokeStyle = 'rgba(255,60,190,0.55)';
+    b.lineWidth = Math.max(1, 1.2 * d);
+    b.beginPath(); b.moveTo(0, hz); b.lineTo(W, hz); b.stroke();
+    b.strokeStyle = 'rgba(255,60,190,0.32)';
+    for (let i = 1; i <= 12; i++) {
+      const y = hz + (H - hz) * (i / 12) ** 2;
+      b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke();
+    }
+    for (let i = -14; i <= 14; i++) {
+      b.beginPath(); b.moveTo(cx + i * W * 0.012, hz); b.lineTo(cx + i * W * 0.11, H); b.stroke();
+    }
+  }
+
+  // 우주: stars of different sizes and a faint nebula
+  paintStars(b, W, H) {
+    const d = this.dpr;
+    let seed = 23;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (const [x, y, rr, c] of [[0.25, 0.3, 0.45, '120,80,220'], [0.7, 0.22, 0.38, '220,90,180'], [0.55, 0.55, 0.5, '70,110,230']]) {
+      const g = b.createRadialGradient(W * x, H * y, 0, W * x, H * y, W * rr);
+      g.addColorStop(0, `rgba(${c},0.12)`); g.addColorStop(1, `rgba(${c},0)`);
+      b.fillStyle = g; b.fillRect(0, 0, W, H);
+    }
+    const n = Math.round((W * H) / (2600 * d * d));
+    for (let i = 0; i < n; i++) {
+      const x = r() * W, y = r() * H, s = (0.4 + r() ** 3 * 1.6) * d, a = 0.25 + r() * 0.7;
+      b.fillStyle = r() < 0.15 ? `rgba(255,210,230,${a})` : r() < 0.3 ? `rgba(200,210,255,${a})` : `rgba(255,255,255,${a})`;
+      b.beginPath(); b.arc(x, y, s, 0, Math.PI * 2); b.fill();
+    }
+  }
+
+  // 심해: slanted shafts of light from the surface
+  paintRays(b, W, H) {
+    let seed = 41;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    b.save();
+    b.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 7; i++) {
+      const x = W * (0.05 + r() * 0.9), w = W * (0.03 + r() * 0.06), lean = W * (0.08 + r() * 0.08);
+      const g = b.createLinearGradient(0, 0, 0, H * (0.7 + r() * 0.3));
+      g.addColorStop(0, `rgba(140,220,255,${0.05 + r() * 0.05})`); g.addColorStop(1, 'rgba(140,220,255,0)');
+      b.fillStyle = g;
+      b.beginPath(); b.moveTo(x, 0); b.lineTo(x + w, 0); b.lineTo(x + w + lean, H); b.lineTo(x + lean - w * 0.5, H); b.closePath(); b.fill();
+    }
+    b.restore();
   }
 
   // hanji: mottled tone, scattered fibres, a soft warm vignette
@@ -660,7 +834,13 @@ export class Stage {
     this.ringing.add(note);
     if (this.opts.visualizer) {
       if (!this.fall) this.bars.push({ note, t0: this.time, t1: null, vel, color });
-      if (this.bars.length > 300) this.bars.shift();
+      // Fast pieces keep hundreds of bars on screen at once; a small cap dropped the oldest — the
+      // ones highest up — so the top of the picture was cut off. Bars leave by floating off the top
+      // (pruneBars); this is only a safety net, and it drops what is already off screen first.
+      if (this.bars.length > BAR_CAP) {
+        this.pruneBars();
+        if (this.bars.length > BAR_CAP) { const i = this.bars.findIndex((b) => b.t1 != null); this.bars.splice(i < 0 ? 0 : i, 1); }
+      }
       this.burst(note, vel, rep);
       this.fxNote(note, vel, color);
     }
@@ -767,6 +947,51 @@ export class Stage {
       this.c.style.transform = `translate(${(Math.random() * 2 - 1) * 3 * F.shake}px, ${(Math.random() * 2 - 1) * 2 * F.shake}px)`;
     } else if (F.shake) { F.shake = 0; this.c.style.transform = ''; }
     this.fxNow = this.fxShapes();
+  }
+
+  // Spectrum bars for this frame: [{ x, y, w, h, c }] with c = [r, g, b, a] (0..1)
+  specRects() {
+    const o = this.opts.spec;
+    if (!o || !o.on || !this.opts.visualizer) return [];
+    const { W, top, dpr, theme: t } = this;
+    const n = o.bars, area = top * o.height, out = [];
+    const rgb = (hex) => { const x = parseInt(hex.slice(1), 16); return [((x >> 16) & 255) / 255, ((x >> 8) & 255) / 255, (x & 255) / 255]; };
+    const hsl = (h) => { const f = (k) => { const a = 0.75 * Math.min(0.6, 0.4); const kk = (k + h / 30) % 12; return 0.6 - a * Math.max(-1, Math.min(kk - 3, 9 - kk, 1)); }; return [f(0), f(8), f(4)]; };
+    const base = o.color === 'custom' ? rgb(o.custom) : rgb(t.barGlow), tip = o.color === 'custom' ? rgb(o.custom) : rgb(t.bar);
+    const slots = o.style === 'mirror' ? n * 2 : n;
+    const sw = W / slots, bw = Math.max(1, sw * 0.68);
+    for (let s = 0; s < slots; s++) {
+      const i = o.style === 'mirror' ? (s < n ? n - 1 - s : s - n) : s;
+      const v = this.spec.vals[i], pk = this.spec.peaks[i];
+      const col = o.color === 'rainbow' ? hsl((i / n) * 300) : null;
+      const x = s * sw + (sw - bw) / 2, h = Math.max(dpr, v * area);
+      const c0 = col || base, c1 = col || tip;
+      const mk = (y, hh, c, a) => out.push({ x, y, w: bw, h: hh, c: [...c, a] });
+      const A = o.opacity;
+      // where the bar grows from
+      const at = (len) => (o.pos === 'top' ? [0, len] : o.pos === 'center' ? [top / 2 - len / 2, len] : [top - 2 * dpr - len, len]);
+      if (o.style === 'dots') {
+        const [y] = at(h); const yy = o.pos === 'top' ? h - 2 * dpr : y;
+        mk(yy, Math.max(2 * dpr, bw * 0.5), c1, A);
+      } else if (o.style === 'blocks') {
+        const seg = 6 * dpr, gap = 2 * dpr, count = Math.floor(h / (seg + gap));
+        for (let b = 0; b < count; b++) {
+          const off = b * (seg + gap);
+          const y = o.pos === 'top' ? off : o.pos === 'center' ? top / 2 - (count * (seg + gap)) / 2 + off : top - 2 * dpr - off - seg;
+          const k = b / Math.max(1, area / (seg + gap));
+          mk(y, seg, [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k], A);
+        }
+      } else {
+        const [y, hh] = at(h);
+        out.push({ x, y, w: bw, h: hh, c: [...c0, A], c2: [...c1, A] });
+      }
+      if (o.peaks && o.style !== 'dots') {
+        const ph = Math.max(dpr * 1.5, 2 * dpr), pl = pk * area;
+        const y = o.pos === 'top' ? pl : o.pos === 'center' ? top / 2 - pl / 2 - ph : top - 2 * dpr - pl - ph;
+        mk(y, ph, c1, Math.min(1, A * 1.4));
+      }
+    }
+    return out;
   }
 
   // what to draw this frame (both renderers read this)
@@ -974,6 +1199,12 @@ export class Stage {
     } else if (t.motes === 'petal') {
       this.ambientAcc += dt * 1.1 * this.q();
       while (this.ambientAcc >= 1) { this.ambientAcc--; this.spawn(PETAL, rand(0, this.W), -12 * d, rand(10, 40) * d, rand(25, 55) * d, rand(12, 20), rand(6, 10) * d); }
+    } else if (t.motes === 'bubble') {
+      this.ambientAcc += dt * 3 * this.q();
+      while (this.ambientAcc >= 1) { this.ambientAcc--; this.spawn(BUBBLE, rand(0, this.W), this.top - 2 * d, 0, -rand(25, 60) * d, rand(6, 11), rand(2, 6) * d); }
+    } else if (t.motes === 'twinkle') {
+      this.ambientAcc += dt * 5 * this.q();
+      while (this.ambientAcc >= 1) { this.ambientAcc--; this.spawn(STAR, rand(0, this.W), rand(0, this.top * 0.92), 0, 0, rand(1.2, 3), rand(1, 2.4) * d); }
     }
   }
 
@@ -1029,6 +1260,9 @@ export class Stage {
         case SNOW:
           this.vx[i] = Math.sin(T * 0.6 + s) * 14 * d;
           this.rot[i] += dt;
+          break;
+        case BUBBLE:
+          this.vx[i] = Math.sin(T * 1.7 + s) * 12 * d;
           break;
         case INK:
           this.size[i] += 14 * d * dt;
@@ -1101,6 +1335,17 @@ export class Stage {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.drawImage(this.bgC, 0, 0);
+    // spectrum behind everything
+    for (const r of this.specRects()) {
+      const [cr, cg, cb, ca] = r.c;
+      if (r.c2) {
+        const g = ctx.createLinearGradient(0, r.y + r.h, 0, r.y);
+        g.addColorStop(0, `rgba(${cr * 255 | 0},${cg * 255 | 0},${cb * 255 | 0},${ca})`);
+        g.addColorStop(1, `rgba(${r.c2[0] * 255 | 0},${r.c2[1] * 255 | 0},${r.c2[2] * 255 | 0},${r.c2[3]})`);
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = `rgba(${cr * 255 | 0},${cg * 255 | 0},${cb * 255 | 0},${ca})`;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
     this.drawKeyboard(ctx, lit);
 
     if (vis) {
@@ -1114,7 +1359,7 @@ export class Stage {
       this.drawParticles(f, [DUST, INK]);
       this.drawBars(f);
       this.drawWisps(f);
-      this.drawParticles(f, [SPARK, EMBER, PETAL, SNOW]);
+      this.drawParticles(f, [SPARK, EMBER, PETAL, SNOW, BUBBLE, STAR]);
       // hit glows
       f.globalCompositeOperation = t.blend;
       for (const [note, v] of lit) {
@@ -1234,6 +1479,18 @@ export class Stage {
           f.globalAlpha = Math.min(1, lf * 4) * 0.8;
           f.drawImage(sp.flake, x - s, y - s, s * 2, s * 2);
           break;
+        case BUBBLE:
+          f.globalAlpha = Math.min(1, lf * 3) * 0.55;
+          f.strokeStyle = t.spark[1];
+          f.lineWidth = Math.max(1, this.dpr * 0.8);
+          f.beginPath(); f.arc(x, y, s, 0, Math.PI * 2); f.stroke();
+          break;
+        case STAR: {
+          f.globalAlpha = Math.sin(lf * Math.PI) * 0.9;
+          const z = s * 3;
+          f.drawImage(sp.spark[0], x - z, y - z, z * 2, z * 2);
+          break;
+        }
         case INK:
           f.globalAlpha = Math.sin(lf * Math.PI) * 0.55;
           s *= 2;
