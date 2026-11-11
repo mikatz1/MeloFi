@@ -2,7 +2,8 @@
 // engine (stems.js: open-source models run on this computer): BS-RoFormer separation, Beat This!
 // beats / tempo, Basic Pitch (or MuScriptor) notes. Then a project from the separated tracks, or the
 // stems turned into MIDI with an instrument chosen for each section (midiconvert.js).
-import { h } from './dom.js';
+import { h, popup } from './dom.js';
+import { encode } from '../export-audio.js';
 import { newProject, newChannel, newPattern, newTrack, uid, STEP, secToTick, barTicks } from '../model.js';
 import { addMedia } from '../media.js';
 import { sections, candidates, rangeText, renderCandidate, buildAssigned, CATS, STEM_NAMES } from './midiconvert.js';
@@ -314,6 +315,55 @@ export class AiSheet {
         h('button', { class: 'btn primary', disabled: !!this.busy || !Object.values(this.choice).some(Boolean), onclick: () => this.buildMidi() }, '이 악기들로 MIDI 프로젝트 만들기')));
   }
 
+  // ---------- saving the separated tracks (right-click a track) ----------
+  // fmt: 'flac' (the separated file itself) | 'wav24' | 'wav16' | 'mp3'
+  async stemFile(file, fmt) {
+    const bytes = await window.melofi.stemsRead(file);
+    if (!bytes) throw new Error('파일을 찾지 못했어요');
+    const ext0 = (file.match(/\.([a-z0-9]+)$/i)?.[1] || 'flac').toLowerCase();
+    if (fmt === 'flac' && ext0 === 'flac') return { ext: 'flac', data: bytes };
+    // decoded at the file's own rate (the stems are 44.1 kHz), so nothing is resampled
+    const probe = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    const L = probe.getChannelData(0), R = probe.numberOfChannels > 1 ? probe.getChannelData(1) : L;
+    return encode({ left: L, right: R, rate: probe.sampleRate }, fmt === 'flac' ? 'flac24' : fmt, 'tpdf');
+  }
+
+  // list: [[label, file]]; one file is saved as is, several go into a folder of their own
+  async saveStems(list, fmt) {
+    const song = (this.file?.name || '곡').replace(/\.[^.]+$/, '');
+    const fmtName = { flac: 'FLAC', wav24: 'WAV 24비트', wav16: 'WAV 16비트', mp3: 'MP3' }[fmt];
+    const toast = (t, o) => this.S.app.ui.toast(t, o);
+    toast(`${list.length > 1 ? `트랙 ${list.length}개를` : `${list[0][0]}을(를)`} ${fmtName}로 저장하는 중…`, { ms: 2500 });
+    try {
+      const files = [];
+      for (const [i, [label, file]] of list.entries()) {
+        const { ext, data } = await this.stemFile(file, fmt);
+        files.push({ ext, data, name: `${String(i + 1).padStart(2, '0')} ${label}`, suffix: ` - ${label}` });
+      }
+      const saved = await window.melofi.saveRecording({ dir: this.S.app.settings.get('recDir'), base: list.length > 1 ? `${song} (분리)` : song, files });
+      const where = saved.files[0];
+      toast(list.length > 1 ? `분리한 트랙 ${files.length}개를 저장했어요` : `${list[0][0]} 저장됨`, { path: where, action: { label: '폴더 열기', fn: () => window.melofi.showItem(where) } });
+    } catch (err) {
+      toast(`저장하지 못했어요: ${err.message}`);
+    }
+  }
+
+  stemMenu(e, label, file, all) {
+    e.preventDefault();
+    popup(e.clientX, e.clientY, [
+      { group: label },
+      { label: '▶ 들어보기', act: () => this.preview(`m-${file}`, file) },
+      { sep: true },
+      { label: 'FLAC으로 저장 (분리한 원본 그대로)', act: () => this.saveStems([[label, file]], 'flac') },
+      { label: 'WAV 24비트로 저장', act: () => this.saveStems([[label, file]], 'wav24') },
+      { label: 'WAV 16비트로 저장 (CD)', act: () => this.saveStems([[label, file]], 'wav16') },
+      { label: 'MP3로 저장 (320kbps)', act: () => this.saveStems([[label, file]], 'mp3') },
+      { sep: true },
+      { label: `분리한 트랙 모두 FLAC으로 저장 (${all.length}개)`, act: () => this.saveStems(all, 'flac') },
+      { label: `분리한 트랙 모두 WAV 24비트로 저장`, act: () => this.saveStems(all, 'wav24') },
+    ]);
+  }
+
   async openStems() {
     const S = this.S;
     this.busy = 'build'; this.render();
@@ -479,7 +529,11 @@ export class AiSheet {
     const NAMES = { vocals: '리드 보컬', backing: '코러스', drums: '드럼', bass: '베이스', guitar: '기타', piano: '피아노', other: '그 밖의 악기' };
     const DRUMS = { kick: '킥', snare: '스네어', toms: '탐', hh: '하이햇', ride: '라이드', crash: '크래시' };
     const noteCount = (k) => r.notes?.[k]?.length || 0;
-    const chip = (id, name, file, sub) => h('button', { class: `ai-stem${this.playing === id ? ' on' : ''}`, title: '눌러서 들어보기', onclick: () => this.preview(id, file) },
+    // every separated file, for "save all": the stems, then the drum parts
+    const allFiles = [...['vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other'].filter((k) => r.stems[k]).map((k) => [NAMES[k] || k, r.stems[k]]),
+      ...Object.entries(r.drum_parts || {}).map(([k, f]) => [`드럼 ${DRUMS[k] || k}`, f])];
+    const chip = (id, name, file, sub) => h('button', { class: `ai-stem${this.playing === id ? ' on' : ''}`, title: '눌러서 들어보기 · 우클릭: 저장', onclick: () => this.preview(id, file),
+      oncontextmenu: (e) => this.stemMenu(e, id.startsWith('d-') ? `드럼 ${name}` : name, file, allFiles) },
       h('i', {}, this.playing === id ? '■' : '▶'), h('span', {}, name), sub ? h('small', {}, sub) : null);
     const order = ['vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other'].filter((k) => r.stems[k]);
     const t = r.times?.total;
@@ -498,7 +552,7 @@ export class AiSheet {
         h('span', { class: 'sp' }),
         h('button', { class: 'btn', disabled: !!this.busy || (!this.useAudio && !this.useMidi), onclick: () => this.openStems() }, '분리한 트랙으로 프로젝트 만들기'),
         h('button', { class: 'btn primary', disabled: !!this.busy, title: '구간마다 악기를 골라 MIDI로 바꾸기', onclick: () => { this.stopPreview(); this.step = 'midi'; this.render(); } }, 'MIDI로 변환 →')),
-      h('p', { class: 'dim' }, `오디오와 MIDI를 함께 넣으면 MIDI 채널은 음소거된 상태로 들어가요. 분리: ${r.models.vocals} · ${r.models.instruments}${r.models.drum_parts ? ` · ${r.models.drum_parts}` : ''} / 박자: ${r.models.beats} / 채보: ${r.models.notes}`));
+      h('p', { class: 'dim' }, `트랙을 우클릭하면 파일로 저장할 수 있어요 (FLAC · WAV · MP3). 오디오와 MIDI를 함께 넣으면 MIDI 채널은 음소거된 상태로 들어가요. 분리: ${r.models.vocals} · ${r.models.instruments}${r.models.drum_parts ? ` · ${r.models.drum_parts}` : ''} / 박자: ${r.models.beats} / 채보: ${r.models.notes}`));
   }
 }
 
