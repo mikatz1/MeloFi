@@ -11,3 +11,4 @@ native/JUCE/
 native/build/
 docs/*.wav
 __pycache__/
+dist-release/
