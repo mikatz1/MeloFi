@@ -84,11 +84,14 @@ export function midiToProject(bytes, name) {
 // ---------- WAV: render the arrangement offline through the same engine ----------
 // only: render just this channel (a stem); offset: seconds of silence before bar 1
 // (0 for DAW stems so every file lines up at the start of the timeline)
-export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, onProgress = () => {}, range = null } = {}) {
-  const SR = 48000;
+// rate: the export's sample rate (instruments are rendered at it directly, no resampling after);
+// noMaster: leave the master's insert effects out (the mastering assistant measures the raw mix)
+export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, onProgress = () => {}, range = null, rate = 48000, noMaster = false } = {}) {
+  const SR = rate;
   let src = only ? { ...proj, channels: proj.channels.map((c) => ({ ...c, mute: false, solo: c.id === only })) } : proj;
   src = { ...src, mode: exportMode(proj) };
   if (range) src = { ...src, loop: range, loopOn: true };
+  if (noMaster) src = { ...src, master: { ...src.master, fx: [] } };
   const probe = eventsFor(src);
   const seconds = tickToSec(src, probe.base + probe.length, src.mode) - tickToSec(src, probe.base, src.mode);
   const ctx = new OfflineAudioContext(2, Math.ceil((offset + seconds + tail) * SR), SR);

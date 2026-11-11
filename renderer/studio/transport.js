@@ -193,6 +193,8 @@ export class Transport {
 
   // song position in ticks (adds the loop region's start)
   songPos() { return this.base + this.now(); }
+  // seconds into the song (for a reference track started at the same point)
+  songSec() { return tickToSec(this.get(), this.songPos(), 'song'); }
 
   build() {
     const { events, length, base } = eventsFor(this.get());

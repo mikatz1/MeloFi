@@ -2,6 +2,7 @@
 // in the offline renderer. Each effect type lists its parameters (for the UI and automation) and
 // builds a unit { input, output, set(params, at), param(name) -> AudioParam | null, dispose() }.
 import { makeImpulse } from '../js/audio.js';
+import { MASTER_TYPES, MASTER_FX, PEAK_FX } from './master-fx.js';
 
 // p: { key, label, min, max, def, unit?, log?, step?, choices? }
 const P = (key, label, min, max, def, extra = {}) => ({ key, label, min, max, def, ...extra });
@@ -257,6 +258,9 @@ export const FX_TYPES = {
     },
   },
 };
+
+Object.assign(FX_TYPES, MASTER_TYPES);
+export { MASTER_FX, PEAK_FX };
 
 export const FX_ORDER = ['pitchfix', 'eq', 'comp', 'filter', 'dist', 'chorus', 'delay', 'reverb', 'width', 'sidechain', 'limiter'];
 

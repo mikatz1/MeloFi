@@ -6,7 +6,7 @@ import { SamplerChannel } from './channel.js';
 import { SynthChannel } from './synth.js';
 import { VstChannel } from './vstchannel.js';
 import { Strip } from './strip.js';
-import { FX_TYPES, fromNorm } from './fx.js';
+import { FX_TYPES, fromNorm, PEAK_FX } from './fx.js';
 
 // what a project channel is played by, inside the engine
 class Host {
@@ -44,12 +44,17 @@ export class StudioEngine {
     this.rev = c.createConvolver();
     this.rev.buffer = makeImpulse(c, 'hall');
     this.revOut = c.createGain(); this.revOut.gain.value = 0.9;
-    this.masterStrip = new Strip(this, 'master', { send: false });
+    this.masterStrip = new Strip(this, 'master', { send: false, preFader: true });
     this.master = this.masterStrip.fader; // (kept for older callers)
     this.limiter = safetyLimiter(c); // no lookahead: live notes are not delayed
     this.revIn.connect(this.rev).connect(this.revOut).connect(this.masterStrip.input);
     this.masterStrip.routeTo(this.limiter);
-    this.limiter.connect(c.destination);
+    // out: what you hear (the mastering window's A/B and reference switch turn it down)
+    this.out = c.createGain();
+    this.limiter.connect(this.out).connect(c.destination);
+    // mono check: both sides summed to the middle (the meters keep reading the stereo mix)
+    this.monoSum = c.createGain(); this.monoSum.channelCount = 1; this.monoSum.channelCountMode = 'explicit'; this.monoSum.channelInterpretation = 'speakers';
+    this.mono = false;
     // analysis taps after the limiter: spectrum + K-weighted loudness
     this.spec = c.createAnalyser(); this.spec.fftSize = 8192; this.spec.smoothingTimeConstant = 0.75;
     this.limiter.connect(this.spec);
@@ -61,6 +66,13 @@ export class StudioEngine {
     this.limiter.connect(k1).connect(k2).connect(split);
     split.connect(this.kL, 0); split.connect(this.kR, 1);
     this.meterBuf = new Float32Array(512);
+    // BS.1770 meter (live only): K-weighted 100 ms blocks, true peak, correlation, scope points
+    this.blocks = [];
+    if (!(c instanceof OfflineAudioContext)) {
+      this.meterNode = new AudioWorkletNode(c, 'melofi-meter', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: 'explicit' });
+      this.out.connect(this.meterNode);
+      this.meterNode.port.onmessage = (e) => { this.blocks.push(e.data); if (this.blocks.length > 600) this.blocks.shift(); this.onBlock?.(e.data); };
+    }
     this.channels = new Map(); // channel id -> Host
     this.buses = new Map();    // bus id -> Strip
     this.click = c.createGain(); this.click.gain.value = 0.5; this.click.connect(c.destination);
@@ -70,6 +82,7 @@ export class StudioEngine {
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/sampler-worklet.js');
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/limiter-worklet.js');
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/pitchfix-worklet.js');
+    await ctx.audioWorklet.addModule('melofi://app/renderer/js/master-worklet.js');
     return new StudioEngine(ctx);
   }
 
@@ -112,6 +125,10 @@ export class StudioEngine {
     }
     this.masterStrip.set({ vol: proj.master.vol, pan: 0 }, at);
     this.masterStrip.setFx(proj.master.fx, at);
+    // a limiter, maximizer or clipper on the master sets the ceiling itself: the safety limiter
+    // (-1.5 dBFS, no lookahead) would otherwise flatten its output again. It then only stops overs.
+    const capped = (proj.master.fx || []).some((f) => f.on !== false && PEAK_FX.has(f.type));
+    this.limiter.parameters.get('threshold').setValueAtTime(capped ? 1 : 0.8414, at);
     await Promise.all(loads);
   }
 
@@ -218,6 +235,14 @@ export class StudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
     o.connect(g).connect(this.click);
     o.start(at); o.stop(at + 0.06);
+  }
+
+  setMono(on) {
+    if (on === this.mono) return;
+    this.mono = on;
+    try { this.out.disconnect(this.ctx.destination); } catch { /* not connected */ }
+    try { this.monoSum.disconnect(); this.out.disconnect(this.monoSum); } catch { /* not connected */ }
+    if (on) this.out.connect(this.monoSum).connect(this.ctx.destination); else this.out.connect(this.ctx.destination);
   }
 
   level() { return this.masterStrip.level(); }

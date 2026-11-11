@@ -3,7 +3,9 @@
 import { FX_TYPES, fxDefaults } from './fx.js';
 
 export class Strip {
-  constructor(engine, id, { send = true } = {}) {
+  // preFader (the master): the fader comes before the inserts, so a limiter at the end of the chain
+  // sets the final peak level and the fader only drives into it
+  constructor(engine, id, { send = true, preFader = false } = {}) {
     const c = engine.ctx;
     this.engine = engine;
     this.id = id;
@@ -16,7 +18,9 @@ export class Strip {
     this.send = send ? c.createGain() : null;
     this.units = []; // [{ id, type, on, unit }]
     this.sig = '';
-    this.fader.connect(this.panner);
+    this.preFader = preFader;
+    this.fader.connect(preFader ? this.post = c.createGain() : this.panner);
+    if (preFader) this.post.connect(this.panner);
     this.panner.connect(this.meter);
     if (this.send) { this.send.gain.value = 0; this.panner.connect(this.send).connect(engine.revIn); }
     this.input.connect(this.fader);
@@ -48,12 +52,13 @@ export class Strip {
     const sig = live.map((f) => `${f.id}:${f.type}`).join('|');
     if (sig !== this.sig) {
       this.sig = sig;
-      try { this.input.disconnect(); } catch { /* fresh */ }
+      const head = this.preFader ? this.fader : this.input, tail = this.preFader ? this.post : this.fader;
+      try { head.disconnect(); } catch { /* fresh */ }
       for (const u of this.units) u.unit.dispose();
       this.units = live.map((f) => ({ id: f.id, type: f.type, unit: FX_TYPES[f.type].build(this.engine.ctx, this.engine.info) }));
-      let node = this.input;
+      let node = head;
       for (const u of this.units) { node.connect(u.unit.input); node = u.unit.output; }
-      node.connect(this.fader);
+      node.connect(tail);
       for (const u of this.units) u.unit.set({ ...fxDefaults(u.type), ...(live.find((f) => f.id === u.id).params || {}) }, at);
     } else {
       for (const u of this.units) u.unit.set(live.find((f) => f.id === u.id).params || {}, at);
@@ -78,6 +83,6 @@ export class Strip {
 
   dispose() {
     for (const u of this.units) u.unit.dispose();
-    for (const n of [this.input, this.fader, this.panner, this.meter, this.send]) try { n?.disconnect(); } catch { /* gone */ }
+    for (const n of [this.input, this.fader, this.post, this.panner, this.meter, this.send]) try { n?.disconnect(); } catch { /* gone */ }
   }
 }

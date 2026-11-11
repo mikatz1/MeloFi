@@ -123,3 +123,10 @@ MELOFI_SHOT=out MELOFI_SCRIPT=tools/e2e/studio-e2e.js MELOFI_USERDATA=out/ud npx
   - 실제 파일 저장/열기 대화상자, WAV/MP3/영상 내보내기 파일 쓰기, 마이크 녹음, VST, 보컬(NNSVS), 계정 서버, MIDI 장치. 대화상자나 장치가 필요해 자동 실행에서 빠짐.
   - 오디오 파형이 템포 맵을 따라 그려지는지는 직접 화면으로 보지 않았음.
 - **GitHub:** origin은 `0af1200`에 머물러 있음. 새 커밋 push는 사용자가 직접 해야 함(현재 토큰에 권한 없음).
+
+## 7. 마스터링 (추가)
+
+`tools/e2e/mastering-e2e.js` 7개 항목이 모두 통과했습니다. 기능 목록, FL Studio·Cubase 비교(97.7% / 96.4%), 측정 결과는 [mastering-comparison.md](mastering-comparison.md)에 있습니다. 함께 고친 기존 버그는 두 가지입니다.
+
+- 마스터 끝의 안전 리미터(-1.5 dBFS)가 마스터 리미터 출력을 다시 누르던 문제
+- 마스터 페이더가 리미터 뒤에 있어 최대 피크가 페이더만큼 낮아지던 문제

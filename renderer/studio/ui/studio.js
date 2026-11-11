@@ -27,7 +27,10 @@ import { openPicker } from '../../js/picker-client.js';
 import { TEMPLATES } from '../templates.js';
 import { SYNTH_CATEGORIES } from '../synth.js';
 import { LOOP_GENRES, ROLES, renderLoop } from '../loops.js';
-import { encodeWav, mp3 } from '../../js/recorder.js';
+import { encodeWav } from '../../js/recorder.js';
+import { finish, encode, fmtLufs, fmtDb } from '../export-audio.js';
+import { TARGETS } from '../meter.js';
+import { MasteringWindow } from './mastering.js';
 import { T } from '../../js/strings.js';
 
 const SNAPS = [['bar', '마디'], [PPQ, '1/4'], [PPQ / 2, '1/8'], [STEP, '1/16'], [STEP / 2, '1/32'], [PPQ / 6, '1/16 셋잇단'], [1, '없음']];
@@ -41,7 +44,7 @@ export const ACTIONS = {
   songmode: ['PAT / SONG 전환', 'L'], newpattern: ['새 패턴', 'F4'], renamepattern: ['패턴 이름 바꾸기', 'F2'], link: ['채널을 믹서 트랙에 연결 (피아노 롤에서는 레가토)', 'Ctrl+L'], timesig: ['박자표 바꾸기 (재생 위치부터)', 'Shift+Alt+T'], clonechannel: ['채널 복제 (설정만)', 'Alt+C'],
   playlist: ['플레이리스트', 'F5'], rack: ['채널 랙', 'F6'], roll: ['피아노 롤', 'F7'], picker: ['플러그인 피커', 'F8'], mixer: ['믹서', 'F9'],
   browser: ['브라우저', 'Alt+F8'], live: ['라이브', 'Ctrl+F8'], keys: ['화면 건반', 'Ctrl+Shift+K'], loop: ['반복 구간 켜기 / 끄기', 'Ctrl+Shift+L'],
-  exportWav: ['WAV로 내보내기', 'Ctrl+R'], exportMp3: ['MP3로 내보내기', 'Ctrl+Shift+R'], exportMidi: ['MIDI로 내보내기', 'Ctrl+Shift+M'],
+  exportWav: ['WAV로 내보내기', 'Ctrl+R'], exportMp3: ['MP3로 내보내기', 'Ctrl+Shift+R'], exportMidi: ['MIDI로 내보내기', 'Ctrl+Shift+M'], mastering: ['마스터링', 'Ctrl+Shift+B'],
   graph: ['Graph editor (벨로시티)', 'Ctrl+K'],
   draw: ['그리기 도구', 'P'], paint: ['페인트 도구', 'B'], erase: ['지우기 도구', 'D'], mutetool: ['뮤트 도구', 'T'], slicetool: ['자르기 도구', 'C'],
   select: ['선택 도구', 'E'], zoom: ['확대 도구', 'Z'], slide: ['슬라이드 도구', 'S'], porta: ['포르타멘토 (슬라이드)', 'O'], chord: ['코드 스탬프', 'H'],
@@ -79,6 +82,7 @@ export class Studio {
   get newtone() { return (this._nt ||= new NewtoneWindow(this)); }
   get tour() { return (this._tour ||= new Tour(this)); }
   get aiSheet() { return (this._ai ||= new AiSheet(this)); }
+  get mastering() { return (this._ms ||= new MasteringWindow(this)); }
 
   // MIDI channel of a studio channel: drum kits on 10, the rest in order around it
   midiChannel(chId) {
@@ -95,6 +99,8 @@ export class Studio {
     if (this.isOpen) return;
     if (!this.el) this.build();
     if (!this.engine) {
+      // the studio shares the piano's audio context: add the mastering processors to it first
+      await this.app.engine.ctx.audioWorklet.addModule('melofi://app/renderer/js/master-worklet.js');
       this.engine = new StudioEngine(this.app.engine.ctx);
       this.transport = new Transport(this.engine, () => this._proj);
       this.transport.onTick = () => this.updatePos();
@@ -913,25 +919,36 @@ export class Studio {
     this.app.ui.toast('MIDI 저장됨', { path: saved.files[0], action: { label: '폴더 열기', fn: () => window.melofi.showItem(saved.files[0]) } });
   }
 
-  // WAV / MP3, the whole song or the loop region
-  async exportAudio(fmt = 'wav24') {
-    const p = this._proj;
+  // audio export, as FL Studio's and Cubase's mixdown: format and bit depth, sample rate,
+  // loudness or peak normalisation with a true-peak ceiling, dither; a loudness report at the end
+  async exportAudio(fmt) {
+    const p = this._proj, st = this.app.settings;
+    const last = st.get('studioExport') || {};
     const v = await form('오디오로 내보내기', [
-      { key: 'format', label: '형식', type: 'select', value: fmt, options: [['wav24', 'WAV 24비트 (원본 품질)'], ['wav16', 'WAV 16비트 (CD)'], ['mp3', 'MP3 320kbps']] },
+      { key: 'format', label: '형식', type: 'select', value: fmt || last.format || 'wav24', options: [['wav24', 'WAV 24비트 (원본 품질)'], ['wav16', 'WAV 16비트 (CD)'], ['wav32f', 'WAV 32비트 플로트 (후반 작업용)'], ['flac24', 'FLAC 24비트 (무손실 압축)'], ['flac16', 'FLAC 16비트'], ['mp3', 'MP3 320kbps'], ['ogg', 'OGG (Opus 192kbps)']] },
+      { key: 'rate', label: '샘플레이트', type: 'select', value: last.rate || 48000, options: [[44100, '44.1 kHz (CD · 음원)'], [48000, '48 kHz (영상)'], [96000, '96 kHz (고해상도)']] },
       { key: 'range', label: '범위', type: 'select', value: 'all', options: [['all', p.playlist.clips.length ? '곡 전체' : '현재 패턴'], ...(p.loop ? [['loop', `반복 구간 (${p.loop.start + 1}~${p.loop.end}마디)`]] : [])] },
-      { key: 'tail', label: '끝 여운 (초)', type: 'number', value: 3, min: 0, max: 10, step: 0.5 },
-    ], { ok: '내보내기' });
+      { key: 'norm', label: '음량 맞추기', type: 'select', value: last.norm || 'none', options: [['none', '그대로 (마스터 그대로)'], ['loudness', '라우드니스 (LUFS)에 맞추기'], ['peak', '최대 피크에 맞추기']] },
+      { key: 'target', label: '목표 라우드니스', type: 'select', value: last.target ?? -14, options: TARGETS.map(([, n, l, c]) => [l, `${l} LUFS · ${n}`]).filter((x, i, a) => a.findIndex((y) => y[0] === x[0]) === i) },
+      { key: 'ceiling', label: '최대 피크 (dBTP)', type: 'number', value: last.ceiling ?? -1, min: -6, max: 0, step: 0.1 },
+      { key: 'dither', label: '디더', type: 'select', value: last.dither || 'tpdf', options: [['tpdf', 'TPDF (기본)'], ['shaped', '노이즈 셰이핑 (귀에 덜 들리게)'], ['none', '끔']] },
+      { key: 'tail', label: '끝 여운 (초)', type: 'number', value: last.tail ?? 3, min: 0, max: 10, step: 0.5 },
+    ], { ok: '내보내기', note: '라우드니스는 BS.1770 / EBU R128로 재고, 피크는 샘플 사이의 실제 피크(dBTP)로 막아요. 디더는 16비트·FLAC 16비트에 쓰여요.' });
     if (!v) return;
+    st.set({ studioExport: { format: v.format, rate: v.rate, norm: v.norm, target: v.target, ceiling: v.ceiling, dither: v.dither, tail: v.tail } });
     this.status('렌더링 중…');
     try {
-      const mix = await renderMix(p, { range: v.range === 'loop' ? p.loop : null, tail: v.tail, onProgress: (ph, x) => this.status(ph === 'load' ? `악기 불러오는 중 ${Math.round(x * 100)}%` : '렌더링 중…') });
-      let data, ext = 'wav';
-      if (v.format === 'mp3') { data = await mp3(mix, 320); ext = 'mp3'; }
-      else if (v.format === 'wav16') data = wav16(mix);
-      else data = encodeWav(mix);
-      const saved = await window.melofi.saveRecording({ dir: this.app.settings.get('recDir'), base: p.name, files: [{ ext, data }] });
+      const raw = await renderMix(p, { rate: v.rate, range: v.range === 'loop' ? p.loop : null, tail: v.tail, onProgress: (ph, x) => this.status(ph === 'load' ? `악기 불러오는 중 ${Math.round(x * 100)}%` : '렌더링 중…') });
+      this.status('음량 재는 중…');
+      const done = finish(raw, { norm: v.norm, target: v.target, ceiling: v.ceiling });
+      this.status('파일로 쓰는 중…');
+      const { ext, data } = await encode(done.mix, v.format, v.dither);
+      const saved = await window.melofi.saveRecording({ dir: st.get('recDir'), base: p.name, files: [{ ext, data }] });
       this.status('');
-      this.app.ui.toast(`${ext.toUpperCase()} 저장됨`, { path: saved.files[0], action: { label: '폴더 열기', fn: () => window.melofi.showItem(saved.files[0]) } });
+      const a = done.after;
+      this.lastExport = { ...done, file: saved.files[0], format: v.format };
+      this.app.ui.toast(`${ext.toUpperCase()} 저장됨 · ${fmtLufs(a.I)} LUFS · 피크 ${fmtDb(a.tp)} dBTP · LRA ${a.LRA.toFixed(1)} LU${done.limited > 0.05 ? ` · 리미터 ${done.limited.toFixed(1)} dB` : ''}`,
+        { path: saved.files[0], action: { label: '폴더 열기', fn: () => window.melofi.showItem(saved.files[0]) } });
     } catch (err) {
       console.error(err);
       this.status(`내보내지 못했습니다: ${err.message}`);
@@ -1038,6 +1055,7 @@ export class Studio {
       case 'countin': this.countIn = !this.countIn; this.status(this.countIn ? '녹음 전 1마디 카운트 켬' : '녹음 전 카운트 끔'); break;
       case 'exportWav': this.exportWav?.(); break;
       case 'exportMp3': this.exportAudio('mp3'); break;
+      case 'mastering': if (this.mastering.el.hidden) this.mastering.show(); else this.mastering.close(); break;
       case 'exportMidi': this.exportMidi?.(); break;
       case 'draw': case 'paint': case 'erase': case 'mutetool': case 'slicetool': case 'select': case 'zoom': case 'chord': case 'slide': case 'porta': {
         const t = { erase: 'delete', mutetool: 'mute', slicetool: 'slice' }[a] || a;
@@ -1242,7 +1260,8 @@ export class Studio {
         { label: '저장', hint: 'Ctrl+S', act: () => this.save() },
         { label: '다른 이름으로 저장…', hint: 'Ctrl+Shift+S', act: () => this.save(true) },
         { sep: true },
-        { label: '오디오로 내보내기 (WAV · MP3)…', act: () => this.exportAudio() },
+        { label: '마스터링…', hint: 'Ctrl+Shift+B', act: () => this.mastering.show() },
+        { label: '오디오로 내보내기 (WAV · FLAC · MP3 · OGG)…', act: () => this.exportAudio() },
         { label: 'MIDI로 내보내기', act: () => this.exportMidi() },
         { label: '영상으로 내보내기…', act: () => this.exportVideo() },
         { label: 'MIDI 가져오기…', act: () => this.importMidi() },
@@ -1413,13 +1432,3 @@ export class Studio {
   }
 }
 
-// 16-bit WAV with TPDF dither
-function wav16({ left, right, rate }) {
-  const n = left.length, buf = new ArrayBuffer(44 + n * 4), v = new DataView(buf);
-  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 4, true);
-  let o = 44;
-  for (let i = 0; i < n; i++) for (const ch of [left, right]) { const s = Math.round(Math.max(-1, Math.min(1, ch[i])) * 32767 + (Math.random() - Math.random())); v.setInt16(o, Math.max(-32768, Math.min(32767, s)), true); o += 2; }
-  return new Uint8Array(buf);
-}
