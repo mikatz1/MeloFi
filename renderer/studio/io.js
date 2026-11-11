@@ -29,20 +29,30 @@ function vlq(n) { const out = [n & 0x7f]; while ((n >>= 7)) out.unshift((n & 0x7
 function chunk(type, bytes) { const l = bytes.length; return [...type].map((c) => c.charCodeAt(0)).concat([(l >>> 24) & 255, (l >>> 16) & 255, (l >>> 8) & 255, l & 255], bytes); }
 const text = (t, s) => { const b = [...new TextEncoder().encode(s)]; return [0xff, t, ...vlq(b.length), ...b]; };
 
+// The notes to write out: every channel's, whether it is muted or soloed for listening (a MIDI
+// file carries the parts; a muted MIDI channel next to its recording is still the transcription).
+// Notes switched off with the mute tool and muted clips stay out.
+function allNotes(proj) {
+  const open = { ...proj, channels: proj.channels.map((c) => ({ ...c, mute: false, solo: false })), playlist: { ...proj.playlist, tracks: proj.playlist.tracks.map((t) => ({ ...t, mute: false, solo: false })) } };
+  return eventsFor(open, exportMode(proj));
+}
+
 // isKit(instId) -> true for drum kits (they go on MIDI channel 10)
 export function projectToMidi(proj, isKit = (id) => id.startsWith('drums')) {
-  const { events } = eventsFor(proj, exportMode(proj));
+  const { events } = allNotes(proj);
   const us = Math.round(60000000 / proj.bpm);
   const t0 = [0, ...text(0x03, proj.name), 0, 0xff, 0x51, 0x03, (us >> 16) & 255, (us >> 8) & 255, us & 255,
     0, 0xff, 0x58, 0x04, proj.sig[0], Math.log2(proj.sig[1]), 24, 8, 0, 0xff, 0x2f, 0x00];
   const tracks = [chunk('MTrk', t0)];
   let next = 0;
   for (const c of proj.channels) {
+    // channel numbers count every channel, as the REAPER project and the live MIDI out do
     const drum = isKit(c.inst);
     let mc = 9;
     if (!drum) { if (next === 9) next++; mc = next % 16; next++; }
     const evs = [];
     for (const e of events) if (e.type === 'n' && e.ch === c.id) { evs.push({ t: Math.round(e.tick), on: true, n: e.n, v: e.v }); evs.push({ t: Math.round(e.tick + e.d), on: false, n: e.n }); }
+    if (!evs.length) continue; // audio channels and empty ones: no track
     evs.sort((a, b) => a.t - b.t || (a.on ? 1 : -1));
     const tr = [0, ...text(0x03, c.name)];
     let last = 0;
@@ -118,7 +128,7 @@ const fileSafe = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, '_').trim() ||
 // REAPER project: tempo and time signature, one audio track per stem, and the notes of every
 // channel as MIDI items on muted tracks (ready for the DAW's own instruments)
 export function projectToRpp(proj, stems, isKit = () => false) {
-  const { events, length } = eventsFor(proj, exportMode(proj));
+  const { events, length } = allNotes(proj);
   const lenSec = ticksToSec(proj, length);
   const q = (s) => `"${String(s).replace(/"/g, "'")}"`;
   const lines = [`<REAPER_PROJECT 0.1 "6.0" 0`, `  TEMPO ${proj.bpm} ${proj.sig[0]} ${proj.sig[1]}`, `  MASTER_VOLUME ${proj.master?.vol ?? 1} 0 -1 -1 1`];
