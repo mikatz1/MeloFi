@@ -254,8 +254,18 @@ export class AiSheet {
     if (!instId) return;
     if (this.playing === id) return this.stopPreview();
     this.stopPreview();
-    this.playing = id; this.render();
+    this.playing = id; this.error = null; this.render();
     try {
+      // an instrument not downloaded yet has no samples to play: fetch it first
+      const meta = this.S.app.instruments.find((i) => i.id === instId);
+      if (meta && !meta.installed) {
+        if (!meta.downloadable) throw new Error(`${meta.name}은(는) 이 PC에 없어서 들어볼 수 없어요`);
+        this.S.app.ui.toast(`${meta.name}을(를) 받는 중이에요. 받는 대로 들려드릴게요.`, { ms: 3000 });
+        const r = await this.S.app.downloadInstrument(instId, { quiet: true });
+        if (!r?.ok && !this.S.app.instruments.find((i) => i.id === instId)?.installed) throw new Error(`${meta.name}을(를) 받지 못했어요`);
+        if (this.playing !== id) return;
+        this.render(); // the "(받기)" mark goes
+      }
       const mix = await renderCandidate(this.S, this.stems, k, g, instId, this.plan.bars);
       if (this.playing !== id) return;
       const c = this.S.app.engine.ctx, b = c.createBuffer(2, mix.left.length, mix.rate);
