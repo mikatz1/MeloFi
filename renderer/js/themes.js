@@ -158,4 +158,17 @@ export const THEMES = {
     blend: 'lighter', motes: 'none', bloom: 0.45, sparse: true,
     white: ['#f2f2f2', '#d0d0d0'], black: ['#1b1b1b', '#050505'], felt: '#1a1a1a',
   },
+  white: {
+    name: N_('화이트'),
+    // a clean white page: dark notes with a soft blue edge, light keys, no glow (glow needs a dark sky)
+    bg: ['#ffffff', '#f7f8fa', '#eef0f4'],
+    lane: 'rgba(30,40,60,0.045)',
+    bar: '#232733', barGlow: '#7fa3ea',
+    hit: '#232733', hitLine: '#4a7be0',
+    spark: ['#4a7be0', '#7fa3ea', '#b9cdf5', '#232733'],
+    dust: '#9db8ee', haze: '#dfe7f7', wisp: '#7fa3ea',
+    keyLit: '#9db8ee',
+    blend: 'source-over', motes: 'none', bloom: 0, sparse: true,
+    white: ['#ffffff', '#e8eaef'], black: ['#262a33', '#0d0f13'], felt: '#c9cfdb', keyEdge: '#4a7be0', blackRim: '#4a5263',
+  },
 };
