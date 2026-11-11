@@ -11,13 +11,30 @@ export class ChannelSheet {
   constructor(studio) {
     this.S = studio;
     this.tab = 'sound';
-    this.el = h('section', { id: 'chsheet', class: 'sheet', hidden: true },
+    // like FL Studio's channel / plugin window: it floats over the studio without dimming it,
+    // moves by its title bar, stays open while you keep working and remembers where it was
+    let head;
+    this.el = h('section', { id: 'chsheet', class: 'ch-float', hidden: true },
       h('div', { class: 'sheet-card ch-card' },
-        h('div', { class: 'sheet-head' }, this.title = h('h2', {}), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
+        head = h('div', { class: 'sheet-head ch-drag', title: '끌어서 옮기기' }, this.title = h('h2', {}), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
         this.tabsEl = h('div', { class: 'cl-tabs ch-tabs' }),
         this.body = h('div', { class: 'ch-body' })));
-    this.el.addEventListener('pointerdown', (e) => { if (e.target === this.el) this.close(); });
+    this.pos = null;
+    head.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      try { head.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+      const r = this.el.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+      const move = (ev) => { this.pos = { x: Math.max(0, Math.min(innerWidth - 120, ev.clientX - dx)), y: Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) }; this.place(); };
+      const up = () => { head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); };
+      head.addEventListener('pointermove', move); head.addEventListener('pointerup', up);
+    });
+    this.el.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } });
     document.body.append(this.el);
+  }
+
+  place() {
+    const p = this.pos || { x: Math.max(20, innerWidth / 2 - 430), y: 90 };
+    this.el.style.left = `${p.x}px`; this.el.style.top = `${p.y}px`;
   }
 
   get ch() { return this.S.proj.channels.find((c) => c.id === this.id); }
@@ -27,6 +44,7 @@ export class ChannelSheet {
     this.id = id;
     if (tab) this.tab = tab;
     this.el.hidden = false;
+    this.place();
     this.render();
   }
 
@@ -109,7 +127,7 @@ export class ChannelSheet {
         h('button', { class: 'btn', onclick: async () => { const r = await window.melofi.vstEditor(ch.id); msg.textContent = r.ok ? '' : r.error === 'no_editor' ? '이 플러그인은 편집 창이 없습니다.' : `창을 열지 못했습니다: ${r.message || r.error}`; } }, '플러그인 창 열기'),
         h('button', { class: 'btn ghost', onclick: (e) => S.vstMenu(e.clientX, e.clientY, (p) => { S.edit(() => { ch.vst = { plugin: p.id, file: p.file, name: p.name, vendor: p.vendor }; ch.name = p.name; }); S.syncAudio(); this.render(); }) }, '플러그인 바꾸기…')),
       msg,
-      h('p', { class: 'dim' }, '실시간 연주 및 재생은 VST 호스트에서 직접 출력됩니다. 믹서 이펙트는 내보내기 및 \'오디오로 굳히기\' 실행 시 적용되며, 플러그인 설정은 프로젝트 저장 시 함께 기록됩니다.'));
+      h('p', { class: 'dim' }, '실시간 연주 및 재생은 VST 호스트에서 직접 출력됩니다. 믹서 이펙트는 내보내기 및 \'Consolidate\' 실행 시 적용되며, 플러그인 설정은 프로젝트 저장 시 함께 기록됩니다.'));
   }
 
   setKind(kind) {
@@ -248,7 +266,7 @@ export class ChannelSheet {
       h('label', { class: 'frm-row' }, h('span', {}, '그루브'),
         h('select', { onchange: (e) => S.edit(() => { ch.groove = e.target.value || null; }) },
           h('option', { value: '', selected: !ch.groove }, '없음'), ...Object.keys(GROOVES).map((k) => h('option', { value: k, selected: ch.groove === k }, k)))),
-      h('p', { class: 'dim' }, '그루브는 16분음표마다 타이밍과 세기를 조금씩 밀고 당겨 사람이 연주한 느낌을 줍니다. 그루브를 고르면 스윙 대신 적용됩니다.'),
+      h('p', { class: 'dim' }, '그루브는 16분음표마다 타이밍과 벨로시티를 조금씩 밀고 당겨 사람이 연주한 느낌을 줍니다. 그루브를 고르면 스윙 대신 적용됩니다.'),
       h('label', { class: 'frm-row' }, h('span', {}, '스텝 반복 길이'),
         h('select', { onchange: (e) => S.edit(() => { ch.loopSteps = +e.target.value; }) },
           h('option', { value: 0, selected: !ch.loopSteps }, '패턴 전체'), ...[3, 4, 5, 6, 7, 8, 12, 16, 24, 32].filter((n) => n < steps).map((n) => h('option', { value: n, selected: ch.loopSteps === n }, `${n}칸마다 반복`)))),

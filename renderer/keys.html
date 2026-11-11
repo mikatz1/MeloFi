@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' melofi:; style-src 'self' 'unsafe-inline' melofi:; script-src 'self' melofi:">
+  <title>화면 건반</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body.keyswin { background: var(--panel); }
+    .kw-bar { position: fixed; inset: var(--bar-h) 0 auto 0; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+    .kw-bar button { height: 22px; min-width: 26px; padding: 0 7px; background: #17181d; border: 1px solid #2c2d33; border-radius: 3px; color: var(--text); font-size: 11.5px; }
+    .kw-bar button:hover { background: #202127; }
+    .kw-bar span { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+    .kw-bar input[type=range] { flex: 0 0 90px; width: 90px; min-width: 0; accent-color: var(--accent); }
+    #kb { position: fixed; inset: calc(var(--bar-h) + 30px) 0 0 0; touch-action: none; }
+    .wk, .bk { position: absolute; top: 0; box-sizing: border-box; border-radius: 0 0 3px 3px; }
+    .wk { height: 100%; background: #e9e6df; border: 1px solid #1a1b20; }
+    .bk { height: 62%; background: #17181c; border: 1px solid #000; z-index: 1; }
+    .wk.on { background: var(--accent); } .bk.on { background: #b27f2c; }
+    .wk small { position: absolute; bottom: 5px; left: 0; right: 0; text-align: center; font-size: 10px; color: #7a776f; }
+    .wk small.c { color: #3b3a36; font-weight: 600; }
+    .bk small { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 9.5px; color: #8b8983; }
+  </style>
+</head>
+<body class="keyswin">
+<header id="bar">
+  <div class="brand"><svg class="mark" viewBox="56 48 144 168" aria-hidden="true"><rect x="74" y="88" width="26" height="104" rx="13"/><rect x="115" y="56" width="26" height="136" rx="13"/><rect x="156" y="110" width="26" height="82" rx="13"/><rect class="line" x="64" y="200" width="128" height="9" rx="4.5"/></svg></div>
+  <span style="font-weight:600;color:#ece9e2;margin-left:-6px">화면 건반</span>
+</header>
+<div class="kw-bar">
+  <button id="down" title="한 옥타브 아래 (Z)">◀</button><span id="range"></span><button id="up" title="한 옥타브 위 (X)">▶</button>
+  <span style="margin-left:10px">세기</span><input id="vel" type="range" min="20" max="127" value="100"><span id="velv">100</span>
+  <span style="margin-left:auto" id="hint">마우스로 누르거나, 이 창을 선택한 뒤 A S D F… 키로 연주</span>
+</div>
+<div id="kb"></div>
+<script type="module" src="js/keys-window.js"></script>
+</body>
+</html>

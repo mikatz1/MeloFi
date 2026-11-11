@@ -126,7 +126,7 @@ export function form(title, fields, { ok = '적용', cancel = '취소', note = '
       inputs[f.key] = el;
       return h('label', { class: 'frm-row' }, h('span', {}, f.label), el);
     });
-    const read = () => Object.fromEntries(fields.map((f) => { const el = inputs[f.key]; return [f.key, f.type === 'check' ? el.checked : f.type === 'select' ? (isNaN(+el.value) || el.value === '' ? el.value : +el.value) : +el.value]; }));
+    const read = () => Object.fromEntries(fields.map((f) => { const el = inputs[f.key]; return [f.key, f.type === 'check' ? el.checked : f.type === 'text' || f.type === 'color' ? el.value : f.type === 'select' ? (isNaN(+el.value) || el.value === '' ? el.value : +el.value) : +el.value]; }));
     const done = (v) => { wrap.remove(); resolve(v); };
     const wrap = h('div', { class: 'st-ask' },
       h('div', { class: 'box frm' },

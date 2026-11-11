@@ -55,6 +55,7 @@ const INST = {
   contrabass: '콘트라베이스 더블베이스 contrabass double bass upright arco',
   clavinet: '클라비넷 클라비 clavinet clav funk',
   oohs: '보이스 우 합창 콰이어 코러스 voice oohs ooh choir chorus',
+  chorus: '혼성합창 합창 콰이어 코러스 아 패드 mixed chorus choir aahs ensemble pad',
   calliope: '칼리오페 휘슬 calliope whistle steam',
   brightness: '브라이트니스 패드 brightness pad glass shimmer',
   siren: '사이렌 휘슬 siren whistle',

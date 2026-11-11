@@ -102,7 +102,7 @@ npm run dist
 
 ## 🎛️ 작곡 스튜디오 (F12)
 
-FL Studio처럼 **패턴을 만들고 플레이리스트에 배치해 곡을 쌓는** 작곡 화면입니다. 상단의 **MeloFi Studio 열기** 버튼이나 F12를 누르면 피아노와 별도의 창으로 열립니다. 두 창의 설정은 함께 저장되고, MIDI 건반은 마지막으로 쓴 창에서 연주됩니다. 처음 열면 **단계별 투어**(첫 비트 → 코드·멜로디 → 곡·믹스)가 화면을 하나씩 짚어 가며 안내합니다. FL Studio와의 기능 비교는 [`docs/fl-comparison.md`](docs/fl-comparison.md), 설계 문서는 [`docs/studio.md`](docs/studio.md)에 있습니다.
+FL Studio처럼 **패턴을 만들고 플레이리스트에 배치해 곡을 쌓는** 작곡 화면입니다. 상단의 **MeloFi Studio 열기** 버튼이나 F12를 누르면 피아노와 별도의 창으로 열립니다. 두 창의 설정은 함께 저장되고, MIDI 건반은 마지막으로 쓴 창에서 연주됩니다. 단축키와 도구는 FL Studio와 같고, 처음 열면 FL Studio 공식 강좌(Learn FL Studio)와 같은 순서의 **13강 투어**(F1)가 화면을 하나씩 짚어 가며 안내합니다. 화면 건반(Ctrl+Shift+K)과 악기 선택(F8)은 별도 창으로 뜹니다. FL Studio와의 흐름·단축키·화면 유사도 측정은 [`docs/fl-workflow-comparison.md`](docs/fl-workflow-comparison.md), 기능 비교는 [`docs/fl-comparison.md`](docs/fl-comparison.md), 설계 문서는 [`docs/studio.md`](docs/studio.md)에 있습니다.
 
 **시작하기**
 - 템플릿: 빈 프로젝트, 기본 비트, 케이팝 댄스, 힙합·트랩, 로파이, 발라드, 시티팝

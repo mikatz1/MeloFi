@@ -4,8 +4,8 @@
 //   automation clips: click inside to add / drag points, right-click a point to remove it
 //   ruler: click = jump, drag = loop region · marker lane: double-click adds a marker, right-click: tempo change
 //   track headers: double-click renames, M / S buttons mute / solo
-import { clamp, popup, ask } from './dom.js';
-import { pattern, patternTicks, barTicks, uid, newTrack, songBars } from '../model.js';
+import { clamp, popup, ask, form } from './dom.js';
+import { pattern, patternTicks, barTicks, uid, newTrack, songBars, barLines, barAt } from '../model.js';
 import { decode, peaks } from '../media.js';
 
 const HEAD_W = 112, RULER_H = 20, LANE_H = 16;
@@ -20,7 +20,8 @@ export class Playlist {
     this.scrollBar = 0;
     this.scrollTrack = 0;
     this.drag = null;
-    this.tool = 'draw'; // draw | slice
+    this.tool = 'draw'; // FL tools: draw (P) | paint (B) | delete (D) | mute (T) | slice (C) | select (E)
+    this.sel = new Set(); // clips picked with the select tool or Ctrl+drag
     this.grid = 'beat'; // bar | beat
     this.peakCache = new Map();
     canvas.addEventListener('pointerdown', (e) => this.down(e));
@@ -65,7 +66,7 @@ export class Playlist {
   clipName(c) {
     const p = this.proj;
     if (c.kind === 'audio') return p.media[c.media]?.name || '오디오';
-    if (c.kind === 'auto') return p.autos.find((a) => a.id === c.auto)?.name || '자동화';
+    if (c.kind === 'auto') return p.autos.find((a) => a.id === c.auto)?.name || '오토메이션';
     return pattern(p, c.pattern)?.name || '패턴';
   }
   clipColor(c) {
@@ -98,13 +99,14 @@ export class Playlist {
       g.fillStyle = proj.loopOn ? 'rgba(224,164,64,0.07)' : 'rgba(255,255,255,0.03)';
       g.fillRect(Math.max(HEAD_W, x0), this.top, x1 - Math.max(HEAD_W, x0), H);
     }
-    // grid
-    const beat = 1 / proj.sig[0];
-    for (let b = Math.floor(this.scrollBar); this.bToX(b) < W; b += this.barW * beat > 10 ? beat : 1) {
-      const x = Math.round(this.bToX(b)) + 0.5;
+    // grid: bar lines follow time signature markers
+    const lines = barLines(proj, Math.max(0, this.xToB(HEAD_W)) * bt, this.xToB(W) * bt + bt);
+    for (const L of lines) {
+      const beatT = (96 * 4) / L.sig[1];
+      if (this.barW * beatT / bt > 10) for (let k = 1; k < L.sig[0]; k++) { const x = Math.round(this.bToX((L.tick + k * beatT) / bt)) + 0.5; if (x >= HEAD_W) { g.fillStyle = '#1c1d23'; g.fillRect(x, this.top, 1, H - this.top); } }
+      const x = Math.round(this.bToX(L.tick / bt)) + 0.5;
       if (x < HEAD_W) continue;
-      const isBar = Math.abs(b - Math.round(b)) < 1e-6;
-      g.fillStyle = isBar ? (Math.round(b) % 4 === 0 ? '#34363f' : '#272830') : '#1c1d23';
+      g.fillStyle = L.num % 4 === 0 ? '#34363f' : '#272830';
       g.fillRect(x, this.top, 1, H - this.top);
     }
     // clips
@@ -114,7 +116,7 @@ export class Playlist {
       const x = this.bToX(c.start), y = this.tToY(c.track), w = c.len * this.barW;
       if (x > W || x + w < HEAD_W || y > H || y + this.trackH < this.top) continue;
       const col = this.clipColor(c);
-      g.fillStyle = col; g.globalAlpha = c.kind === 'auto' ? 0.35 : 0.85;
+      g.fillStyle = c.mute ? '#4a4b52' : col; g.globalAlpha = c.kind === 'auto' ? 0.35 : c.mute ? 0.5 : 0.85;
       g.fillRect(x + 1, y + 2, w - 2, this.trackH - 4);
       g.globalAlpha = 1;
       g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x + 1, y + 2, w - 2, 13);
@@ -124,7 +126,12 @@ export class Playlist {
       if (c.kind === 'audio') this.drawAudio(g, c, x, iy, w, ih);
       else if (c.kind === 'auto') this.drawAuto(g, c, x, iy, w, ih);
       else this.drawNotes(g, c, x, iy, w, ih, bt);
-      if (this.S.selClip === c) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.trackH - 5); }
+      if (this.S.selClip === c || this.sel.has(c)) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.trackH - 5); }
+    }
+    if (this.drag?.kind === 'marquee') {
+      const d = this.drag, mx = Math.min(d.x0, d.x1), my = Math.min(d.y0, d.y1);
+      g.fillStyle = 'rgba(232,161,93,0.12)'; g.fillRect(mx, my, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
+      g.strokeStyle = 'rgba(232,161,93,0.8)'; g.lineWidth = 1; g.strokeRect(mx + 0.5, my + 0.5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
     }
     g.restore();
     // track headers
@@ -146,13 +153,14 @@ export class Playlist {
     g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", "Malgun Gothic", sans-serif'; g.fillText('마커 · 템포', 8, RULER_H + 12);
     for (const m of proj.markers) { const x = this.bToX(m.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#8fc0a9'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(m.name, x + 4, RULER_H + 12); }
     for (const tc of proj.tempos) { const x = this.bToX(tc.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#e0a440'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`BPM ${tc.bpm}`, x + 4, RULER_H + 12); }
+    for (const sm of proj.sigs || []) { const x = this.bToX(sm.tick / bt); if (x < HEAD_W || x > W) continue; g.fillStyle = '#9fb6e8'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`${sm.sig[0]}/${sm.sig[1]}`, x + 4, RULER_H + 12); }
     // ruler
     g.fillStyle = '#16171c'; g.fillRect(0, 0, W, RULER_H);
     if (proj.loop) { const x0 = Math.max(HEAD_W, this.bToX(proj.loop.start)), x1 = this.bToX(proj.loop.end); if (x1 > HEAD_W) { g.fillStyle = proj.loopOn ? '#7a5a22' : '#3a3530'; g.fillRect(x0, 0, x1 - x0, 6); } }
     g.fillStyle = '#8b8983'; g.font = '10px "Cascadia Mono", Consolas, monospace';
-    for (let b = Math.floor(this.scrollBar); this.bToX(b) < W; b++) {
-      const x = this.bToX(b);
-      if (x >= HEAD_W - 1) { g.fillRect(x, 14, 1, 6); g.fillText(String(b + 1), x + 3, 15); }
+    for (const L of lines) {
+      const x = this.bToX(L.tick / bt);
+      if (x >= HEAD_W - 1) { g.fillRect(x, 14, 1, 6); if (this.barW * L.len / bt > 16 || L.num % 4 === 0) g.fillText(String(L.num + 1), x + 3, 15); }
     }
     g.fillStyle = '#16171c'; g.fillRect(0, 0, HEAD_W, RULER_H);
     g.fillStyle = '#5d5c58'; g.fillText(this.tool === 'slice' ? '자르기 도구' : '', 8, 14);
@@ -225,9 +233,11 @@ export class Playlist {
     const [x, y] = this.pos(e);
     const S = this.S, proj = this.proj;
     this.c.setPointerCapture(e.pointerId);
+    if (this.c.tabIndex < 0) this.c.tabIndex = 0;
+    this.c.focus({ preventScroll: true }); // tool keys (P B D T C) act on the playlist
     if (y < RULER_H && x >= HEAD_W) { this.drag = { kind: 'ruler', x0: x, b0: this.snapB(this.xToB(x)), b1: this.snapB(this.xToB(x)) }; return; }
     if (y < this.top && x >= HEAD_W) {
-      if (e.button === 2) this.laneMenu(e, this.floorB(this.xToB(x)));
+      if (e.button === 2) this.laneMenu(e, this.floorB(this.xToB(x)), this.xToB(x));
       return;
     }
     if (x < HEAD_W) { // track header
@@ -242,8 +252,37 @@ export class Playlist {
       return;
     }
     const hit = this.clipAt(x, y);
-    if (e.button === 2) { if (hit) this.clipMenu(e, hit); return; }
+    const onTitle = hit && y < this.tToY(hit.track) + 16;
+    if (e.button === 2) {
+      // as in FL Studio: right-click deletes (and keeps deleting while dragged); the clip's
+      // title strip opens its menu
+      if (hit && onTitle) { this.clipMenu(e, hit); return; }
+      if (hit) { S.history.push(); this.removeClip(hit); this.drag = { kind: 'erase' }; }
+      return;
+    }
     if (hit && this.tool === 'slice') { this.slice(hit, this.snapB(this.xToB(x))); return; }
+    // FL: the select tool (E), or Ctrl+drag on empty space, draws a selection box; dragging a
+    // selected clip moves the whole selection
+    if (hit && this.sel.has(hit) && this.sel.size > 1 && this.tool !== 'delete' && this.tool !== 'mute') {
+      S.history.push();
+      this.drag = { kind: 'group', x0: x, y0: y, items: [...this.sel].map((c) => ({ c, start: c.start, track: c.track })) };
+      return;
+    }
+    if ((this.tool === 'select' || e.ctrlKey) && !hit) { this.sel.clear(); S.selClip = null; this.drag = { kind: 'marquee', x0: x, y0: y, x1: x, y1: y }; this.draw(); return; }
+    if (this.tool === 'select' && hit) { if (!e.shiftKey) this.sel.clear(); this.sel.add(hit); S.history.push(); this.drag = { kind: 'group', x0: x, y0: y, items: [...this.sel].map((c) => ({ c, start: c.start, track: c.track })) }; this.draw(); return; }
+    this.sel.clear();
+    if (this.tool === 'delete') { S.history.push(); if (hit) this.removeClip(hit); this.drag = { kind: 'erase' }; return; }
+    if (this.tool === 'mute') { S.history.push(); this.drag = { kind: 'mute', done: new Set() }; this.muteClip(hit); return; }
+    if (this.tool === 'paint' && !hit) {
+      const t = this.yToT(y);
+      if (t >= proj.playlist.tracks.length) return;
+      S.history.push();
+      const p = pattern(proj), start = this.floorB(this.xToB(x));
+      proj.playlist.clips.push({ id: uid('k'), pattern: p.id, track: t, start, len: p.bars });
+      this.drag = { kind: 'paint', track: t, last: start, len: p.bars, pat: p.id };
+      this.draw();
+      return;
+    }
     if (hit && hit.kind === 'auto' && y > this.tToY(hit.track) + 14) {
       // edit automation points
       const ap = this.autoPoint(hit, x, y);
@@ -284,6 +323,34 @@ export class Playlist {
       this.c.style.cursor = this.tool === 'slice' && hit ? 'col-resize' : hit && x > this.bToX(hit.start + hit.len) - 7 ? 'ew-resize' : hit ? 'move' : 'default';
       return;
     }
+    if (d.kind === 'erase') { const h = this.clipAt(x, y); if (h) this.removeClip(h); return; }
+    if (d.kind === 'marquee') {
+      d.x1 = x; d.y1 = y;
+      const b0 = this.xToB(Math.min(d.x0, x)), b1 = this.xToB(Math.max(d.x0, x)), t0 = this.yToT(Math.min(d.y0, y)), t1 = this.yToT(Math.max(d.y0, y));
+      this.sel = new Set(this.proj.playlist.clips.filter((c) => c.track >= t0 && c.track <= t1 && c.start < b1 && c.start + c.len > b0));
+      this.draw();
+      return;
+    }
+    if (d.kind === 'group') {
+      const db = Math.round((x - d.x0) / this.barW / this.step) * this.step, dt = Math.round((y - d.y0) / this.trackH);
+      const minS = Math.min(...d.items.map((i) => i.start)), minT = Math.min(...d.items.map((i) => i.track)), maxT = Math.max(...d.items.map((i) => i.track));
+      const sb = Math.max(-minS, db), st = clamp(dt, -minT, this.proj.playlist.tracks.length - 1 - maxT);
+      for (const i of d.items) { i.c.start = i.start + sb; i.c.track = i.track + st; }
+      this.draw();
+      return;
+    }
+    if (d.kind === 'mute') { this.muteClip(this.clipAt(x, y)); return; }
+    if (d.kind === 'paint') {
+      const b = this.floorB(this.xToB(x));
+      let added = false;
+      while (b >= d.last + d.len) {
+        d.last += d.len;
+        this.proj.playlist.clips.push({ id: uid('k'), pattern: d.pat, track: d.track, start: d.last, len: d.len });
+        added = true;
+      }
+      if (added) this.draw();
+      return;
+    }
     if (d.kind === 'ruler') { d.b1 = this.snapB(this.xToB(x)); if (Math.abs(x - d.x0) > 4) d.kind = 'loop'; this.draw(); return; }
     if (d.kind === 'loop') { d.b1 = this.snapB(this.xToB(x)); this.draw(); return; }
     if (d.kind === 'autopt') { Object.assign(d.p, d.tv(x, y)); d.a.points.sort((a, b) => a.t - b.t); this.draw(); return; }
@@ -301,6 +368,7 @@ export class Playlist {
     this.drag = null;
     if (!d) return;
     const S = this.S, proj = this.proj;
+    if (d.kind === 'marquee') { this.draw(); return; }
     if (d.kind === 'ruler') { S.setMode('song'); S.transport.seek(Math.max(0, d.b0 * barTicks(proj) - (proj.loopOn && proj.loop ? proj.loop.start * barTicks(proj) : 0))); this.draw(); return; }
     if (d.kind === 'loop') {
       const a = Math.min(d.b0, d.b1), b = Math.max(d.b0, d.b1);
@@ -347,9 +415,13 @@ export class Playlist {
     const items = [];
     if (!c.kind) {
       items.push({ label: '패턴 편집', act: () => S.setPattern(c.pattern, true) });
-      items.push({ label: '고유 패턴으로 만들기', hint: '이 클립만 따로 수정', act: () => S.edit(() => { const p = pattern(proj, c.pattern); const np = JSON.parse(JSON.stringify(p)); np.id = uid('p'); np.name = `${p.name} *`; proj.patterns.push(np); c.pattern = np.id; }) });
+      items.push({ label: 'Make unique', hint: '이 클립만 따로 수정 (고유 패턴)', act: () => S.edit(() => { const p = pattern(proj, c.pattern); const np = JSON.parse(JSON.stringify(p)); np.id = uid('p'); np.name = `${p.name} *`; proj.patterns.push(np); c.pattern = np.id; }) });
       items.push({ label: '패턴 길이에 맞추기', act: () => S.edit(() => { c.len = pattern(proj, c.pattern).bars; }) });
     }
+    if (c.kind === 'audio' && proj.media[c.media]?.loop) {
+      items.push({ label: '루프 바꾸기 (셔플)', hint: '같은 파트의 다른 변형', act: () => S.shuffleLoop(c) });
+    }
+    if (c.kind === 'audio') items.push({ label: 'Newtone으로 음정 편집…', hint: '노래 한 줄의 음정·길이 고치기', act: () => S.newtone.open(c) });
     if (c.kind === 'audio') {
       const m = proj.media[c.media];
       items.push({ label: c.sync ? '템포 맞추기 끄기' : '프로젝트 템포에 맞추기', hint: m?.bpm ? `원본 ${m.bpm} BPM` : '원본 템포 모름', disabled: !m?.bpm, act: () => S.edit(() => { c.sync = !c.sync; }) });
@@ -364,7 +436,7 @@ export class Playlist {
     }
     if (c.kind === 'auto') {
       const a = proj.autos.find((q) => q.id === c.auto);
-      items.push({ label: '이름 바꾸기…', act: async () => { const v = await ask('자동화 이름', a.name); if (v) S.edit(() => { a.name = v; }); } });
+      items.push({ label: '이름 바꾸기…', act: async () => { const v = await ask('오토메이션 이름', a.name); if (v) S.edit(() => { a.name = v; }); } });
       items.push({ label: '점 모두 지우기', act: () => S.edit(() => { a.points = [{ t: 0, v: a.points[0]?.v ?? 0.5 }]; }) });
       items.push({ label: '상승 곡선', act: () => S.edit(() => { a.points = [{ t: 0, v: 0 }, { t: 1, v: 1 }]; }) });
       items.push({ label: '하강 곡선', act: () => S.edit(() => { a.points = [{ t: 0, v: 1 }, { t: 1, v: 0 }]; }) });
@@ -389,9 +461,27 @@ export class Playlist {
     ]);
   }
 
-  laneMenu(e, bar) {
-    const S = this.S, proj = this.proj;
+  // FL Studio's time signature marker (Shift+Alt+T): from the bar line at `tick` on
+  async sigDialog(tick) {
+    const S = this.S, proj = this.proj, b = barAt(proj, tick);
+    const SIGS = ['2/4', '3/4', '4/4', '5/4', '6/8', '7/8', '9/8', '12/8'];
+    const cur = `${b.sig[0]}/${b.sig[1]}`;
+    const v = await form(`${b.num + 1}마디부터 박자표`, [{ key: 'sig', label: '박자', type: 'select', value: cur, options: SIGS.map((s) => [s, s]) }],
+      { note: 'FL Studio와 같이 이 마디부터 눈금·마디 번호와 메트로놈이 바뀌며, 패턴 길이는 그대로 유지됩니다.' });
+    if (!v) return;
+    const sig = String(v.sig).split('/').map(Number);
+    S.edit(() => {
+      proj.sigs = (proj.sigs || []).filter((x) => x.tick !== b.start);
+      if (b.start === 0) proj.sig = sig; else proj.sigs.push({ tick: b.start, sig });
+    });
+  }
+
+  laneMenu(e, bar, exact = bar) {
+    const S = this.S, proj = this.proj, bt = barTicks(proj);
+    const tick = Math.max(0, exact * bt), here = barAt(proj, tick);
     popup(e.clientX, e.clientY, [
+      { label: `${here.num + 1}마디부터 박자표 바꾸기…`, hint: 'Shift+Alt+T', act: () => this.sigDialog(tick) },
+      ...(proj.sigs || []).filter((x) => x.tick === here.start).map((x) => ({ label: `박자표 ${x.sig[0]}/${x.sig[1]} 지우기`, act: () => S.edit(() => proj.sigs.splice(proj.sigs.indexOf(x), 1)) })),
       { label: `${bar + 1}마디에 마커 추가…`, act: async () => { const v = await ask('마커 이름', `구간 ${proj.markers.length + 1}`); if (v) S.edit(() => proj.markers.push({ bar, name: v })); } },
       { label: `${bar + 1}마디부터 템포 바꾸기…`, disabled: bar === 0, act: async () => { const v = await ask(`${bar + 1}마디부터 쓸 BPM`, String(proj.bpm), { type: 'number' }); if (v && +v >= 30 && +v <= 300) S.edit(() => { proj.tempos = proj.tempos.filter((x) => x.bar !== bar); proj.tempos.push({ bar, bpm: +v }); }); } },
       { sep: true },
@@ -405,6 +495,8 @@ export class Playlist {
     e.preventDefault();
     const [x, y] = this.pos(e);
     const t = Math.max(0, this.yToT(y)), b = this.floorB(this.xToB(x));
+    const loop = e.dataTransfer.getData('application/x-melofi-loop');
+    if (loop) { const { genre, role } = JSON.parse(loop); await this.S.addLoop(genre, role, { track: t, bar: b, seed: 1 }); return; }
     const path = e.dataTransfer.getData('application/x-melofi-file');
     const files = [];
     if (path) { const data = await window.melofi.mediaRead(path); if (data) files.push({ name: path.split(/[\\/]/).pop(), data }); }
@@ -425,13 +517,38 @@ export class Playlist {
     this.draw();
   }
 
+  setTool(t) { if (['draw', 'paint', 'delete', 'mute', 'slice', 'select'].includes(t)) this.tool = t; }
+
+  removeClip(c) {
+    const l = this.proj.playlist.clips, i = l.indexOf(c);
+    if (i >= 0) l.splice(i, 1);
+    if (this.S.selClip === c) this.S.selClip = null;
+    this.draw();
+  }
+
+  muteClip(c) {
+    if (!c || this.drag?.done?.has(c)) return;
+    this.drag?.done?.add(c);
+    c.mute = !c.mute;
+    this.draw();
+  }
+
   key(e) {
-    const c = this.S.selClip;
+    const c = this.S.selClip, S = this.S, l = this.proj.playlist.clips;
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') { this.sel = new Set(l); this.draw(); return true; }
+    if (this.sel.size > 1) {
+      if (e.key === 'Delete' || e.key === 'Backspace') { S.edit(() => { for (const x of this.sel) { const i = l.indexOf(x); if (i >= 0) l.splice(i, 1); } this.sel.clear(); S.selClip = null; }); return true; }
+      if (e.ctrlKey && ['d', 'b'].includes(e.key.toLowerCase())) {
+        const items = [...this.sel], a = Math.min(...items.map((x) => x.start)), b = Math.max(...items.map((x) => x.start + x.len));
+        S.edit(() => { this.sel = new Set(items.map((x) => { const y = { ...x, id: uid('k'), start: x.start + (b - a) }; l.push(y); return y; })); });
+        return true;
+      }
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && c) {
       this.S.edit(() => { const l = this.proj.playlist.clips; const i = l.indexOf(c); if (i >= 0) l.splice(i, 1); this.S.selClip = null; });
       return true;
     }
-    if (e.ctrlKey && e.key.toLowerCase() === 'd' && c) { this.S.edit(() => this.proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })); return true; }
+    if (e.ctrlKey && ['d', 'b'].includes(e.key.toLowerCase()) && c) { this.S.edit(() => this.proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })); return true; }
     if (e.key.toLowerCase() === 'c' && !e.ctrlKey) { this.tool = this.tool === 'slice' ? 'draw' : 'slice'; this.S.renderPaneBars(); this.draw(); return true; }
     return false;
   }

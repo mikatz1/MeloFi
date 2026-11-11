@@ -21,6 +21,18 @@ export class Strip {
     if (this.send) { this.send.gain.value = 0; this.panner.connect(this.send).connect(engine.revIn); }
     this.input.connect(this.fader);
     this.dest = null;
+    this.sends = new Map(); // bus id -> GainNode: FL-style post-fader sends to any bus
+  }
+
+  // sends: [{ to: busId, level 0..1 }], post-fader like FL Studio's mixer sends
+  setSends(list = [], buses, at = this.engine.ctx.currentTime) {
+    const want = new Map((list || []).filter((s) => s.to && s.to !== this.id && buses.get(s.to)).map((s) => [s.to, s.level ?? 0.5]));
+    for (const [to, g] of this.sends) if (!want.has(to)) { try { g.disconnect(); this.panner.disconnect(g); } catch { /* gone */ } this.sends.delete(to); }
+    for (const [to, level] of want) {
+      let g = this.sends.get(to);
+      if (!g) { g = this.engine.ctx.createGain(); g.gain.value = 0; this.panner.connect(g).connect(buses.get(to).input); this.sends.set(to, g); }
+      g.gain.setTargetAtTime(level * level, at, 0.02);
+    }
   }
 
   routeTo(node) {

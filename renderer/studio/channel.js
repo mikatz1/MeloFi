@@ -71,6 +71,14 @@ export class SamplerChannel {
     this.last = new Map(); // note -> vid (a key struck again cuts its last voice)
     this.held = new Map(); // live note -> vid
     this.lastVoice = null; // { vid, c, t, rate } for glides
+    this.pongs = new Map();
+    this.node.port.onmessage = (e) => { if (e.data?.type === 'pong') { this.pongs.get(e.data.n)?.(); this.pongs.delete(e.data.n); } };
+  }
+
+  // resolves once the worklet has taken in every message sent so far (samples, scheduled notes)
+  ready(timeout = 8000) {
+    const n = vidSeq++;
+    return new Promise((res) => { const t = setTimeout(res, timeout); this.pongs.set(n, () => { clearTimeout(t); res(); }); this.node.port.postMessage({ type: 'ping', n }); });
   }
 
   // ch: the project channel. Loads what it plays if that changed.

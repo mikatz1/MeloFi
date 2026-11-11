@@ -259,9 +259,10 @@ export class UI {
       if (it.group) return h('div', { class: 'grp' }, it.group);
       const b = h('button', {
         role: 'menuitem', class: `${it.danger ? 'danger' : ''}${it.sub ? ' has-sub' : ''}`, disabled: !!it.disabled,
-        onclick: () => {
+        onclick: (e) => {
           if (it.disabled) return;
           if (it.sub) { this.openSub(b, it.sub, level + 1); return; } // a click opens it too (touch, or a quick click)
+          if (it.keepOpen) { e.stopPropagation(); it.act(); return; } // toggles that leave the menu open
           this.openMenu(null); it.act();
         },
       }, h('span', { class: `chk ${it.check || ''}` }), h('span', { class: 'lbl' }, it.chip ? h('i', { class: 'chip', style: `background:${it.chip}` }) : null, it.label, it.hint ? h('small', {}, it.hint) : null),
@@ -621,9 +622,9 @@ export class UI {
     this.closeSub();
     const lines = P.song.lines;
     const items = [
-      ...lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
+      ...lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', keepOpen: true, act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
       { sep: true },
-      { label: T.score.hands, check: this.s.get('scoreHands') ? 'tick' : '', act: () => { this.s.set({ scoreHands: !this.s.get('scoreHands') }); this.openPartsMenu(); this.updateTransport(); } },
+      { label: T.score.hands, check: this.s.get('scoreHands') ? 'tick' : '', keepOpen: true, act: () => { this.s.set({ scoreHands: !this.s.get('scoreHands') }); this.openPartsMenu(); this.updateTransport(); } },
       { sep: true },
       { label: T.score.pianoOnly, act: () => { for (const l of lines) P.setLine(l.id, l.piano); }, disabled: !lines.some((l) => l.piano) },
       { label: T.score.all, act: () => { for (const l of lines) P.setLine(l.id, true); } },
@@ -631,11 +632,6 @@ export class UI {
       { label: '파트 악기 바꾸기', sub: lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), act: () => this.pickPartInstrument(l) })) },
     ];
     this.renderMenu(menu, items);
-    // keep the menu open while toggling parts
-    for (const b of menu.querySelectorAll('button')) {
-      const it = items.filter((x) => !x.sep)[[...menu.querySelectorAll('button')].indexOf(b)];
-      if (it && it.check !== undefined) b.onclick = (e) => { e.stopPropagation(); it.act(); };
-    }
     const r = $('#tpParts').getBoundingClientRect();
     menu.style.left = `${Math.min(r.left, window.innerWidth - 300)}px`;
     menu.style.top = `${r.bottom + 2}px`;

@@ -100,6 +100,7 @@ export class ScorePlayer {
   stop() {
     this.pause();
     this.pos = 0;
+    this.app.stage?.clearBars?.(); // back to the start: nothing from the last run stays on screen
     this.onChange();
   }
 

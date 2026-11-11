@@ -1,7 +1,7 @@
 // MeloFi Studio — transport: plays the current pattern (loop) or the playlist (song), scheduling
 // notes, audio clips and automation ~150 ms ahead with exact AudioContext times. Song mode
 // follows the tempo map and the loop region. Also records live notes.
-import { PPQ, STEP, barTicks, patternTicks, pattern, audible, tickToSec, secToTick, songBars } from './model.js';
+import { PPQ, STEP, barTicks, patternTicks, pattern, audible, tickToSec, secToTick, songBars, barAt } from './model.js';
 import { stretched } from './media.js';
 
 const LOOKAHEAD = 0.15; // s
@@ -42,10 +42,11 @@ export function eventsFor(proj, mode = proj.mode) {
           if (g) { tick += g.t[k] * STEP; v = Math.max(1, Math.round(v * g.v[k])); }
           else if (sw && k % 2 === 1) tick += sw * STEP * 0.5;
         }
-        out.push({ type: 'n', tick: Math.max(0, tick), ch: chId, n: n.n, v, d: Math.min(n.d, limit - t), fine: n.fine || 0, pan: n.pan || 0, slide: !!n.slide });
+        out.push({ type: 'n', tick: Math.max(0, tick), ch: chId, n: n.n, v, d: Math.min(n.d, limit - t), fine: n.fine || 0, pan: n.pan || 0, slide: !!n.slide, porta: !!n.porta });
       };
       const src = ch?.arp?.on ? arpNotes(list, ch.arp) : list;
       for (const n of src) {
+        if (n.mute) continue; // muted with the mute tool
         if (loop) { if (n.t >= loop) continue; for (let t = n.t; t < limit; t += loop) emit(n, t); }
         else emit(n, n.t);
       }
@@ -57,7 +58,7 @@ export function eventsFor(proj, mode = proj.mode) {
     const soloT = tracks.some((t) => t.solo);
     const trackOn = (i) => { const t = tracks[i]; return t && (soloT ? t.solo : !t.mute); };
     for (const c of proj.playlist.clips) {
-      if (!trackOn(c.track)) continue;
+      if (!trackOn(c.track) || c.mute) continue; // muted clips (mute tool) stay silent
       const start = c.start * bt, clipLen = c.len * bt;
       if (c.kind === 'audio') {
         const m = proj.media[c.media];
@@ -277,16 +278,20 @@ export class Transport {
       if (abs < this.startTick - 1e-6) continue;
       if (e.type === 'n') {
         const t = this.at(abs), dur = this.secAbs(abs + e.d) - this.secAbs(abs);
-        this.engine.note(e.ch, e.n, e.v, t, dur, { fine: e.fine, pan: e.pan, slide: e.slide });
+        this.engine.note(e.ch, e.n, e.v, t, dur, { fine: e.fine, pan: e.pan, slide: e.slide, porta: e.porta });
         if (!e.slide) this.out?.note(e.ch, e.n, e.v, t, dur);
       } else if (e.type === 'a') this.audio(e, abs);
       else if (e.type === 'x') this.engine.target(proj, e.target)?.set(e.v, this.at(abs), e.ramp);
     }
     if (this.metro) {
       const bt = barTicks(proj), beat = (PPQ * 4) / proj.sig[1];
+      const sigs = proj.mode === 'song' && proj.sigs?.length;
       while (this.nextBeat < horizon) {
-        if (this.nextBeat >= this.startTick) this.engine.tick(this.at(this.nextBeat), Math.round(this.base + (this.nextBeat % this.length)) % bt === 0);
-        this.nextBeat += beat;
+        const song = Math.round(this.base + (this.nextBeat % this.length));
+        // song mode follows time signature markers: accent on each bar line, beats of that bar
+        const b = sigs ? barAt(proj, song) : null;
+        if (this.nextBeat >= this.startTick) this.engine.tick(this.at(this.nextBeat), b ? song === b.start : song % bt === 0);
+        this.nextBeat += b ? b.beat : beat;
       }
     } else this.nextBeat = Math.ceil(horizon / PPQ) * PPQ;
     if (this.out?.clock) {
@@ -349,7 +354,7 @@ export async function scheduleAll(engine, proj, { offset = 0.05, mode } = {}) {
   T.startTick = 0; T.startCtx = offset;
   for (const e of T.events) {
     const t = T.at(e.tick);
-    if (e.type === 'n') engine.note(e.ch, e.n, e.v, t, T.secAbs(e.tick + e.d) - T.secAbs(e.tick), { fine: e.fine, pan: e.pan, slide: e.slide });
+    if (e.type === 'n') engine.note(e.ch, e.n, e.v, t, T.secAbs(e.tick + e.d) - T.secAbs(e.tick), { fine: e.fine, pan: e.pan, slide: e.slide, porta: e.porta });
     else if (e.type === 'a') T.audio(e, e.tick);
     else engine.target(proj, e.target)?.set(e.v, t, e.ramp);
   }

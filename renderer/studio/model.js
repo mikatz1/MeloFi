@@ -30,7 +30,7 @@ export function newChannel(inst, name, i, extra = {}) {
 }
 
 export function newBus(i, name) {
-  return { id: uid('b'), name: name || `버스 ${i + 1}`, color: CHANNEL_COLORS[(i + 5) % CHANNEL_COLORS.length], vol: 0.8, pan: 0, mute: false, fx: [] };
+  return { id: uid('b'), name: name || `Insert ${i + 1}`, color: CHANNEL_COLORS[(i + 5) % CHANNEL_COLORS.length], vol: 0.8, pan: 0, mute: false, fx: [] };
 }
 
 export const newTrack = (i) => ({ name: `트랙 ${i + 1}`, color: null, mute: false, solo: false });
@@ -128,6 +128,31 @@ export function snapToScale(scale, n) {
 export const barTicks = (proj) => (PPQ * 4 * proj.sig[0]) / proj.sig[1];
 export const patternTicks = (proj, pat) => barTicks(proj) * pat.bars;
 export const ticksToSec = (proj, t) => (t / PPQ) * (60 / proj.bpm);
+
+// ---------- time signature changes (FL Studio's time signature markers) ----------
+// proj.sigs: [{ tick, sig: [n, d] }]. From a bar line on, the playlist grid, bar numbers and the
+// metronome follow the new signature; patterns keep their own length, as in FL Studio.
+export function sigSegments(proj) {
+  const segs = [{ tick: 0, sig: proj.sig }];
+  for (const m of [...(proj.sigs || [])].sort((a, b) => a.tick - b.tick)) if (m.tick > 0) segs.push({ tick: m.tick, sig: m.sig });
+  return segs.map((s, i) => ({ ...s, len: (PPQ * 4 * s.sig[0]) / s.sig[1], end: segs[i + 1]?.tick ?? Infinity }));
+}
+// the bar a song tick falls in: { num (0-based), start, len, sig, beat }
+export function barAt(proj, tick) {
+  let num = 0;
+  for (const s of sigSegments(proj)) {
+    if (tick < s.end) { const k = Math.floor((tick - s.tick) / s.len); return { num: num + k, start: s.tick + k * s.len, len: s.len, sig: s.sig, beat: (PPQ * 4) / s.sig[1] }; }
+    num += Math.ceil((s.end - s.tick) / s.len - 1e-9);
+  }
+  return { num: 0, start: 0, len: barTicks(proj), sig: proj.sig, beat: (PPQ * 4) / proj.sig[1] };
+}
+// bar lines between two song ticks: [{ tick, num, sig, len }]
+export function barLines(proj, from, to) {
+  const out = [];
+  let b = barAt(proj, Math.max(0, from));
+  for (let guard = 0; b.start < to && guard < 4000; guard++) { out.push({ tick: b.start, num: b.num, sig: b.sig, len: b.len }); b = barAt(proj, b.start + b.len); }
+  return out;
+}
 export const secToTicks = (proj, s) => (s * proj.bpm * PPQ) / 60;
 
 // length of the song in bars (end of the last clip)
@@ -197,7 +222,7 @@ export function migrate(p) {
   out.master = { ...base.master, ...(p.master || {}) };
   out.channels = (p.channels || base.channels).map((c, i) => ({ ...newChannel(c.inst || 'splendid', c.name || `Ch ${i + 1}`, i), ...c, fx: c.fx || [] }));
   out.master.fx = out.master.fx || [];
-  for (const k of ['buses', 'tempos', 'markers', 'autos', 'midiMap']) out[k] = Array.isArray(p[k]) ? p[k] : [];
+  for (const k of ['buses', 'tempos', 'markers', 'autos', 'midiMap', 'sigs']) out[k] = Array.isArray(p[k]) ? p[k] : [];
   out.media = p.media || {};
   // version 1 stored the playlist track count as a number
   const tr = out.playlist.tracks;

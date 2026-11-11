@@ -19,7 +19,7 @@ export const GM_PROGRAMS = [
   // 40–47 strings
   ['violin', 'strings'], ['strings', 'violin'], ['cello', 'strings'], ['contrabass', 'cello', 'upright'], ['strings'], ['stringspizz', 'strings'], ['harp'], ['kit'],
   // 48–55 ensemble
-  ['strings'], ['strings'], ['synpad', 'strings'], ['synpad', 'strings'], ['vocal', 'choir'], ['oohs', 'choir', 'vocal'], ['choir', 'oohs'], ['brassstab', 'stringsstac'],
+  ['strings'], ['strings'], ['synpad', 'strings'], ['synpad', 'strings'], ['chorus', 'choir', 'vocal'], ['oohs', 'chorus', 'choir'], ['choir', 'oohs'], ['brassstab', 'stringsstac'],
   // 56–63 brass
   ['trumpet', 'brassstab'], ['trombone', 'brassstab'], ['trombone', 'horn'], ['trumpet'], ['horn', 'trombone'], ['brassstab', 'trumpet'], ['synbrass', 'brassstab'], ['synbrass', 'brassstab'],
   // 64–71 reed
@@ -29,7 +29,7 @@ export const GM_PROGRAMS = [
   // 80–87 synth lead
   ['chip', 'synlead'], ['synlead', 'supersaw'], ['calliope', 'synlead', 'flute'], ['synlead', 'synpluck'], ['synlead', 'electric'], ['choir', 'synlead'], ['supersaw', 'synlead'], ['synlead', 'synbass'],
   // 88–95 synth pad
-  ['synpad', 'strings'], ['synpad', 'strings'], ['supersaw', 'synpad'], ['choir', 'synpad'], ['strings', 'synpad'], ['fmbell', 'synpad'], ['choir', 'synpad'], ['synpad', 'strings'],
+  ['synpad', 'strings'], ['synpad', 'strings'], ['supersaw', 'synpad'], ['chorus', 'choir', 'synpad'], ['strings', 'synpad'], ['fmbell', 'synpad'], ['choir', 'synpad'], ['synpad', 'strings'],
   // 96–103 synth effects
   ['fmbell', 'synpad'], ['synpad'], ['fmbell', 'glockenspiel'], ['brightness', 'synpad'], ['brightness', 'fmbell'], ['synpad'], ['brightness', 'synpad'], ['synpad'],
   // 104–111 ethnic

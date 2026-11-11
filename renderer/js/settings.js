@@ -16,6 +16,8 @@ export const DEFAULTS = {
   studioTourSeen: false, // composer: the guided tour was offered
   studioKeys: {},        // composer: shortcut overrides
   studioLeftW: 520,      // composer: width of the left panel
+  studioLook: null,      // composer: size / accent / track and row heights (화면 꾸미기)
+  studioLayout: null,    // composer: floating windows { roll: {x,y,w,h}, ... }
   metro: false,
   bpm: 100,
   beats: 4,

@@ -55,6 +55,9 @@ export function toInt16(src, out) {
   return out;
 }
 
+// a region's sustain loop (frames in the sample) and attack, for the sampler worklet
+const regionShape = (r) => ({ ...(r.ls != null && r.le > r.ls ? { loop: [r.ls, r.le] } : {}), ...(r.a ? { attack: r.a } : {}) });
+
 // the no-lookahead safety limiter (renderer/js/limiter-worklet.js, loaded into the context first)
 // GM drum numbers a kit may lack, and what to play instead (nearest sound of the same kind)
 const GM_FALLBACK = {
@@ -157,6 +160,7 @@ export class Engine {
   async init() {
     await this.ctx.audioWorklet.addModule('melofi://app/renderer/js/sampler-worklet.js');
     await this.ctx.audioWorklet.addModule('melofi://app/renderer/js/limiter-worklet.js');
+    await this.ctx.audioWorklet.addModule('melofi://app/renderer/js/pitchfix-worklet.js');
     const lim = safetyLimiter(this.ctx);
     this.master.disconnect();
     this.limiter.disconnect();
@@ -375,7 +379,7 @@ export class Engine {
     const x = vel / 127;
     const step = Math.pow(2, ((drum ? key + shift : note) - r.c) / 12 + r.t / 1200) * (meta.rate / this.ctx.sampleRate);
     const vid = this.nextVid++;
-    this.node.port.postMessage({ type: 'on', vid, id: `part:${id}:${r.s}`, step, gain: (this.partGain ?? 1) * part.manifest.gain * r.g * (0.4 + 0.6 * x * x), off: r.off, at });
+    this.node.port.postMessage({ type: 'on', vid, id: `part:${id}:${r.s}`, step, gain: (this.partGain ?? 1) * part.manifest.gain * r.g * (0.4 + 0.6 * x * x), off: r.off, at, ...(drum ? {} : regionShape(r)) });
     if (!drum) this.node.port.postMessage({ type: 'off', vid, tau: Math.max(0.03, (r.r || 0.3) / 4), at: (at || this.ctx.currentTime) + Math.max(0.05, dur) });
   }
 
@@ -402,7 +406,7 @@ export class Engine {
     const step = Math.pow(2, (note - r.c) / 12 + r.t / 1200) * (meta.rate / this.ctx.sampleRate);
     const vid = this.nextVid++;
     this.voices.set(vid, { note, held: true, ending: false, rel: r.r });
-    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at });
+    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at, ...regionShape(r) });
 
     if (this.voices.size > MAX_VOICES && !this.offline) { // (a rendered score hands over every note at once)
       let victim = null;

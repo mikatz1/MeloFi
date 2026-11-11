@@ -69,6 +69,7 @@ export class StudioEngine {
   static async create(ctx) {
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/sampler-worklet.js');
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/limiter-worklet.js');
+    await ctx.audioWorklet.addModule('melofi://app/renderer/js/pitchfix-worklet.js');
     return new StudioEngine(ctx);
   }
 
@@ -81,11 +82,13 @@ export class StudioEngine {
     // buses first (channels route into them)
     const busIds = new Set(proj.buses.map((b) => b.id));
     for (const [id, s] of this.buses) if (!busIds.has(id)) { s.dispose(); this.buses.delete(id); }
+    const pendingSends = []; // sends wired once every bus exists
     for (const b of proj.buses) {
       let s = this.buses.get(b.id);
       if (!s) { s = new Strip(this, b.id); this.buses.set(b.id, s); }
       s.routeTo(this.masterStrip.input);
       s.set({ vol: b.vol, pan: b.pan, send: b.send || 0, mute: b.mute }, at);
+      pendingSends.push([s, b.sends]);
       s.setFx(b.fx, at);
     }
     const keep = new Set(proj.channels.map((c) => c.id));
@@ -97,9 +100,15 @@ export class StudioEngine {
       if (!h) { h = new Host(this, c); this.channels.set(c.id, h); }
       h.strip.routeTo((c.out && c.out !== 'master' && this.buses.get(c.out)?.input) || this.masterStrip.input);
       h.set(c);
+      pendingSends.push([h.strip, c.sends]);
       h.strip.setFx(c.fx, at);
       if (h.kind === 'synth') h.src.setParams(c.synth);
       else if (h.src) loads.push(h.src.setSource(c, (p) => onProgress(c.inst, p)));
+    }
+    for (const [strip, sends] of pendingSends) strip.setSends(sends, this.buses, at);
+    // audio sidechains: feed each one the source strip's sound
+    for (const s of [this.masterStrip, ...this.buses.values(), ...[...this.channels.values()].map((h) => h.strip)]) {
+      for (const u of s.units) if (u.type === 'sidechain') u.unit.link?.(u.unit.duck.mode === 1 && u.unit.duck.source !== s.id ? this.strip(u.unit.duck.source) : null);
     }
     this.masterStrip.set({ vol: proj.master.vol, pan: 0 }, at);
     this.masterStrip.setFx(proj.master.fx, at);
@@ -109,12 +118,20 @@ export class StudioEngine {
   // offline only: sources that render outside the graph (VST plugins) put their audio in now
   async finalize() { await Promise.all([...this.channels.values()].map((h) => h.src?.finalize?.())); }
 
+  // offline only: every sampler has its samples and notes before rendering runs past them
+  async settle() { await Promise.all([...this.channels.values()].map((h) => h.src?.ready?.())); }
+
   // a note on a channel (plus sidechain triggers for anything that follows that channel)
   note(chId, n, v, at, dur, opts) {
     const h = this.channels.get(chId);
     if (!h) return;
     if (opts?.slide) h.slideTo(n, at, dur);
-    else h.noteOn(n, v, at, dur, opts);
+    else if (opts?.porta) {
+      // FL portamento: a new note that starts at the previous note's pitch and glides to its own
+      const prev = h.src?.lastVoice?.note;
+      h.noteOn(prev ?? n, v, at, dur, opts);
+      if (prev != null && prev !== n) h.slideTo(n, at, Math.min(dur * 0.5, 0.12));
+    } else h.noteOn(n, v, at, dur, opts);
     this.duck(chId, at);
   }
 
