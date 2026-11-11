@@ -39,6 +39,7 @@ export class AiSheet {
       if (m.label) this.stemLabel = m.label;
       this.paintBars();
       if (m.detail) this.stemDetail = m.detail;
+      if (typeof m.warn === 'string' && m.warn !== this.warn) { this.warn = m.warn; if (!this.el.hidden) this.render(); }
       this.renderProgress();
     });
     this.stems = null;       // the engine's result for the current file
@@ -445,6 +446,7 @@ export class AiSheet {
     return h('div', { class: 'ai-step' },
       h('b', {}, this.busy ? `분리하는 중 · ${this.file?.name || ''}` : this.error ? '분리하지 못했어요' : '분리'),
       this.busy ? this.busyView() : null,
+      this.busy && this.warn ? h('div', { class: 'ai-gpu bad' }, h('span', { class: 'err' }, this.warn)) : null,
       log);
   }
 

@@ -116,6 +116,34 @@ function register(ipcMain, { app, findFfmpeg }) {
     } finally { busy = null; }
   });
 
+  // While a run is on: graphics memory per program (Windows' GPU counters). When the engine's own
+  // Python has had to spill into shared system memory (another program holds the card's memory),
+  // the models crawl; say so, and name the programs holding the most.
+  const GPU_MEM_PS = "$c = Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage','\\GPU Process Memory(*)\\Shared Usage' -ErrorAction SilentlyContinue; "
+    + "$c.CounterSamples | Where-Object { $_.CookedValue -gt 100MB } | ForEach-Object { $id = [int]([regex]::Match($_.InstanceName,'pid_(\\d+)').Groups[1].Value); "
+    + "[pscustomobject]@{ pid = $id; name = (Get-Process -Id $id -ErrorAction SilentlyContinue).ProcessName; kind = ($_.Path -replace '.*\\\\', ''); mb = [math]::Round($_.CookedValue / 1MB) } } | ConvertTo-Json -Compress";
+  function watchGpuMemory(send, log) {
+    if (process.platform !== 'win32') return () => {};
+    let last = '', stop = false, timer = null;
+    const tick = async () => {
+      if (stop) return;
+      const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', GPU_MEM_PS]);
+      if (stop) return;
+      try {
+        const rows = [].concat(JSON.parse(r.out || '[]') || []);
+        const spill = rows.filter((x) => /^python/i.test(x.name || '') && /shared/i.test(x.kind)).reduce((a, x) => a + x.mb, 0);
+        const others = rows.filter((x) => !/^python/i.test(x.name || '') && /dedicated/i.test(x.kind) && x.mb >= 300).sort((a, b) => b.mb - a.mb).slice(0, 3);
+        const warn = spill >= 1500
+          ? `그래픽 메모리가 모자라 분석이 일반 메모리로 ${(spill / 1024).toFixed(1)} GB 넘쳤어요. 이러면 몇 배 느려져요.${others.length ? ` GPU 메모리를 쓰는 프로그램: ${others.map((x) => `${x.name} ${(x.mb / 1024).toFixed(1)} GB`).join(', ')}.` : ''} 그 프로그램을 닫고 취소 후 다시 시작하면 빨라져요 (분리 결과는 저장돼 있어요).`
+          : '';
+        if (warn !== last) { last = warn; send({ warn }); if (warn) log(`경고: ${warn}`); }
+      } catch { /* counters unavailable */ }
+      timer = setTimeout(tick, 10000);
+    };
+    timer = setTimeout(tick, 15000);
+    return () => { stop = true; clearTimeout(timer); };
+  }
+
   // payload: { path } or { name, data } -> { ok, result } (result.stems are file paths)
   // payload: { path } or { name, data } -> { ok, result } (result.stems are file paths). Asking again
   // for the song that is already running (the window was closed and reopened) joins that run.
@@ -177,6 +205,7 @@ function register(ipcMain, { app, findFfmpeg }) {
       let err = null, last = '';
       const args = [SCRIPT, '--input', input, '--out', out, '--models', MODELS(), '--ffmpeg', findFfmpeg() || 'ffmpeg', ...(payload.quick ? ['--quick'] : []), '--muscriptor', model, ...(only ? ['--only-muscriptor'] : [])];
       const token = model !== 'off' ? await readToken() : null;
+      const stopWatch = watchGpuMemory(send, (t) => { if (!e.sender.isDestroyed()) e.sender.send('stems:log', t); });
       const r = await run(py, args, { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', ...(token ? { HF_TOKEN: token } : {}) }, onSpawn: (p) => { child = p; } }, (l, isErr) => {
         // every line also goes to the window's live log
         const log = (t) => {
@@ -194,6 +223,7 @@ function register(ipcMain, { app, findFfmpeg }) {
         } catch { last = l; log(l); }
       });
       child = null;
+      stopWatch(); send({ warn: '' });
       await fsp.rm(input, { force: true });
       if (r.code || !fs.existsSync(done)) return { ok: false, error: 'run', message: `분석하지 못했습니다: ${err || last || r.err.slice(-300)}` };
       return { ok: true, result: JSON.parse(await fsp.readFile(done, 'utf8')) };

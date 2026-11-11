@@ -38,6 +38,25 @@ def run_muscriptor(src, out, model, times):
                           env={**os.environ, "PYTHONUNBUFFERED": "1"})
     tail_lines = []
     buf = ""
+    total, started, first = 0, 0, None
+
+    def progress(line):
+        nonlocal total, started, first
+        m = re.search(r"(\d+) chunk\(s\) of ([\d.]+)s", line)
+        if m:
+            total = int(m.group(1))
+            say(0.935, f"MuScriptor {model} · 구간 0/{total} (구간마다 {float(m.group(2)):g}초)", stage=0.0)
+        elif "encode conditions" in line and total:
+            started += 1
+            now = time.time()
+            first = first or now
+            done = started - 1  # the chunk that just began is not finished yet
+            eta = ""
+            if done >= 1:
+                left = (now - first) / done * (total - done)
+                eta = f" · 남은 시간 약 {max(1, round(left / 60))}분" if left >= 60 else f" · 남은 시간 약 {max(5, round(left / 5) * 5)}초"
+            say(0.935 + 0.06 * done / total, f"MuScriptor {model} · 구간 {started}/{total}{eta}", stage=done / total)
+
     while True:
         ch = p2.stdout.read(1)
         if not ch: break
@@ -45,6 +64,7 @@ def run_muscriptor(src, out, model, times):
             if buf.strip():
                 print(json.dumps({"log": "[MuScriptor] " + buf.strip()[:300]}, ensure_ascii=False), flush=True)
                 tail_lines = (tail_lines + [buf.strip()])[-6:]
+                progress(buf)
             buf = ""
         else:
             buf += ch
