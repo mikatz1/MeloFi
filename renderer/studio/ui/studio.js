@@ -148,7 +148,7 @@ export class Studio {
   welcome() {
     const box = h('div', { class: 'st-welcome' },
       h('b', {}, '작곡이 처음이신가요?'),
-      h('p', {}, 'FL Studio 공식 강좌 순서로 화면을 따라가며 첫 비트부터 내보내기까지 13개 강의로 안내해 드려요. 단축키도 FL Studio와 같아요.'),
+      h('p', {}, '화면을 하나씩 따라가며 첫 비트부터 내보내기까지 13개 강의로 안내해 드려요. 움직이는 예시로 무엇을 할지 먼저 보여 줘요.'),
       h('div', { class: 'row' },
         h('button', { class: 'btn sm ghost', onclick: () => { box.remove(); this.app.settings.set({ studioTourSeen: true }); } }, '괜찮아요'),
         h('button', { class: 'btn sm ghost', onclick: () => { box.remove(); this.newFromTemplate(); } }, '템플릿 보기'),
@@ -309,7 +309,7 @@ export class Studio {
       { group: '창 배치' },
       ...Object.entries(names).map(([k, n]) => ({ label: this.floating[k] ? `${n} 붙이기` : `${n} 떼어내기`, hint: '탭 더블클릭', act: () => (this.floating[k] ? this.dock(k) : this.detach(k)) })),
       { sep: true },
-      { label: '모두 떼어내기 (FL 기본 배치)', act: () => this.arrange('fl') },
+      { label: '모두 떼어내기 (작업 창 배치)', act: () => this.arrange('fl') },
       { label: '모두 붙이기', act: () => this.arrange('docked') },
     ]);
   }
@@ -1231,7 +1231,7 @@ export class Studio {
       h('button', { class: 'btn', title: '실행 취소 (Ctrl+Z) · 우클릭: 실행 기록', onclick: () => this.history.undo(), oncontextmenu: (e) => { e.preventDefault(); this.historySheet(e); } }, '↶'),
       btn('↷', '다시 실행 (Ctrl+Y)', () => this.history.redo()),
       btn('창 ▾', '창 배치: 피아노 롤·플레이리스트·믹서를 떼어내 띄우거나 붙이기 (탭 더블클릭)', (e) => this.windowMenu(e), '', 'windows'),
-      btn('튜토리얼', 'FL Studio 공식 강좌 순서로 하나씩 안내 (F1)', (e) => popup(e.clientX, e.clientY + 12, CHAPTERS.map((c, i) => ({ label: `${i + 1}. ${c.name}`, act: () => this.tour.start(c.id) })))),
+      btn('튜토리얼', '13개 강의로 하나씩 안내 (F1)', (e) => popup(e.clientX, e.clientY + 12, CHAPTERS.map((c, i) => ({ label: `${i + 1}. ${c.name}`, act: () => this.tour.start(c.id) })))),
       btn('파일 ▾', '새로 / 열기 / 저장 / 내보내기', (e) => popup(e.clientX, e.clientY + 12, [
         { label: '새 프로젝트 (템플릿)…', act: () => this.newFromTemplate(e.clientX - 200, e.clientY + 12) },
         { label: 'Loop Starter…', hint: '장르를 고르면 바로 루프', act: () => this.loopStarter(e.clientX - 200, e.clientY + 12) },

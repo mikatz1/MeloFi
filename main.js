@@ -58,7 +58,7 @@ const ownerWin = () => BrowserWindow.getFocusedWindow() || win || studioWin;
 let splash = null;
 function createSplash() {
   splash = new BrowserWindow({
-    width: 560, height: 330, frame: false, resizable: false, maximizable: false, fullscreenable: false,
+    width: 600, height: 400, frame: false, resizable: false, maximizable: false, fullscreenable: false,
     show: false, center: true, backgroundColor: '#101115', title: 'MeloFi',
     icon: path.join(ROOT, 'renderer', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: { preload: path.join(ROOT, 'preload.js'), contextIsolation: true, nodeIntegration: false, spellcheck: false },
@@ -71,6 +71,8 @@ function createSplash() {
     splash.webContents.on('ipc-message', () => {});
     ipcMain.on('boot:progress', (_e, m) => console.log(`[boot] ${Date.now() - t0}ms ${Math.round(m.p * 100)}% ${m.label} ${m.detail || ''}`));
     setTimeout(async () => { if (splash) fs.writeFileSync(path.join(process.env.MELOFI_SHOT, 'splash.png'), (await splash.webContents.capturePage()).toPNG()); }, 2000);
+    splash.webContents.on('console-message', (e) => console.log(`[splash:${e.level}] ${e.message}`));
+    if (process.env.MELOFI_SPLASH_SCRIPT) runShotScript(splash, process.env.MELOFI_SPLASH_SCRIPT, 'splash');
   } else splash.once('ready-to-show', () => splash?.show());
   splash.on('closed', () => { splash = null; });
 }
@@ -85,17 +87,27 @@ function createWindow() {
   if (process.env.MELOFI_SHOT) runShotScript(win, process.env.MELOFI_SCRIPT);
 }
 
-// show a window that waited for its page to finish loading; the main window takes over from the card
+// After loading, the card asks where to go (piano or MeloFi Studio); startChoice is the answer.
+let startChoice = null;
+
+// show a window that waited for its page to finish loading; the chosen window takes over from the card
 function revealWindow(w) {
-  if (w.isDestroyed() || w.isVisible() || HEADLESS) return;
+  if (w.isDestroyed() || w.isVisible()) return;
+  // the piano waits on the card until it is picked (the 30 s fallback must not open it either)
+  if (w === win && startChoice !== 'piano' && (splash || startChoice === 'studio')) return;
+  if (HEADLESS) return;
   w.show();
   w.focus();
-  if (w === win && splash) { const s = splash; splash = null; setTimeout(() => { if (!s.isDestroyed()) s.close(); }, 120); }
+  if ((w === win || w === studioWin) && splash) { const s = splash; splash = null; setTimeout(() => { if (!s.isDestroyed()) s.close(); }, 120); }
 }
 
 function createStudioWindow() {
   studioWin = makeWindow({ width: 1480, height: 900, minWidth: 960, minHeight: 600, title: 'MeloFi Studio' }, '?studio=1', 'index.html', { waitBoot: true });
-  studioWin.on('closed', () => { studioWin = null; });
+  studioWin.on('closed', () => {
+    studioWin = null;
+    // started straight into the studio: closing it ends the app (the piano was never shown)
+    if (!HEADLESS && win && !win.isDestroyed() && !win.isVisible() && !splash) app.quit();
+  });
   // headless tests can drive the studio window with their own script
   if (process.env.MELOFI_SHOT && process.env.MELOFI_STUDIO_SCRIPT) runShotScript(studioWin, process.env.MELOFI_STUDIO_SCRIPT, 'studio');
 }
@@ -157,9 +169,9 @@ function runShotScript(w, file, prefix = 'shot') {
       }
     } catch (err) { console.error('shot script failed', err); }
     // the piano's script ends the run, unless the studio window is still running its own
-    if (prefix === 'shot' && !(process.env.MELOFI_STUDIO_SCRIPT && studioWin) && !process.env.MELOFI_PICKER_SCRIPT && !process.env.MELOFI_KEYS_SCRIPT) app.quit();
+    if (prefix === 'shot' && !(process.env.MELOFI_STUDIO_SCRIPT && studioWin) && !process.env.MELOFI_PICKER_SCRIPT && !process.env.MELOFI_KEYS_SCRIPT && !process.env.MELOFI_SPLASH_SCRIPT) app.quit();
     if (prefix === 'studio' && process.env.MELOFI_KEYS_SCRIPT) return; // the keys window's script ends the run
-    if (prefix === 'studio' || prefix === 'picker' || prefix === 'keys') app.quit();
+    if (prefix === 'studio' || prefix === 'picker' || prefix === 'keys' || prefix === 'splash') app.quit();
   });
 }
 
@@ -330,8 +342,26 @@ app.whenReady().then(() => {
   });
 
   // ---------- start-up ----------
-  ipcMain.on('boot:progress', (e, m) => { if (splash && e.sender === win?.webContents) splash.webContents.send('boot:progress', m); });
-  ipcMain.on('boot:ready', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) revealWindow(w); });
+  ipcMain.on('boot:progress', (e, m) => {
+    // the card shows the piano's loading, then the studio's if that is where the user goes
+    const from = startChoice === 'studio' ? studioWin : win;
+    if (splash && e.sender === from?.webContents) splash.webContents.send('boot:progress', m);
+  });
+  ipcMain.on('boot:ready', (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (!w) return;
+    if (w === win && splash && !startChoice) { splash.webContents.send('boot:done'); return; } // ask where to go
+    revealWindow(w);
+  });
+  // the card's answer: 'piano' or 'studio'
+  ipcMain.handle('start:choose', (_e, target) => {
+    startChoice = target === 'studio' ? 'studio' : 'piano';
+    if (startChoice === 'piano') { if (win) revealWindow(win); return true; }
+    if (!studioWin) createStudioWindow();
+    else revealWindow(studioWin);
+    return true;
+  });
+  ipcMain.handle('app:quit', () => { app.quit(); return true; });
 
   // ---------- MeloFi Studio window ----------
   ipcMain.handle('studio:openWindow', (_e, cmd = null) => {
@@ -464,6 +494,7 @@ app.whenReady().then(() => {
   studioFiles.register(ipcMain, { app, dialog, getWin: ownerWin, defaultDir: defaultRecordDir });
   claude.register(ipcMain, { app });
   require('./vocal').register(ipcMain, { app });
+  require('./stems').register(ipcMain, { app, findFfmpeg });
   require('./vsthost').register(ipcMain, { app });
   ipcMain.handle('shell:openFolder', async (_e, p) => {
     const dir = p || defaultRecordDir();

@@ -133,17 +133,43 @@
 .frm-note { margin: 0 0 8px; color: var(--dim); font-size: 11.5px; line-height: 1.5; }
 
 /* guided tour */
-.tour-spot { position: fixed; z-index: 70; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(4,4,6,.55), 0 0 0 2px var(--accent); pointer-events: none; transition: left .18s, top .18s, width .18s, height .18s; }
-.tour-tip { position: fixed; z-index: 71; width: 320px; padding: 12px 14px 10px; background: #1b1c22; border: 1px solid #3a3b42; border-radius: 4px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-.tour-tip.center { box-shadow: 0 0 0 9999px rgba(4,4,6,.55), 0 12px 40px rgba(0,0,0,.6); }
-.tour-tip .tt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.tour-tip .tt-head small { color: var(--faint); font-size: 10.5px; }
-.tour-tip b { display: block; font-size: 13.5px; margin-bottom: 4px; }
-.tour-tip p { margin: 0 0 8px; color: #c9c6bf; line-height: 1.6; font-size: 12.5px; }
-.tour-tip .tt-do { color: var(--accent); font-size: 11.5px; }
-.tour-tip .tt-do.ok { color: #7bd66e; }
+.tour-spot { position: fixed; z-index: 70; border-radius: 6px; box-shadow: 0 0 0 9999px rgba(4,4,6,.6), 0 0 0 2px var(--accent); pointer-events: none; transition: left .45s cubic-bezier(.2,.8,.2,1), top .45s cubic-bezier(.2,.8,.2,1), width .45s cubic-bezier(.2,.8,.2,1), height .45s cubic-bezier(.2,.8,.2,1); }
+.tour-spot.on::after { content: ''; position: absolute; inset: -2px; border-radius: 8px; border: 2px solid var(--accent); animation: tour-ring 1.8s ease-out infinite; }
+@keyframes tour-ring { 0% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06, 1.25); } }
+.tour-hand { position: fixed; z-index: 72; width: 22px; height: 26px; pointer-events: none; transition: left .5s cubic-bezier(.2,.8,.2,1), top .5s cubic-bezier(.2,.8,.2,1); animation: tour-tap 1.6s ease-in-out infinite; }
+.tour-hand::before { content: ''; position: absolute; left: 0; top: 0; width: 18px; height: 24px; background: #ece9e2; clip-path: polygon(0 0, 0 82%, 22% 64%, 40% 100%, 55% 94%, 38% 58%, 66% 58%); filter: drop-shadow(0 1px 0 #000) drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+.tour-hand::after { content: ''; position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; animation: tour-click 1.6s ease-out infinite; }
+@keyframes tour-tap { 0%, 100% { transform: translate(14px, 16px); } 45% { transform: translate(0, 0); } 55% { transform: translate(0, 0) scale(.9); } 65% { transform: translate(0, 0); } }
+@keyframes tour-click { 0%, 50% { opacity: 0; transform: scale(.4); } 55% { opacity: 1; transform: scale(.6); } 90% { opacity: 0; transform: scale(1.8); } 100% { opacity: 0; } }
+.tour-tip { position: fixed; z-index: 71; width: 332px; padding: 12px 14px 10px; background: #1b1c22; border: 1px solid #3a3b42; border-radius: 6px; box-shadow: 0 16px 48px rgba(0,0,0,.6); transition: left .4s cubic-bezier(.2,.8,.2,1), top .4s cubic-bezier(.2,.8,.2,1); }
+.tour-tip.center { box-shadow: 0 0 0 9999px rgba(4,4,6,.6), 0 16px 48px rgba(0,0,0,.6); }
+.tour-tip.enter > * { animation: tour-in .42s cubic-bezier(.2,.8,.2,1) both; }
+.tour-tip.enter > *:nth-child(3) { animation-delay: .04s; } .tour-tip.enter > *:nth-child(4) { animation-delay: .08s; } .tour-tip.enter > *:nth-child(5) { animation-delay: .12s; } .tour-tip.enter > *:nth-child(n+6) { animation-delay: .16s; }
+@keyframes tour-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.tour-tip .tt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tour-tip .tt-num { padding: 1px 7px; border-radius: 3px; background: var(--accent); color: #1b1308; font-size: 10.5px; font-weight: 700; }
+.tour-tip .tt-ch { color: #d6d3cc; font-size: 11.5px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tour-tip .tt-count { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.tour-tip .tt-prog { height: 2px; background: #2a2b32; border-radius: 1px; margin: 0 0 10px; overflow: hidden; }
+.tour-tip .tt-prog i { display: block; height: 100%; background: var(--accent); transition: width .5s cubic-bezier(.2,.8,.2,1); }
+.tour-tip .tt-demo { display: block; width: 100%; aspect-ratio: 300 / 132; height: auto; border-radius: 4px; margin-bottom: 10px; border: 1px solid #26272e; }
+.tour-tip .tt-title { display: block; font-size: 14px; font-weight: 600; margin-bottom: 4px; color: #ece9e2; }
+.tour-tip p { margin: 0 0 10px; color: #c9c6bf; line-height: 1.6; font-size: 12.5px; }
+.tour-tip .tt-plan { margin: 0 0 12px; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 3px; }
+.tour-tip .tt-plan li { counter-increment: s; display: flex; gap: 8px; font-size: 12px; color: #c9c6bf; }
+.tour-tip .tt-plan li::before { content: counter(s); width: 16px; flex: none; text-align: right; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tour-tip .tt-do { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 9px; border-radius: 4px; background: rgba(232,161,93,.1); color: var(--accent); font-size: 11.5px; }
+.tour-tip .tt-do i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: tour-pulse 1.2s ease-in-out infinite; flex: none; }
+.tour-tip .tt-do.ok { background: rgba(123,214,110,.1); color: #7bd66e; }
+.tour-tip .tt-do.ok i { animation: none; }
+@keyframes tour-pulse { 50% { opacity: .25; transform: scale(.7); } }
+.tour-tip .tt-dots { display: flex; gap: 4px; justify-content: center; margin-top: 10px; }
+.tour-tip .tt-dots i { width: 5px; height: 5px; border-radius: 50%; background: #34353d; transition: background .3s, width .3s; }
+.tour-tip .tt-dots i.done { background: #6b5a43; }
+.tour-tip .tt-dots i.now { width: 14px; border-radius: 3px; background: var(--accent); }
 .tour-tip .row { display: flex; gap: 6px; align-items: center; }
 .tour-tip .row .sp { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .tour-spot, .tour-tip, .tour-hand, .tour-tip .tt-prog i { transition: none; } .tour-spot.on::after, .tour-hand, .tour-hand::after, .tour-tip.enter > *, .tour-tip .tt-do i { animation: none; } }
 .st-welcome { position: absolute; right: 18px; top: 52px; z-index: 30; width: 300px; padding: 12px 14px; background: #1b1c22; border: 1px solid #3a3b42; border-radius: 4px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 .st-welcome b { display: block; margin-bottom: 4px; }
 .st-welcome p { margin: 0 0 10px; color: var(--dim); line-height: 1.6; font-size: 12px; }
@@ -267,3 +293,14 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 #ntwin .nt-cvwrap { height: 380px; padding: 0; }
 #ntwin .nt-cv { display: block; width: 100%; height: 100%; outline: none; }
 #ntwin .nt-info { padding: 6px 14px 10px; font-size: 11.5px; color: var(--dim); }
+/* analysis engine: separated stems you can listen to */
+.ai-engine p { margin: 4px 0 8px; }
+.ai-stems { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.ai-stems.sub { margin-top: -2px; }
+.ai-stem { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 8px; background: #1b1c22; border: 1px solid #2f3037; border-radius: 3px; color: var(--text); font-size: 12px; cursor: pointer; }
+.ai-stems.sub .ai-stem { height: 24px; font-size: 11.5px; }
+.ai-stem:hover { border-color: #46474e; }
+.ai-stem.on { border-color: var(--accent); }
+.ai-stem i { width: 12px; font-style: normal; font-size: 9px; color: var(--accent); text-align: center; }
+.ai-stem small { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.ai-nc { display: inline-block; padding: 1px 7px; border: 1px solid #6b5320; border-radius: 3px; color: #e0b46a; font-size: 10.5px; white-space: nowrap; }

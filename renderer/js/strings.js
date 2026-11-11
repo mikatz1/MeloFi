@@ -184,7 +184,7 @@ export const T = {
   presets: {
     piano: '기본 (A S D F … 흰 건반)',
     zigzag: '지그재그 (A W S E D R …)',
-    fl: 'FL Studio형 (두 줄)',
+    fl: '두 줄 배열',
     custom: '사용자 지정',
   },
 
@@ -265,13 +265,13 @@ export const T = {
       mp3: 'MP3',
       wav: 'WAV',
       midi: 'MIDI',
-      fl: 'FL Studio용 (MIDI + WAV)',
+      fl: '작곡 프로그램용 (MIDI + WAV)',
     },
     recFormatHint: {
       mp4: '화면과 오디오를 함께 녹화합니다.',
       mp3: '오디오만 저장합니다.',
       wav: '무손실 오디오만 저장합니다.',
-      midi: '연주한 음표만 저장합니다. FL Studio 피아노 롤로 드래그하여 사용합니다.',
+      midi: '연주한 음표만 저장합니다. 작곡 프로그램의 피아노 롤로 끌어다 쓸 수 있습니다.',
       fl: '음표(MIDI)와 오디오(WAV)를 한 폴더에 함께 저장합니다.',
     },
     recDir: '저장 위치',

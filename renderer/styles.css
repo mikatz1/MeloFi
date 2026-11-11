@@ -37,12 +37,10 @@ button { cursor: default; }
 .menubar { display: flex; height: 100%; margin-left: 4px; -webkit-app-region: no-drag; }
 .menubar button { height: 100%; padding: 0 10px; background: none; border: 0; color: #bdbab3; }
 .menubar button:hover, .menubar button.on { background: #1b1c21; color: #ece9e2; }
-.studio-btn { -webkit-app-region: no-drag; height: 22px; padding: 0 10px; background: #17181d; border: 1px solid #ff9a3c; border-radius: 3px; color: #ece9e2; font: inherit; font-size: 12px; white-space: nowrap; }
-.studio-btn:hover { background: #241c14; border-color: #ffb066; }
 #bar .cell.inst { cursor: pointer; }
 #bar .cell.inst:hover { background: #1b1c21; }
 /* MeloFi Studio window: the bar is only the window's title strip */
-body.studio-window #bar .menubar, body.studio-window #bar .readout, body.studio-window #bar #fsBtn, body.studio-window #bar #studioBtn,
+body.studio-window #bar .menubar, body.studio-window #bar .readout, body.studio-window #bar #fsBtn,
 body.studio-window.studio-open #transport, body.studio-window.studio-open #stageWrap { display: none; }
 
 .readout { margin-left: auto; display: flex; align-items: stretch; height: 22px; border: 1px solid var(--line); background: #08090b; border-radius: 2px; }

@@ -39,8 +39,10 @@
       "studio-files.js",
       "claude.js",
       "vocal.js",
+      "stems.js",
       "vsthost.js",
       "tools/vocal/svs_render.py",
+      "tools/stems/analyze.py",
       "package.json",
       "renderer/**/*",
       "!renderer/_test/**",
@@ -49,6 +51,7 @@
     ],
     "asarUnpack": [
       "tools/vocal/**",
+      "tools/stems/**",
       "instruments/**"
     ],
     "win": {
