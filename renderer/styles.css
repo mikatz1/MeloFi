@@ -31,6 +31,8 @@ button { cursor: default; }
 }
 #bar button, #bar .readout { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; letter-spacing: 0.01em; color: #ece9e2; }
+.brand[role=button] { -webkit-app-region: no-drag; cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 3px; }
+.brand[role=button]:hover, .brand[role=button]:focus-visible { background: rgba(255,255,255,.06); outline: none; }
 .brand .mark { width: 13px; height: 15px; fill: #ece9e2; }
 .brand .mark .line { fill: var(--accent); }
 

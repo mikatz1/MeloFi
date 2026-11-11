@@ -30,6 +30,16 @@ class App {
   async start() {
     const boot = (p, label, detail = '') => window.melofi.bootProgress?.({ p, label, detail });
     const studioWin = new URLSearchParams(location.search).has('studio');
+    // the MeloFi logo opens the start card's choice again (piano or MeloFi Studio)
+    const brand = document.querySelector('#bar .brand');
+    if (brand) {
+      brand.title = '피아노 / MeloFi Studio 고르기';
+      brand.setAttribute('role', 'button');
+      brand.tabIndex = 0;
+      const open = () => window.melofi.startShow?.();
+      brand.addEventListener('click', open);
+      brand.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    }
     boot(0.02, '설정을 불러오는 중…');
     this.settings = new Settings();
     await this.settings.load();

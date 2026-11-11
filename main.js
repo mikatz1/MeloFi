@@ -364,12 +364,35 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('start:choose', (_e, target) => {
     startChoice = target === 'studio' ? 'studio' : 'piano';
+    // opened again from the MeloFi logo: the chosen window is already up, so bring it forward
+    const open = startChoice === 'piano' ? win : studioWin;
+    if (open && !open.isDestroyed() && open.isVisible()) {
+      if (open.isMinimized()) open.restore();
+      open.focus();
+      if (splash) { const s = splash; splash = null; setTimeout(() => { if (!s.isDestroyed()) s.close(); }, 80); }
+      return true;
+    }
     if (startChoice === 'piano') { if (win) revealWindow(win); return true; }
     if (!studioWin) createStudioWindow();
     else revealWindow(studioWin);
     return true;
   });
-  ipcMain.handle('app:quit', () => { app.quit(); return true; });
+  // the MeloFi logo in the top bar: the start card's choice screen again (piano or MeloFi Studio)
+  ipcMain.handle('start:show', () => {
+    if (splash && !splash.isDestroyed()) { splash.focus(); return true; }
+    createSplash();
+    // everything is loaded already: skip straight to the choice
+    splash.webContents.once('did-finish-load', () => { if (splash && !splash.isDestroyed()) splash.webContents.send('boot:done'); });
+    return true;
+  });
+  // the start card's ×: quits at start-up; when the card was opened again from the MeloFi logo (a
+  // window is already up) it only closes the card
+  ipcMain.handle('app:quit', (e) => {
+    const up = [win, studioWin].some((w) => w && !w.isDestroyed() && w.isVisible());
+    if (splash && e.sender === splash.webContents && up) { const s = splash; splash = null; s.close(); return true; }
+    app.quit();
+    return true;
+  });
 
   // ---------- MeloFi Studio window ----------
   ipcMain.handle('studio:openWindow', (_e, cmd = null) => {
