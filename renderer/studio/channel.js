@@ -25,8 +25,66 @@ function pickRegions(m, budgetMB) {
   return regs;
 }
 
+// Only the samples some notes ([[note, velocity]]) play, decoded on demand and kept in a small
+// cache of their own: the timbre matching plays a few seconds of dozens of instruments, and decoding
+// every velocity layer of each would take most of its time. Same regions as loadInstrument.
+const manifests = new Map(), someCache = new Map(); // `${id}:${s}` -> { L, R, bytes }
+let someBytes = 0;
+export async function loadSome(id, keys) {
+  if (!manifests.has(id)) {
+    manifests.set(id, (async () => {
+      const res = await fetch(`${BASE}${id}/manifest.json`);
+      if (!res.ok) throw new Error(`manifest ${id}: ${res.status}`);
+      let m = await res.json();
+      if (m.procedural) m = expand(m);
+      const regs = pickRegions(m, 260);
+      const byKey = Array.from({ length: 128 }, () => []);
+      for (const r of regs) for (let k = Math.max(0, r.lo); k <= Math.min(127, r.hi); k++) byKey[k].push(r);
+      for (const list of byKey) list.sort((a, b) => a.lv - b.lv);
+      return { m, byKey };
+    })());
+    manifests.get(id).catch(() => manifests.delete(id));
+  }
+  const { m, byKey } = await manifests.get(id);
+  const pick = (note, vel) => { const list = byKey[note]; if (!list?.length) return null; return list.find((r) => vel >= r.lv && vel <= r.hv) || list.reduce((b, r) => (Math.abs((r.lv + r.hv) / 2 - vel) < Math.abs((b.lv + b.hv) / 2 - vel) ? r : b)); };
+  const want = [...new Set(keys.map(([n, v]) => pick(n, v)?.s).filter(Boolean))];
+  const data = new Map();
+  await Promise.all(want.map(async (s) => {
+    const key = `${id}:${s}`;
+    let d = someCache.get(key);
+    if (!d) {
+      const meta = m.samples[s];
+      const buf = m.procedural ? await renderSample(m, s) : await decoder(meta.rate, meta.ch).decodeAudioData(await (await fetch(`${BASE}${id}/${s}`)).arrayBuffer());
+      const n = buf.length + PAD * 2;
+      d = { L: toInt16(buf.getChannelData(0), new Int16Array(n)), R: buf.numberOfChannels > 1 ? toInt16(buf.getChannelData(1), new Int16Array(n)) : null };
+      d.bytes = n * 2 * (d.R ? 2 : 1);
+      someBytes += d.bytes;
+    } else someCache.delete(key);
+    someCache.set(key, d); // most recent last
+    data.set(s, d);
+  }));
+  // about 300 MB at most, oldest out first
+  for (const [k, d] of someCache) { if (someBytes <= 300e6) break; someCache.delete(k); someBytes -= d.bytes; }
+  return { id, manifest: m, byKey, data };
+}
+
+// The cache keeps the most recently used instruments up to CACHE_BYTES of decoded audio. Older ones
+// are dropped from it (channels that still use one keep their own reference, so nothing stops
+// playing); without a limit, trying many instruments in one session ran the renderer out of memory
+// and every later decode failed ("Unable to decode audio data").
+const CACHE_BYTES = 1.5e9, sizes = new Map(); // id -> decoded bytes
+function trimCache(keep) {
+  let total = 0;
+  for (const b of sizes.values()) total += b;
+  for (const k of cache.keys()) {
+    if (total <= CACHE_BYTES) break;
+    if (k === keep || !sizes.has(k)) continue; // still loading, or the one just asked for
+    total -= sizes.get(k); sizes.delete(k); cache.delete(k);
+  }
+}
+
 export function loadInstrument(id, onProgress = () => {}, budgetMB = 260) {
-  if (cache.has(id)) return cache.get(id);
+  if (cache.has(id)) { const p = cache.get(id); cache.delete(id); cache.set(id, p); return p; } // most recent last
   const p = (async () => {
     const res = await fetch(`${BASE}${id}/manifest.json`);
     if (!res.ok) throw new Error(`manifest ${id}: ${res.status}`);
@@ -49,10 +107,13 @@ export function loadInstrument(id, onProgress = () => {}, budgetMB = 260) {
     const byKey = Array.from({ length: 128 }, () => []);
     for (const r of regs) for (let k = Math.max(0, r.lo); k <= Math.min(127, r.hi); k++) byKey[k].push(r);
     for (const list of byKey) list.sort((a, b) => a.lv - b.lv);
+    let bytes = 0;
+    for (const d of data.values()) bytes += d.L.byteLength + (d.R ? d.R.byteLength : 0);
+    if (cache.get(id) === p) { sizes.set(id, bytes); trimCache(id); }
     return { id, manifest: m, byKey, data };
   })();
   cache.set(id, p);
-  p.catch(() => cache.delete(id));
+  p.catch(() => { if (cache.get(id) === p) { cache.delete(id); sizes.delete(id); } });
   return p;
 }
 
@@ -122,7 +183,7 @@ export class SamplerChannel {
     if (prev != null) this.node.port.postMessage({ type: 'off', vid: prev, tau: 0.03, at });
     const vid = vidSeq++;
     this.last.set(note, vid);
-    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at, pan: opts.pan || 0, attack: r.attack || 0, loop: r.loop || null });
+    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at, pan: opts.pan || 0, attack: r.a || r.attack || 0, loop: r.loop || (r.ls != null && r.le > r.ls ? [r.ls, r.le] : null) }); // manifests store the sustain loop as ls/le and attack as a
     if (dur != null) this.node.port.postMessage({ type: 'off', vid, tau: r.r / 4.5, at: (at || this.ctx.currentTime) + dur });
     this.lastRel = r.r;
     this.lastVoice = { vid, c: r.c, t: r.t, rate, note };
@@ -155,5 +216,12 @@ export class SamplerChannel {
   dispose() {
     this.stop();
     this.node.disconnect();
+  }
+
+  // after an offline render: the worklet holds its own copy of every sample (posting copies them),
+  // and Chromium keeps a finished OfflineAudioContext's worklet alive, so tell it to drop them
+  freeSamples() {
+    this.node.port.postMessage({ type: 'clear' });
+    this.inst = null;
   }
 }

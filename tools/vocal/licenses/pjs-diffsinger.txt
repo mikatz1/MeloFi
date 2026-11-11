@@ -1,0 +1,19 @@
+PJS DiffSinger — licence notes kept by MeloFi (checked 2026-11-12)
+
+Voice model: "PJS DiffSinger" by UtaUtaUtau
+  https://github.com/UtaUtaUtau/pjs-manual-labels (release "diffsinger")
+  Licence: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Training data: PJS corpus (Japanese singing / speech of Junya Koguchi)
+  Shinnosuke Takamichi, Junya Koguchi
+  https://sites.google.com/site/shinnosuketakamichi/research-topics/pjs_corpus
+  Licence: CC BY-SA 4.0; the corpus page states it is free for non-commercial and commercial use.
+
+Credit to show with songs made with this voice:
+  PJS DiffSinger (UtaUtaUtau), PJS corpus (Shinnosuke Takamichi, Junya Koguchi)
+
+Vocoder: this voicebank has no vocoder of its own. MeloFi plays it through the OpenVPI
+PC-NSF-HiFiGAN community vocoder, whose weights are CC BY-NC-SA 4.0 (non-commercial).
+Songs rendered with this voice in MeloFi are therefore for NON-COMMERCIAL use only.
+See openvpi-pc-nsf-hifigan.txt.

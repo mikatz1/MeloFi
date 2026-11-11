@@ -8,6 +8,7 @@ import { analyse, render, snapAll } from '../newtone.js';
 import { SCALES } from '../model.js';
 import { encodeWav } from '../../js/recorder.js';
 import { addMedia } from '../media.js';
+import { t } from '../../i18n/i18n.js';
 
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const LEFT = 44;
@@ -18,7 +19,7 @@ export class NewtoneWindow {
     let head;
     this.el = h('section', { id: 'ntwin', class: 'ch-float', hidden: true },
       h('div', { class: 'sheet-card nt-card' },
-        head = h('div', { class: 'sheet-head ch-drag', title: '끌어서 옮기기' }, this.title = h('h2', {}, 'Newtone'), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
+        head = h('div', { class: 'sheet-head ch-drag', title: t('끌어서 옮기기') }, this.title = h('h2', {}, 'Newtone'), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
         this.bar = h('div', { class: 'nt-bar' }),
         h('div', { class: 'nt-cvwrap' }, this.cv = h('canvas', { class: 'nt-cv', tabIndex: 0 })),
         this.info = h('div', { class: 'nt-info hint' })));
@@ -55,16 +56,16 @@ export class NewtoneWindow {
     if (!this.el.style.left) { this.el.style.left = `${Math.max(10, innerWidth / 2 - 480)}px`; this.el.style.top = '90px'; }
     this.title.textContent = `Newtone · ${m.name}`;
     this.an = null; this.sel = new Set(); this.zoom = 1; this.scroll = 0;
-    this.info.textContent = '음정을 분석하는 중…';
+    this.info.textContent = t('음정을 분석하는 중…');
     this.renderBar(); this.draw();
     const { decode } = await import('../media.js');
     this.buf = await decode(clip.media, 48000);
     this.chans = Array.from({ length: Math.min(2, this.buf.numberOfChannels) }, (_, i) => this.buf.getChannelData(i));
-    this.an = await analyse(this.buf, { onProgress: (x) => { this.info.textContent = `음정을 분석하는 중… ${Math.round(x * 100)}%`; } });
+    this.an = await analyse(this.buf, { onProgress: (x) => { this.info.textContent = t('음정을 분석하는 중… {pct}%', { pct: Math.round(x * 100) }); } });
     this.dirty = false;
     this.info.textContent = this.an.notes.length
-      ? `노트 ${this.an.notes.length}개 · 위아래로 끌어 음정 (Alt: 미세하게) · 오른쪽 끝을 끌어 길이 · 더블클릭: 되돌리기 · Ctrl+휠: 확대`
-      : '노트를 찾지 못했어요. 목소리나 악기 한 줄만 녹음된 클립에 쓰세요.';
+      ? t('노트 {n}개 · 위아래로 끌어 음정 조절 (Alt: 미세하게) · 오른쪽 끝을 끌어 길이 조절 · 더블클릭: 되돌리기 · Ctrl+휠: 확대', { n: this.an.notes.length })
+      : t('노트를 찾지 못했어요. 목소리나 악기 한 줄만 녹음된 클립에 쓰세요.');
     this.renderBar(); this.draw();
   }
 
@@ -78,13 +79,13 @@ export class NewtoneWindow {
     const slider = (key, label, title) => h('label', { class: 'nt-sl', title }, h('span', {}, label),
       h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: one ? one[key] : key === 'center' ? 0 : 1, disabled: !this.an, oninput: (e) => { for (const nt of this.targets()) nt[key] = +e.target.value; this.dirty = true; this.draw(); } }));
     this.bar.replaceChildren(
-      h('button', { class: 'btn sm', disabled: !this.an, title: sc ? `${NAMES[sc.root]} ${SCALES[sc.type]?.name || ''}에 맞춤` : '스케일이 없으면 가장 가까운 반음에 맞춤', onclick: () => { this.snap(); } }, sc ? '스케일에 맞추기' : '반음에 맞추기'),
-      slider('center', 'Center', '음이 천천히 흔들리는 것을 음 가운데로 당기는 정도 (0 = 그대로, 1 = 가운데에 고정)'),
-      slider('variation', 'Variation', '비브라토 크기 (1 = 그대로, 0 = 없앰)'),
-      h('span', { class: 'sp' }, this.sel.size ? `${this.sel.size}개 선택` : '전체에 적용'),
-      h('button', { class: 'btn sm ghost', disabled: !this.an, onclick: () => { for (const nt of this.an.notes) { nt.target = nt.median; nt.stretch = 1; nt.center = 0; nt.variation = 1; } this.dirty = true; this.renderBar(); this.draw(); } }, '처음대로'),
-      h('button', { class: 'btn sm', disabled: !this.an, onclick: () => (this.preview ? this.stopPreview() : this.listen()) }, this.preview ? '정지' : '듣기'),
-      h('button', { class: 'btn sm primary', disabled: !this.an, onclick: () => this.apply() }, '적용'));
+      h('button', { class: 'btn sm', disabled: !this.an, title: sc ? t('{scale}에 맞춤', { scale: `${NAMES[sc.root]} ${t(SCALES[sc.type]?.name || '')}`.trim() }) : t('스케일이 없으면 가장 가까운 반음에 맞춤'), onclick: () => { this.snap(); } }, sc ? t('스케일에 맞추기') : t('반음에 맞추기')),
+      slider('center', 'Center', t('음이 천천히 흔들리는 것을 음 가운데로 당기는 정도 (0 = 그대로, 1 = 가운데에 고정)')),
+      slider('variation', 'Variation', t('비브라토 크기 (1 = 그대로, 0 = 없앰)')),
+      h('span', { class: 'sp' }, this.sel.size ? t('{n}개 선택', { n: this.sel.size }) : t('전체에 적용')),
+      h('button', { class: 'btn sm ghost', disabled: !this.an, onclick: () => { for (const nt of this.an.notes) { nt.target = nt.median; nt.stretch = 1; nt.center = 0; nt.variation = 1; } this.dirty = true; this.renderBar(); this.draw(); } }, t('처음대로')),
+      h('button', { class: 'btn sm', disabled: !this.an, onclick: () => (this.preview ? this.stopPreview() : this.listen()) }, this.preview ? t('정지') : t('듣기')),
+      h('button', { class: 'btn sm primary', disabled: !this.an, onclick: () => this.apply() }, t('적용')));
   }
 
   snap() {
@@ -196,7 +197,7 @@ export class NewtoneWindow {
 
   async listen() {
     this.stopPreview();
-    this.info.textContent = '렌더링 중…';
+    this.info.textContent = t('렌더링 중…');
     await new Promise((r) => setTimeout(r, 0));
     const outs = this.rendered(), ctx = this.S.engine.ctx;
     const b = ctx.createBuffer(outs.length, outs[0].length, this.an.sr);
@@ -204,14 +205,14 @@ export class NewtoneWindow {
     const src = ctx.createBufferSource(); src.buffer = b; src.connect(ctx.destination); src.start();
     this.preview = src;
     src.onended = () => { if (this.preview === src) { this.preview = null; this.renderBar(); } };
-    this.info.textContent = '미리 듣는 중 · 정지하려면 ‘정지’';
+    this.info.textContent = t('미리 듣는 중 · 정지하려면 ‘정지’');
     this.renderBar();
   }
   stopPreview() { try { this.preview?.stop(); } catch { /* ended */ } this.preview = null; }
 
   async apply() {
     const S = this.S, p = S.proj, c = this.clip, m = p.media[c.media];
-    this.info.textContent = '렌더링 중…';
+    this.info.textContent = t('렌더링 중…');
     await new Promise((r) => setTimeout(r, 0));
     const outs = this.rendered();
     const wav = encodeWav({ left: outs[0], right: outs[1] || outs[0], rate: this.an.sr });
@@ -223,7 +224,7 @@ export class NewtoneWindow {
     S.playlist.peakCache?.delete(hash);
     S.syncAudio();
     this.dirty = false;
-    S.status('Newtone: 고친 소리를 새 클립으로 넣었어요. 원래 녹음은 프로젝트 오디오에 남아 있어요.');
+    S.status(t('Newtone: 고친 소리를 새 클립으로 넣었어요. 원래 녹음은 프로젝트 오디오에 남아 있어요.'));
     this.close();
   }
 }

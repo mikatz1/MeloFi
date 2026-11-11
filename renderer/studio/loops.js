@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // MeloFi loop library (what FL Studio gets from FL Cloud sounds and its Loop Starter): drum, bass,
 // chord and melody loops for a few genres, made in the project's key and tempo and rendered to
 // audio with the built-in instruments only (procedural drum kits and synths, Splendid, MeloFi

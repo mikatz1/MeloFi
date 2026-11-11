@@ -1,0 +1,533 @@
+{
+ "version": 2,
+ "name": "시티팝",
+ "bpm": 112,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjxey7",
+   "name": "Drums",
+   "inst": "acousticdrums",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjxey8",
+   "name": "E.Piano",
+   "inst": "fmep",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.25,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [
+    {
+     "id": "fmwchjxeyb",
+     "type": "chorus",
+     "on": true,
+     "params": {
+      "rate": 0.8,
+      "depth": 0.5,
+      "mix": 0.4
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjxey9",
+   "name": "Bass",
+   "inst": "fingerbass",
+   "color": "#9fd67a",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjxeya",
+   "name": "Trumpet",
+   "inst": "trumpet",
+   "color": "#e77fb3",
+   "vol": 0.7,
+   "pan": 0,
+   "send": 0.2,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjxeze",
+   "name": "그루브",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchjxey7": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 95
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 95
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 38,
+      "v": 95
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 38,
+      "v": 95
+     },
+     {
+      "t": 0,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 432,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 528,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 624,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 720,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     }
+    ],
+    "cmwchjxey8": [
+     {
+      "t": 0,
+      "d": 144,
+      "n": 64,
+      "v": 80
+     },
+     {
+      "t": 0,
+      "d": 144,
+      "n": 67,
+      "v": 80
+     },
+     {
+      "t": 0,
+      "d": 144,
+      "n": 69,
+      "v": 80
+     },
+     {
+      "t": 0,
+      "d": 144,
+      "n": 72,
+      "v": 80
+     },
+     {
+      "t": 144,
+      "d": 240,
+      "n": 64,
+      "v": 80
+     },
+     {
+      "t": 144,
+      "d": 240,
+      "n": 67,
+      "v": 80
+     },
+     {
+      "t": 144,
+      "d": 240,
+      "n": 69,
+      "v": 80
+     },
+     {
+      "t": 144,
+      "d": 240,
+      "n": 72,
+      "v": 80
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 62,
+      "v": 80
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 65,
+      "v": 80
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 69,
+      "v": 80
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 72,
+      "v": 80
+     },
+     {
+      "t": 528,
+      "d": 240,
+      "n": 62,
+      "v": 80
+     },
+     {
+      "t": 528,
+      "d": 240,
+      "n": 65,
+      "v": 80
+     },
+     {
+      "t": 528,
+      "d": 240,
+      "n": 69,
+      "v": 80
+     },
+     {
+      "t": 528,
+      "d": 240,
+      "n": 72,
+      "v": 80
+     }
+    ],
+    "cmwchjxey9": [
+     {
+      "t": 0,
+      "d": 72,
+      "n": 41,
+      "v": 100
+     },
+     {
+      "t": 72,
+      "d": 72,
+      "n": 41,
+      "v": 100
+     },
+     {
+      "t": 144,
+      "d": 48,
+      "n": 48,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 96,
+      "n": 46,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 72,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 456,
+      "d": 72,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 528,
+      "d": 48,
+      "n": 45,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 96,
+      "n": 43,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjxeze",
+ "selected": "cmwchjxey7",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjxezf",
+    "pattern": "pmwchjxeze",
+    "track": 0,
+    "start": 0,
+    "len": 16
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": [
+   {
+    "id": "fmwchjxeyc",
+    "type": "comp",
+    "on": true,
+    "params": {
+     "threshold": -16,
+     "ratio": 2.5,
+     "attack": 0.01,
+     "release": 0.15,
+     "knee": 6,
+     "makeup": 4
+    }
+   },
+   {
+    "id": "fmwchjxeyd",
+    "type": "limiter",
+    "on": true,
+    "params": {
+     "gain": 3,
+     "ceiling": -0.3
+    }
+   }
+  ]
+ },
+ "buses": [],
+ "tempos": [
+  {
+   "bar": 3,
+   "bpm": 100
+  }
+ ],
+ "markers": [
+  {
+   "bar": 0,
+   "name": "Intro"
+  },
+  {
+   "bar": 2,
+   "name": "Waltz"
+  }
+ ],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": {
+  "root": 5,
+  "type": "major"
+ },
+ "midiMap": [],
+ "sigs": [
+  {
+   "tick": 768,
+   "sig": [
+    3,
+    4
+   ]
+  },
+  {
+   "tick": 1344,
+   "sig": [
+    4,
+    4
+   ]
+  }
+ ],
+ "_fixture": "3ba8e6e citypop + time signature markers (3/4 for two bars), a tempo change and markers"
+}

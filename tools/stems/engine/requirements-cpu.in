@@ -1,0 +1,18 @@
+# MeloFi analysis engine, CPU build (top-level packages; lock-cpu.txt is generated from this).
+# Regenerate: see docs/engine-install.md. Bump ENGINE.version in stems.js when the lock changes.
+audio-separator[cpu]==0.48.0
+beat-this==1.1.0
+onnxruntime
+librosa
+audioread
+pretty_midi
+mir_eval
+resampy
+soundfile
+# MuScriptor: code MIT; its weights are CC BY-NC 4.0 and download only with the user's HuggingFace token
+muscriptor==0.4.0
+# instrument recognition (Audio Spectrogram Transformer, BSD-3-Clause)
+transformers==5.22.2
+torch==2.11.0
+torchaudio==2.11.0
+torchvision==0.26.0

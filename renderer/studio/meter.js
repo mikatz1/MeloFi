@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // Loudness from the live meter's 100 ms blocks (js/master-worklet.js), as the BS.1770 / EBU R128
 // meters in FL Studio and Cubase show it: momentary (400 ms), short-term (3 s), integrated (gated),
 // loudness range, true peak (max), PLR, and the stereo correlation.

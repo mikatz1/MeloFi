@@ -14,6 +14,11 @@ import { readSfz } from './sfz.mjs';
 import { fetchLib } from './fetch-lib.mjs';
 import { vcslMap } from './vcsl-map.mjs';
 import { POP_LIBS } from './libs-pop.mjs';
+import { MORE_LIBS } from './libs-more.mjs';
+import { MORE2_LIBS } from './libs-more2.mjs';
+import { ARCHIVE_LIBS } from './libs-archive.mjs';
+import { MORE3_LIBS } from './libs-more3.mjs';
+import { ARCHIVE2_LIBS } from './libs-archive2.mjs';
 import { TAGS } from './tags.mjs';
 import { retune } from './retune.mjs';
 
@@ -168,7 +173,8 @@ export const LIBS = {
   },
 };
 
-Object.assign(LIBS, POP_LIBS);
+Object.assign(LIBS, POP_LIBS, MORE_LIBS, MORE2_LIBS, MORE3_LIBS);
+Object.assign(LIBS, ARCHIVE_LIBS, ARCHIVE2_LIBS);
 
 function run(cmd, args) {
   return new Promise((res, rej) => {
@@ -233,7 +239,8 @@ async function build(id) {
   const cfg = LIBS[id];
   const sfzPath = path.join(DL, cfg.sfz);
   const repo = cfg.url.replace('https://github.com/', '');
-  {
+  if (cfg.prepare) await cfg.prepare(id); // archives / SoundFonts (tools/libs-archive.mjs)
+  else {
     // pull the library (text + the audio this program uses) from GitHub
     const program = path.relative(path.join(DL, cfg.sfz.split('/')[0]), sfzPath).split(path.sep).join('/');
     await fetchLib(repo, [program], cfg.gen, { cc: cfg.cc, vars: cfg.vars });
@@ -282,7 +289,7 @@ async function build(id) {
   }
   const manifest = {
     name: cfg.name, model: cfg.model, maker: cfg.maker, license: cfg.license, url: cfg.url, order: cfg.order,
-    credit: `${cfg.name} — ${cfg.maker}. ${cfg.license}. ${cfg.url}`,
+    credit: cfg.credit || `${cfg.name} — ${cfg.maker}. ${cfg.license}. ${cfg.url}`,
     gain: +norm.toFixed(5),
     strings: cfg.strings !== false,
     samples,
@@ -290,7 +297,7 @@ async function build(id) {
     tags: cfg.tags || TAGS[id]?.[0] || [],
     use: cfg.use || TAGS[id]?.[1] || '',
     ...(cfg.keys ? { keys: cfg.keys } : {}),
-    source: { repo, branch, archive: `https://codeload.github.com/${repo}/zip/refs/heads/${branch}`, root: top, bytes: srcBytes, files: srcFiles },
+    source: cfg.sourceFor ? await cfg.sourceFor(srcFiles, id) : { repo, branch, archive: `https://codeload.github.com/${repo}/zip/refs/heads/${branch}`, root: top, bytes: srcBytes, files: srcFiles },
     regions: regions
       .sort((a, b) => a.lo - b.lo || a.lv - b.lv)
       .map((r) => ({
@@ -299,6 +306,9 @@ async function build(id) {
         ...(r.loop ? { ls: r.loop[0], le: r.loop[1] } : {}), ...(r.attack ? { a: +r.attack.toFixed(3) } : {}),
       })),
   };
+  // measured loudness trims (tools/e2e/instrument-levels.js -> instruments/levels.json, dB): every
+  // instrument plays at its family's size next to the others, and a rebuild keeps that
+  try { const lv = JSON.parse(fs.readFileSync(path.join(path.dirname(outDir), 'levels.json'), 'utf8')); if (lv[id]) manifest.gain = +(manifest.gain * Math.pow(10, lv[id] / 20)).toFixed(5); } catch { /* no trims */ }
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest));
   if (cfg.retune) retune(id);
   const layers = new Set(regions.map((r) => r.lv)).size;

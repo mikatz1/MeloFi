@@ -2,6 +2,7 @@
 // asks where to go — the piano or MeloFi Studio — and holds the MeloFi account (sign in, sign up,
 // nickname, password, data export, leaving).
 import { T } from './strings.js';
+import { t, tc, tdyn, locale, langChoices, langPref, setLangPref, onLangChange } from '../i18n/i18n.js';
 
 const $ = (s) => document.querySelector(s);
 const C = T.cloud;
@@ -11,8 +12,8 @@ const card = $('#card');
 // ---------- loading ----------
 let shown = 0;
 const setProgress = ({ p, label, detail }) => {
-  if (label) $('#label').textContent = label;
-  if (detail != null) $('#detail').textContent = detail;
+  if (label) $('#label').textContent = tdyn(label);
+  if (detail != null) $('#detail').textContent = tdyn(detail);
   if (typeof p === 'number') {
     shown = Math.max(shown, Math.min(1, p)); // never goes backwards
     $('#fill').style.width = `${(shown * 100).toFixed(1)}%`;
@@ -29,13 +30,13 @@ let choosing = false;
 
 // what was opened last on each side, under its card
 async function fillRecent() {
-  const when = (t) => (t ? new Date(t).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' }) : '');
+  const when = (t) => (t ? new Date(t).toLocaleDateString(locale(), { month: 'long', day: 'numeric' }) : '');
   const put = (k, label, item, none) => {
     const el2 = document.querySelector(`[data-recent="${k}"]`);
     el2.replaceChildren(...(item ? [`${label} `, Object.assign(document.createElement('b'), { textContent: item.name }), item.at ? ` · ${when(item.at)}` : ''] : [none]));
   };
-  try { const s = await api.recentScores(); put('piano', '최근 악보', s?.[0], '최근 열어본 악보가 없어요'); } catch { /* none */ }
-  try { const p = await api.studioRecent(); put('studio', '최근 프로젝트', p?.[0], '저장된 프로젝트가 없어요'); } catch { /* none */ }
+  try { const s = await api.recentScores(); put('piano', tc('start', '최근 악보'), s?.[0], t('최근 열어본 악보가 없어요')); } catch { /* none */ }
+  try { const p = await api.studioRecent(); put('studio', tc('start', '최근 프로젝트'), p?.[0], t('저장된 프로젝트가 없어요')); } catch { /* none */ }
 }
 
 api.onBootDone(async () => {
@@ -62,7 +63,7 @@ async function go(target) {
     $('#choose').hidden = true;
     $('#status').hidden = false;
     shown = 0;
-    setProgress({ p: 0.02, label: 'MeloFi Studio를 여는 중…', detail: '' });
+    setProgress({ p: 0.02, label: t('MeloFi Studio를 여는 중…'), detail: '' });
   }
   await api.startChoose(target);
 }
@@ -124,9 +125,9 @@ async function refreshWho() {
   who.classList.toggle('in', !!st.signedIn);
   who.classList.remove('out');
   who.replaceChildren(...(st.signedIn
-    ? [el('i', {}, initial(st.user)), st.user?.nickname || st.user?.email || '내 계정', el('span', { class: 'chev' }, '▾')]
-    : [personIcon(), '로그인 · 계정', el('span', { class: 'chev' }, '▾')]));
-  who.title = st.signedIn ? `${st.user?.email || ''} · 계정 센터 열기` : '계정 센터: 로그인하면 프로젝트를 온라인에 저장하고 공유할 수 있어요';
+    ? [el('i', {}, initial(st.user)), st.user?.nickname || st.user?.email || t('내 계정'), el('span', { class: 'chev' }, '▾')]
+    : [personIcon(), t('로그인 · 계정'), el('span', { class: 'chev' }, '▾')]));
+  who.title = st.signedIn ? t('{email} · 계정 센터 열기', { email: st.user?.email || '' }) : t('계정 센터: 로그인하면 프로젝트를 온라인에 저장하고 공유할 수 있어요');
 }
 
 function openAccount() {
@@ -153,7 +154,7 @@ function render() {
       el('button', { class: mode === 'signup' ? 'on' : '', onclick: () => { mode = 'signup'; msg = null; render(); } }, C.signup)));
     parts.push(mode === 'signup' ? signupView() : loginView());
   } else parts.push(meView());
-  if (msg) parts.push(el('p', { class: `msg${msg.err ? ' err' : ''}` }, msg.text));
+  if (msg) parts.push(el('p', { class: `msg${msg.err ? ' err' : ''}` }, tdyn(msg.text)));
   body.replaceChildren(...parts);
   body.querySelector('input:not([type=checkbox])')?.focus();
 }
@@ -176,7 +177,7 @@ function loginView() {
     const r = await A('login', { email: email.value, password: pw.value });
     if (!r.ok) return say(r.message);
     st = { ...st, user: r.data, signedIn: true };
-    mode = 'me'; msg = { text: `${r.data?.nickname || ''} 님, 환영해요.`, err: false };
+    mode = 'me'; msg = { text: t('{n} 님, 환영해요.', { n: r.data?.nickname || '' }), err: false };
     render(); refreshWho();
   };
   pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
@@ -187,8 +188,8 @@ function loginView() {
 
 function signupView() {
   if (docs === false) { // the server did not answer: say so and offer to try again
-    return el('div', {}, el('p', { class: 'note' }, '약관을 불러오지 못했어요. 서버 주소와 네트워크 연결 상태를 확인해 주세요.'),
-      el('div', { class: 'btns' }, el('button', { class: 'btn', onclick: () => { docs = null; msg = null; render(); } }, '다시 시도'), el('span', { class: 'sp' }),
+    return el('div', {}, el('p', { class: 'note' }, t('약관을 불러오지 못했어요. 서버 주소와 네트워크 연결 상태를 확인해 주세요.')),
+      el('div', { class: 'btns' }, el('button', { class: 'btn', onclick: () => { docs = null; msg = null; render(); } }, t('다시 시도')), el('span', { class: 'sp' }),
         el('button', { class: 'lnk', onclick: () => { mode = 'server'; msg = null; render(); } }, C.serverAddr)));
   }
   if (!docs) {
@@ -264,10 +265,30 @@ function meView() {
     el('div', { class: 'grp' }, f2, f3, el('div', { class: 'btns' }, el('button', { class: 'btn', onclick: () => upd({ password: cur.value, newPassword: nw.value }, C.pwChanged) }, C.changePw))),
     el('div', { class: 'grp' }, el('div', { class: 'btns' },
       el('button', { class: 'btn', onclick: async () => { const r = await A('exportData'); if (!r.ok) return say(r.message); msg = { text: C.exported, err: false }; render(); api.showItem?.(r.data); } }, C.exportData),
-      el('button', { class: 'btn', onclick: async () => { await A('logout'); st = { ...st, user: null, signedIn: false }; mode = 'login'; msg = { text: '로그아웃되었어요.', err: false }; render(); refreshWho(); } }, C.logout),
+      el('button', { class: 'btn', onclick: async () => { await A('logout'); st = { ...st, user: null, signedIn: false }; mode = 'login'; msg = { text: t('로그아웃되었어요.'), err: false }; render(); refreshWho(); } }, C.logout),
       el('span', { class: 'sp' }),
       el('button', { class: 'lnk', onclick: () => { leaving = !leaving; leave.hidden = !leaving; } }, C.deleteAccount))),
     leave);
 }
 
 refreshWho();
+
+// ---------- language (한국어 / English / the system's) ----------
+const langSel = $('#lang');
+function fillLang() {
+  langSel.replaceChildren(...langChoices().map(([k, label]) => Object.assign(document.createElement('option'), { value: k, textContent: label })));
+  langSel.value = langPref();
+  langSel.title = t('언어');
+  langSel.setAttribute('aria-label', t('언어'));
+}
+fillLang();
+langSel.addEventListener('change', () => {
+  api.saveSettings({ lang: langSel.value }); // the other windows and main follow (settings:changed)
+  setLangPref(langSel.value);
+});
+onLangChange(() => {
+  fillLang();
+  refreshWho();
+  if (choosing) fillRecent();
+  if (!$('#acct').hidden) render();
+});

@@ -2,6 +2,7 @@
 // what the step asks for (a cursor clicking steps, a note being drawn, a clip being dragged in, a
 // pitch line snapping to the grid…). Everything is drawn on one canvas, so it costs nothing when
 // hidden, follows the studio's accent colour and freezes on a still frame for reduced motion.
+import { t, N_ } from '../../i18n/i18n.js';
 
 const W = 300, H = 132;
 const C = { bg: '#121318', panel: '#191a20', grid: '#1f2027', line: '#2b2c33', txt: '#d6d3cc', dim: '#77756e', blue: '#7fb0ff', green: '#9fd67a', pink: '#e77fb3', purple: '#c8a2ff', teal: '#5fd8d0', red: '#e5534b', white: '#ece9e2' };
@@ -21,7 +22,7 @@ function rr(g, x, y, w, h, r, fill, stroke) {
   if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1; g.stroke(); }
 }
 function text(g, s, x, y, { color = C.txt, size = 11, weight = 500, align = 'left', font = '"Segoe UI", "Malgun Gothic", sans-serif' } = {}) {
-  g.fillStyle = color; g.font = `${weight} ${size}px ${font}`; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(s, x, y);
+  g.fillStyle = color; g.font = `${weight} ${size}px ${font}`; g.textAlign = align; g.textBaseline = 'middle'; g.fillText(t(s), x, y); // labels below are N_() keys
 }
 function cursor(g, x, y, down = 0) {
   if (down > 0) { g.beginPath(); g.arc(x, y, 6 + 10 * down, 0, Math.PI * 2); g.strokeStyle = `rgba(232,161,93,${0.6 * (1 - down)})`; g.lineWidth = 2; g.stroke(); }
@@ -123,10 +124,10 @@ const D = {
     bars.forEach(([x, y, h], i) => { const k = out(seg(p, 0.05 + i * 0.08, 0.35 + i * 0.08)); rr(g, x, y + h * (1 - k), 18, h * k, 9, C.white); });
     rr(g, 94, 112, 86 * out(seg(p, 0.35, 0.6)), 6, 3, A);
     for (let i = 0; i < 13; i++) { const on = p > 0.55 + i * 0.025; g.beginPath(); g.arc(205 + (i % 7) * 12, 64 + Math.floor(i / 7) * 14, 4, 0, Math.PI * 2); g.fillStyle = on ? A : '#2e2f37'; g.fill(); }
-    text(g, '13강', 205, 102, { color: C.dim, size: 10 });
+    text(g, N_('13강'), 205, 102, { color: C.dim, size: 10 });
   } },
   layout: { dur: 6, draw(g, p) {
-    const parts = [['툴바', 10, 8, 280, 16, 'Space · L'], ['채널 랙', 10, 30, 110, 94, 'F6'], ['피아노 롤', 126, 30, 164, 94, 'F7'], ['플레이리스트', 126, 30, 164, 94, 'F5'], ['믹서', 126, 30, 164, 94, 'F9']];
+    const parts = [[N_('툴바'), 10, 8, 280, 16, 'Space · L'], [N_('채널 랙'), 10, 30, 110, 94, 'F6'], [N_('피아노 롤'), 126, 30, 164, 94, 'F7'], [N_('플레이리스트'), 126, 30, 164, 94, 'F5'], [N_('믹서'), 126, 30, 164, 94, 'F9']];
     const k = Math.max(0, Math.min(parts.length - 1, Math.floor(p * parts.length)));
     parts.forEach(([n, x, y, w, h], i) => { if (i >= 2 && i !== Math.max(2, k)) return; panel(g, x, y, w, h, n, i === k); });
     const [, x, y, w, h, key] = parts[Math.min(k, parts.length - 1)];
@@ -151,7 +152,7 @@ const D = {
     const set = new Set();
     for (let i = 0; i < 16; i++) { const touched = i < upto && p > 0.15; if (erase ? !touched : touched) set.add(i); }
     stepRow(g, x0, y, 260, 26, set, erase ? C.green : (o.color || C.green));
-    text(g, erase ? '오른쪽 버튼을 누른 채 드래그' : '누른 채 옆으로 드래그', x0, 30, { color: C.dim, size: 10 });
+    text(g, erase ? N_('오른쪽 버튼을 누른 채 드래그') : N_('누른 채 옆으로 드래그'), x0, 30, { color: C.dim, size: 10 });
     const cx = x0 + cw / 2 + Math.min(11, k * 12) * cw;
     cursor(g, cx, y + 14, p > 0.15 && p < 0.7 ? 0.05 : 0);
   } },
@@ -181,7 +182,7 @@ const D = {
     const grow = io(seg(p, 0.35, 0.6));
     if (p > 0.18 && p < 0.85) note(g, x, y, R.cw * (1 + grow * 1.5), R.rh - 2, A, p > 0.75 ? 1 - seg(p, 0.75, 0.85) : 1);
     path(g, p, [[0, 200, 120], [0.15, x + 6, y + 5, true], [0.35, x + R.cw - 2, y + 5], [0.6, x + R.cw * 2.5 - 2, y + 5], [0.72, x + R.cw, y + 5, true], [0.95, 220, 118]]);
-    text(g, p < 0.35 ? '클릭: 노트' : p < 0.7 ? '끝을 끌기: 길이' : '오른쪽 클릭: 지우기', 280, 120, { color: C.dim, size: 9.5, align: 'right' });
+    text(g, p < 0.35 ? N_('클릭: 노트') : p < 0.7 ? N_('끝을 끌기: 길이') : N_('오른쪽 클릭: 지우기'), 280, 120, { color: C.dim, size: 9.5, align: 'right' });
   } },
   tools: { dur: 6, draw(g, p) {
     const T = [['P', 'Draw'], ['B', 'Paint'], ['D', 'Delete'], ['T', 'Mute'], ['C', 'Slice'], ['E', 'Select']];
@@ -199,7 +200,7 @@ const D = {
     const R = rollBg(g, 10, 8, 280, 116, 12);
     const inC = [0, 2, 4, 5, 7, 9, 11], k = out(seg(p, 0.15, 0.5));
     for (let r = 0; r < 12; r++) { const pc = 11 - r; if (inC.includes(pc)) { g.fillStyle = `rgba(232,161,93,${0.16 * k})`; g.fillRect(R.x0, 8 + r * R.rh, 264, R.rh - 0.5); } else { g.fillStyle = `rgba(0,0,0,${0.35 * k})`; g.fillRect(R.x0, 8 + r * R.rh, 264, R.rh - 0.5); } }
-    rr(g, 200, 14, 80, 20, 3, '#26272e', C.line); text(g, 'C  메이저', 240, 24, { color: p > 0.1 ? A : C.dim, size: 10, align: 'center' });
+    rr(g, 200, 14, 80, 20, 3, '#26272e', C.line); text(g, N_('C  메이저'), 240, 24, { color: p > 0.1 ? A : C.dim, size: 10, align: 'center' });
   } },
   chord: { dur: 3.5, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 12);
@@ -210,12 +211,12 @@ const D = {
   } },
   progression: { dur: 5, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 14);
-    const chords = [[10, 8, 6], [7, 5, 3], [9, 7, 5], [8, 6, 4]], names = ['1 · 도', '6 · 라', '4 · 파', '5 · 솔'];
+    const chords = [[10, 8, 6], [7, 5, 3], [9, 7, 5], [8, 6, 4]], names = [N_('1 · 도'), N_('6 · 라'), N_('4 · 파'), N_('5 · 솔')];
     chords.forEach((rows, b) => { const k = out(seg(p, 0.1 + b * 0.18, 0.22 + b * 0.18)); rows.forEach((r) => k > 0 && note(g, R.x0 + b * R.cw * 2 + 2, 8 + r * R.rh + 1, R.cw * 2 - 4, R.rh - 2, [A, C.blue, C.green, C.pink][b], k)); if (k > 0.5) text(g, names[b], R.x0 + b * R.cw * 2 + 4, 120, { color: C.dim, size: 9 }); });
   } },
   riff: { dur: 5, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 12);
-    const steps = ['코드 진행', '아르페지오', '그루브', '변형'];
+    const steps = [N_('코드 진행'), N_('아르페지오'), N_('그루브'), N_('변형')];
     const st = Math.min(3, Math.floor(p * 4.4));
     for (let i = 0; i < 12; i++) {
       const settle = out(seg(p, 0.2 + i * 0.02, 0.45 + i * 0.02)), rnd = hash(i + Math.floor(p * 8));
@@ -233,15 +234,15 @@ const D = {
   } },
   browser: { dur: 4, draw(g, p, t, o) {
     const k = io(o.close ? 1 - seg(p, 0.3, 0.6) : seg(p, 0.2, 0.5));
-    panel(g, 10 + 100 * k, 10, 280 - 100 * k, 112, '채널 랙');
+    panel(g, 10 + 100 * k, 10, 280 - 100 * k, 112, N_('채널 랙'));
     g.save(); g.beginPath(); g.rect(10, 10, 96 * k, 112); g.clip();
-    panel(g, 10, 10, 94, 112, '브라우저', true);
+    panel(g, 10, 10, 94, 112, N_('브라우저'), true);
     ['Drums 128', 'Bass loop', 'Chords Am', 'Lead hook', 'Vox chop'].forEach((n, i) => { rr(g, 16, 26 + i * 18, 82, 14, 2, '#23242b'); text(g, n, 20, 33 + i * 18, { color: C.txt, size: 9 }); });
     g.restore();
     keycap(g, 214, 92, 'Alt+F8', p > 0.15 && p < 0.3, 60);
   } },
   dragDrop: { dur: 5, draw(g, p) {
-    panel(g, 6, 8, 80, 116, '브라우저', true);
+    panel(g, 6, 8, 80, 116, N_('브라우저'), true);
     ['Drums', 'Bass', 'Chords'].forEach((n, i) => { rr(g, 12, 24 + i * 18, 68, 14, 2, i === 0 && p > 0.15 && p < 0.6 ? '#3a3b43' : '#23242b'); text(g, n, 16, 31 + i * 18, { color: C.txt, size: 9 }); });
     g.fillStyle = '#17181d'; g.fillRect(92, 8, 202, 116);
     for (let i = 0; i < 3; i++) { g.fillStyle = C.line; g.fillRect(92, 44 + i * 30, 202, 1); }
@@ -256,16 +257,16 @@ const D = {
     if (p > 0.7) playhead(g, 58 + seg(p, 0.7, 1) * 230, 6, 128);
   } },
   starter: { dur: 6, draw(g, p) {
-    const genres = ['트랩', '하우스', '로파이', '케이팝'];
+    const genres = [N_('트랩'), N_('하우스'), N_('로파이'), N_('케이팝')];
     genres.forEach((n, i) => { rr(g, 10 + i * 70, 8, 62, 18, 9, i === 1 && p > 0.12 ? A : '#26272e'); text(g, n, 41 + i * 70, 17, { color: i === 1 && p > 0.12 ? '#1b1308' : C.txt, size: 10, weight: 600, align: 'center' }); });
     const parts = [['Drums', A, 'kick'], ['Bass', C.blue], ['Chords', C.green], ['Lead', C.pink]];
-    parts.forEach(([n, col, kind], i) => { track(g, 32 + i * 24, 24, n); const k = out(seg(p, 0.2 + i * 0.08, 0.3 + i * 0.08)); const shuffled = i === 3 && p > 0.72; if (k > 0) clip(g, 58, 33 + i * 24, 230, 20, shuffled ? C.purple : col, shuffled ? 'Lead (셔플)' : n, kind || 'wave', shuffled ? 9 : i + 1, shuffled ? out(seg(p, 0.72, 0.85)) : k); });
+    parts.forEach(([n, col, kind], i) => { track(g, 32 + i * 24, 24, n); const k = out(seg(p, 0.2 + i * 0.08, 0.3 + i * 0.08)); const shuffled = i === 3 && p > 0.72; if (k > 0) clip(g, 58, 33 + i * 24, 230, 20, shuffled ? C.purple : col, shuffled ? N_('Lead (셔플)') : n, kind || 'wave', shuffled ? 9 : i + 1, shuffled ? out(seg(p, 0.72, 0.85)) : k); });
     path(g, p, [[0, 150, 128], [0.1, 110, 17, true], [0.55, 200, 128], [0.68, 150, 110, true], [0.95, 220, 128]]);
   } },
   paintClips: { dur: 5, draw(g, p) {
     track(g, 30, 34, 'Track 1'); track(g, 64, 34, 'Track 2');
     const k = seg(p, 0.15, 0.75), n = Math.min(5, Math.floor(k * 5.5) + (p > 0.15 ? 1 : 0));
-    for (let i = 0; i < n; i++) clip(g, 58 + i * 46, 32, 44, 29, A, '비트', 'notes', 2);
+    for (let i = 0; i < n; i++) clip(g, 58 + i * 46, 32, 44, 29, A, N_('비트'), 'notes', 2);
     cursor(g, 70 + Math.min(4, k * 5) * 46, 46, p > 0.15 && p < 0.75 ? 0.05 : 0);
     keycap(g, 236, 4, 'B', p < 0.12, 28);
   } },
@@ -273,7 +274,7 @@ const D = {
     track(g, 20, 34, 'Track 1'); track(g, 54, 34, 'Track 2');
     const base = [[58, 22, A], [104, 22, A], [58, 56, C.blue], [104, 56, C.blue]];
     const dup = out(seg(p, 0.6, 0.8));
-    base.forEach(([x, y, c]) => { clip(g, x, y, 44, 29, c, '패턴'); if (dup > 0) { g.globalAlpha = dup; clip(g, x + 92 * dup, y, 44, 29, c, '패턴'); g.globalAlpha = 1; } });
+    base.forEach(([x, y, c]) => { clip(g, x, y, 44, 29, c, N_('패턴')); if (dup > 0) { g.globalAlpha = dup; clip(g, x + 92 * dup, y, 44, 29, c, N_('패턴')); g.globalAlpha = 1; } });
     const m = io(seg(p, 0.15, 0.45));
     if (p > 0.15 && p < 0.9) { g.strokeStyle = A; g.setLineDash([3, 3]); g.strokeRect(54, 18, 98 * m, 70 * m); g.setLineDash([]); }
     keycap(g, 200, 100, 'E', p < 0.12, 28); keycap(g, 236, 100, 'Ctrl+B', p > 0.55 && p < 0.65, 56);
@@ -281,9 +282,9 @@ const D = {
   sliceMute: { dur: 5, draw(g, p) {
     track(g, 30, 34, 'Track 1'); track(g, 64, 34, 'Track 2');
     const cut = p > 0.3; const gap = cut ? 4 * out(seg(p, 0.3, 0.4)) : 0;
-    clip(g, 58, 32, cut ? 70 : 140, 29, A, '패턴'); if (cut) clip(g, 130 + gap, 32, 68, 29, A, '패턴');
+    clip(g, 58, 32, cut ? 70 : 140, 29, A, N_('패턴')); if (cut) clip(g, 130 + gap, 32, 68, 29, A, N_('패턴'));
     if (p > 0.2 && p < 0.32) { g.fillStyle = C.white; g.fillRect(128, 28, 1.5, 38); }
-    clip(g, 58, 66, 140, 29, p > 0.7 ? '#4a4b52' : C.blue, p > 0.7 ? '뮤트됨' : '패턴');
+    clip(g, 58, 66, 140, 29, p > 0.7 ? '#4a4b52' : C.blue, p > 0.7 ? N_('뮤트됨') : N_('패턴'));
     keycap(g, 220, 34, 'C', p > 0.15 && p < 0.3, 28); keycap(g, 220, 68, 'T', p > 0.6 && p < 0.72, 28);
   } },
   songmode: { dur: 6, draw(g, p) {
@@ -291,18 +292,18 @@ const D = {
     rr(g, 10, 8, 104, 22, 4, '#1d1e24'); rr(g, song ? 62 : 12, 10, 50, 18, 3, A);
     text(g, 'PAT', 37, 19, { color: song ? C.dim : '#1b1308', size: 10, weight: 700, align: 'center' }); text(g, 'SONG', 87, 19, { color: song ? '#1b1308' : C.dim, size: 10, weight: 700, align: 'center' });
     keycap(g, 124, 6, 'L', p > 0.45 && p < 0.55, 28);
-    [A, C.blue, C.green].forEach((c, i) => { track(g, 40 + i * 28, 28, ['비트', '베이스', '코드'][i]); for (let b = 0; b < 5; b++) if (b >= i) clip(g, 58 + b * 46, 41 + i * 28, 44, 24, c, ''); });
+    [A, C.blue, C.green].forEach((c, i) => { track(g, 40 + i * 28, 28, [N_('비트'), N_('베이스'), N_('코드')][i]); for (let b = 0; b < 5; b++) if (b >= i) clip(g, 58 + b * 46, 41 + i * 28, 44, 24, c, ''); });
     const x = song ? 58 + seg(p, 0.5, 1) * 230 : 58 + ((p * 2) % 1) * 46;
     playhead(g, x, 36, 128);
     if (!song) { g.fillStyle = 'rgba(232,161,93,0.08)'; g.fillRect(58, 36, 46, 92); }
   } },
   picker: { dur: 5.5, draw(g, p, t, o) {
-    panel(g, 8, 8, 120, 116, '채널 랙');
+    panel(g, 8, 8, 120, 116, N_('채널 랙'));
     const added = p > 0.62;
     ['Kick', 'Clap', 'Hat', 'Piano', ...(added ? [o.preset ? 'Super Saw' : 'Strings'] : [])].forEach((n, i) => { const k = i === 4 ? out(seg(p, 0.62, 0.75)) : 1; g.globalAlpha = k; rr(g, 14, 24 + i * 19, 108, 15, 2, i === 4 ? '#3a3b43' : '#23242b'); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); g.globalAlpha = 1; });
     const win = io(seg(p, 0.1, 0.3)) * (1 - seg(p, 0.55, 0.62));
     if (win > 0) {
-      g.globalAlpha = win; panel(g, 140, 8 + (1 - win) * 10, 150, 116, o.preset ? '신스 프리셋' : '플러그인 피커', true);
+      g.globalAlpha = win; panel(g, 140, 8 + (1 - win) * 10, 150, 116, o.preset ? N_('신스 프리셋') : N_('플러그인 피커'), true);
       const items = o.preset ? ['Bass · Reese', 'Lead · Super Saw', 'Pad · Warm', 'Pluck · Bell'] : ['Piano', 'Strings', 'Brass', 'Choir'];
       items.forEach((n, i) => { const sel = i === 1 && p > 0.35; rr(g, 146, 26 + i * 22, 138, 18, 2, sel ? A : '#23242b'); text(g, n, 152, 35 + i * 22, { color: sel ? '#1b1308' : C.txt, size: 9.5 }); });
       g.globalAlpha = 1;
@@ -315,12 +316,12 @@ const D = {
     }
   } },
   channelWin: { dur: 5, draw(g, p) {
-    panel(g, 8, 8, 120, 116, '채널 랙');
+    panel(g, 8, 8, 120, 116, N_('채널 랙'));
     ['Kick', 'Clap', 'Piano'].forEach((n, i) => { rr(g, 14, 24 + i * 19, 108, 15, 2, i === 2 && p > 0.1 ? '#3a3b43' : '#23242b'); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); });
     const open = out(seg(p, 0.2, 0.35)), drag = io(seg(p, 0.5, 0.8));
     if (open > 0) {
       const x = lerp(120, 150, drag), y = lerp(30, 20, drag);
-      g.globalAlpha = open; panel(g, x, y, 138, 96, 'Piano 설정', true);
+      g.globalAlpha = open; panel(g, x, y, 138, 96, N_('Piano 설정'), true);
       knob(g, x + 26, y + 40, 11, 0.3 + 0.4 * Math.sin(p * 6) ** 2, 'Attack'); knob(g, x + 68, y + 40, 11, 0.6, 'Cutoff'); knob(g, x + 110, y + 40, 11, 0.4, 'Release');
       g.globalAlpha = 1;
     }
@@ -329,21 +330,21 @@ const D = {
   fx: { dur: 5, draw(g, p) {
     panel(g, 8, 8, 100, 116, 'Piano');
     const added = p > 0.35;
-    ['1  EQ', added ? '2  Reverb' : '2  (비어 있음)', '3  (비어 있음)'].forEach((n, i) => { rr(g, 14, 24 + i * 18, 88, 14, 2, i === 1 && added ? A : '#23242b'); text(g, n, 18, 31 + i * 18, { color: i === 1 && added ? '#1b1308' : C.dim, size: 9 }); });
+    ['1  EQ', added ? '2  Reverb' : N_('2  (비어 있음)'), N_('3  (비어 있음)')].forEach((n, i) => { rr(g, 14, 24 + i * 18, 88, 14, 2, i === 1 && added ? A : '#23242b'); text(g, n, 18, 31 + i * 18, { color: i === 1 && added ? '#1b1308' : C.dim, size: 9 }); });
     // a hit and its tail: dry first, then with a long reverb tail
     const wet = out(seg(p, 0.35, 0.55));
     g.strokeStyle = A; g.beginPath();
     for (let i = 0; i < 170; i++) { const env = Math.exp(-i / lerp(8, 60, wet)); const v = Math.sin(i * 0.9) * env * 30; g.lineTo(118 + i, 66 - v); }
-    g.stroke(); text(g, added ? '소리 뒤에 잔향이 남아요' : '원래 소리', 120, 112, { color: C.dim, size: 9.5 });
+    g.stroke(); text(g, added ? N_('소리 뒤에 잔향이 남아요') : N_('원래 소리'), 120, 112, { color: C.dim, size: 9.5 });
     path(g, p, [[0, 150, 128], [0.2, 50, 49, true], [0.5, 60, 49], [0.95, 160, 128]]);
   } },
   knob: { dur: 3.5, draw(g, p) {
     const v = lerp(0.2, 0.85, io(seg(p, 0.15, 0.6))) * (p > 0.8 ? 1 - seg(p, 0.8, 0.82) * 0.65 : 1);
-    knob(g, 110, 62, 26, v, '믹스');
+    knob(g, 110, 62, 26, v, N_('믹스'));
     text(g, `${Math.round(v * 100)}%`, 170, 62, { color: C.white, size: 22, weight: 600, font: 'Consolas, monospace' });
     const y = lerp(80, 40, io(seg(p, 0.15, 0.6)));
     cursor(g, 115, p < 0.75 ? y : 62, p > 0.8 && p < 0.86 ? 0.5 : 0.05);
-    text(g, p > 0.78 ? '더블클릭: 기본값' : '위아래로 드래그', 150, 110, { color: C.dim, size: 9.5 });
+    text(g, p > 0.78 ? N_('더블클릭: 기본값') : N_('위아래로 드래그'), 150, 110, { color: C.dim, size: 9.5 });
   } },
   sends: { dur: 4, draw(g, p) {
     panel(g, 14, 20, 70, 96, 'Piano'); panel(g, 216, 20, 70, 96, 'Reverb', true);
@@ -369,14 +370,14 @@ const D = {
     const on = p > 0.2; g.beginPath(); g.arc(150, 92, 10, 0, Math.PI * 2); g.fillStyle = on ? C.red : '#26272e'; g.fill();
     if (on) { g.beginPath(); g.arc(150, 92, 10 + 6 * ((t * 1.5) % 1), 0, Math.PI * 2); g.strokeStyle = `rgba(229,83,75,${1 - (t * 1.5) % 1})`; g.stroke(); }
     const lvl = on ? 0.3 + 0.6 * Math.abs(Math.sin(t * 7) * Math.sin(t * 3.1)) : 0; rr(g, 140, 70 - lvl * 44, 20, lvl * 44, 2, C.green);
-    text(g, on ? '녹음 대기' : '', 150, 115, { color: C.red, size: 9, align: 'center' });
+    text(g, on ? N_('녹음 대기') : '', 150, 115, { color: C.red, size: 9, align: 'center' });
     path(g, p, [[0, 250, 120], [0.15, 154, 96, true], [0.9, 250, 120]]);
   } },
   record: { dur: 4, draw(g, p, t) {
     keycap(g, 10, 10, 'R', p < 0.1, 28);
     g.beginPath(); g.arc(56, 23, 6, 0, Math.PI * 2); g.fillStyle = p < 0.9 && Math.floor(t * 2) % 2 ? C.red : '#5a2a28'; g.fill();
     track(g, 46, 50, 'Vocal');
-    clip(g, 58, 48, 230, 44, C.red, '녹음', 'wave', 5, seg(p, 0.08, 0.9));
+    clip(g, 58, 48, 230, 44, C.red, N_('녹음'), 'wave', 5, seg(p, 0.08, 0.9));
     playhead(g, 58 + seg(p, 0.08, 0.9) * 230, 44, 98);
   } },
   pitch: { dur: 5, draw(g, p) {
@@ -385,7 +386,7 @@ const D = {
     const blobs = [[0, 2.4, 3], [1, 4.7, 5], [2, 3.3, 3], [3, 5.6, 6]];
     blobs.forEach(([b, raw, tgt]) => { const row = lerp(raw, tgt, snap), x = R.x0 + b * R.cw * 1.9 + 2; note(g, x, 8 + row * R.rh + 2, R.cw * 2 - 8, R.rh - 4, snap > 0.95 ? A : C.teal, 0.85);
       g.strokeStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); for (let i = 0; i < R.cw * 2 - 8; i += 2) g.lineTo(x + i, 8 + row * R.rh + R.rh / 2 + Math.sin(i * 0.4) * 3 * (1 - snap * 0.8)); g.stroke(); });
-    text(g, snap > 0.95 ? '음정이 스케일에 맞춰졌어요' : '녹음한 음정', 286, 120, { color: C.dim, size: 9.5, align: 'right' });
+    text(g, snap > 0.95 ? N_('음정이 스케일에 맞춰졌어요') : N_('녹음한 음정'), 286, 120, { color: C.dim, size: 9.5, align: 'right' });
   } },
   keyboard: { dur: 3.5, draw(g, p) {
     const whites = 14, ww = 280 / whites, seq = [0, 2, 4, 5, 4, 2, 0, 7], hit = seq[Math.floor(p * seq.length)];
@@ -404,7 +405,7 @@ const D = {
     keycap(g, 196, 100, 'Ctrl+Alt+Q', p > 0.25 && p < 0.38, 86);
   } },
   export: { dur: 5, draw(g, p) {
-    clip(g, 10, 40, 130, 50, A, '내 곡', 'wave', 2);
+    clip(g, 10, 40, 130, 50, A, N_('내 곡'), 'wave', 2);
     [['WAV', 'Ctrl+R'], ['MP3', 'Ctrl+Shift+R'], ['MIDI', 'Ctrl+Shift+M']].forEach(([n, key], i) => {
       const k = out(seg(p, 0.15 + i * 0.18, 0.35 + i * 0.18)); if (k <= 0) return;
       const x = lerp(140, 166, k), y = 14 + i * 38; g.globalAlpha = k;
@@ -420,10 +421,10 @@ const D = {
   windows: { dur: 6, draw(g, p) {
     rr(g, 6, 6, 288, 120, 4, '#101115', C.line);
     const k = io(seg(p, 0.15, 0.5)) * (1 - io(seg(p, 0.75, 0.95)));
-    const P = [['피아노 롤', [126, 24, 162, 96], [22, 30, 150, 70]], ['플레이리스트', [126, 24, 162, 96], [120, 14, 168, 64]], ['믹서', [126, 24, 162, 96], [150, 66, 136, 56]]];
-    panel(g, 12, 24, 108, 96, '채널 랙');
+    const P = [[N_('피아노 롤'), [126, 24, 162, 96], [22, 30, 150, 70]], [N_('플레이리스트'), [126, 24, 162, 96], [120, 14, 168, 64]], [N_('믹서'), [126, 24, 162, 96], [150, 66, 136, 56]]];
+    panel(g, 12, 24, 108, 96, N_('채널 랙'));
     P.forEach(([n, a, b], i) => { if (k < 0.05 && i > 0) return; const r = a.map((v, j) => lerp(v, b[j], k)); panel(g, r[0], r[1], r[2], r[3], n, i === 1); });
-    text(g, k > 0.5 ? '떠 있는 창' : '붙어 있는 창', 150, 14, { color: C.dim, size: 9.5, align: 'center' });
+    text(g, k > 0.5 ? N_('떠 있는 창') : N_('붙어 있는 창'), 150, 14, { color: C.dim, size: 9.5, align: 'center' });
   } },
   look: { dur: 6, draw(g, p) {
     const cols = ['#e8a15d', '#7fb0ff', '#9fd67a', '#e77fb3'], c = cols[Math.floor(p * 4)];
@@ -436,7 +437,7 @@ const D = {
   } },
   resize: { dur: 4, draw(g, p) {
     const x = lerp(110, 170, io((Math.sin(p * Math.PI * 2) + 1) / 2));
-    panel(g, 10, 10, x - 14, 112, '채널 랙'); panel(g, x + 4, 10, 286 - x, 112, '플레이리스트');
+    panel(g, 10, 10, x - 14, 112, N_('채널 랙')); panel(g, x + 4, 10, 286 - x, 112, N_('플레이리스트'));
     g.fillStyle = A; g.fillRect(x - 2, 10, 4, 112); cursor(g, x, 70, 0.05);
   } },
   done: { dur: 2.6, draw(g, p) {

@@ -2,6 +2,7 @@
 // Shows which computer keys play which notes, follows the octave shift, lights held notes.
 import { h } from './dom.js';
 import { keyLabel } from '../../js/keymap.js';
+import { t } from '../../i18n/i18n.js';
 
 export class Keys {
   constructor(studio, el) {
@@ -74,9 +75,9 @@ export class Keys {
       h('small', {}, labels.get(n) || ''), n % 12 === 0 ? h('em', {}, `C${n / 12 - 1}`) : null);
     this.el.replaceChildren(
       h('div', { class: 'vk-ctl' },
-        h('button', { class: 'btn sm', title: '한 옥타브 아래', onclick: () => { this.low = Math.max(12, this.low - 12); this.render(); } }, '◀'),
+        h('button', { class: 'btn sm', title: t('한 옥타브 아래'), onclick: () => { this.low = Math.max(12, this.low - 12); this.render(); } }, '◀'),
         h('span', {}, `C${this.low / 12 - 1}–C${(this.low + this.span) / 12 - 1}`),
-        h('button', { class: 'btn sm', title: '한 옥타브 위', onclick: () => { this.low = Math.min(96, this.low + 12); this.render(); } }, '▶')),
+        h('button', { class: 'btn sm', title: t('한 옥타브 위'), onclick: () => { this.low = Math.min(96, this.low + 12); this.render(); } }, '▶')),
       h('div', { class: 'vk-keys' },
         ...whites.map((n, i) => key(n, 'w', `left:${i * W}%;width:${W}%`)),
         ...blacks.map(({ n, at }) => key(n, 'b', `left:${at * W - W * 0.3}%;width:${W * 0.6}%`))));

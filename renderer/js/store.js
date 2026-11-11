@@ -3,6 +3,7 @@
 // from each library's own GitHub repository (main.js, instruments:download).
 import { T } from './strings.js';
 import { haystack, matches } from './search.js';
+import { t } from '../i18n/i18n.js';
 
 const $ = (s) => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -129,8 +130,8 @@ export class Store {
       ...fams.flatMap((f) => [
         h('tr', { class: 'fam' }, h('th', { colspan: 6 }, T.families[f] || f)),
         ...rows.filter((i) => i.family === f).map((i) => h('tr', { class: `${i.installed ? 'have' : ''}${this.app.settings.get('instrument') === i.id ? ' cur' : ''}` },
-          h('td', { class: 'name' }, h('b', {}, i.name), h('small', {}, i.model || '')),
-          h('td', { class: 'use' }, i.use || ''),
+          h('td', { class: 'name' }, h('b', {}, i.name), h('small', {}, t(i.model || ''))),
+          h('td', { class: 'use' }, t(i.use || '')),
           h('td', { class: 'tags' }, ...GENRES.filter((g) => (i.tags || []).includes(g)).map((g) => h('i', { title: S.genres[g] }, S.genreShort[g]))),
           h('td', { class: 'size' }, i.procedural ? S.synth : i.bundled ? S.builtIn : mb(i.size || 0)),
           h('td', { class: 'lic', title: i.credit || '' }, i.license || ''),

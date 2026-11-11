@@ -87,7 +87,9 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
   // pedal resonance follows the pedal, as live
   for (const p of pedals) eng.resGate.gain.setTargetAtTime(p.on ? 1 : 0, p.t, p.on ? 0.03 : 0.09);
   const tick = setInterval(() => progress('audio', Math.min(0.99, octx.currentTime / dur)), 200);
-  return octx.startRendering().finally(() => clearInterval(tick));
+  // the worklet holds its own copy of every sample (up to 1.5 GB) and Chromium keeps a finished
+  // offline context's worklet alive: tell it to let go once the audio is out
+  return octx.startRendering().finally(() => { clearInterval(tick); eng.node.port.postMessage({ type: 'clear' }); });
   }
 
   // ---- encoders + file ----

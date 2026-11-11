@@ -1,0 +1,496 @@
+{
+ "version": 2,
+ "name": "새 프로젝트",
+ "bpm": 120,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjrog1c",
+   "name": "Kick",
+   "inst": "drums808",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjrog1d",
+   "name": "Clap",
+   "inst": "drums808",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 39,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjrog1e",
+   "name": "Hat",
+   "inst": "drums808",
+   "color": "#9fd67a",
+   "vol": 0.6,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjrog1f",
+   "name": "Snare",
+   "inst": "drums808",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 38,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjrog1g",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.25,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [
+    {
+     "id": "fmwchjroh1i",
+     "type": "filter",
+     "on": true,
+     "params": {
+      "type": 0,
+      "freq": 800,
+      "res": 6
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjrog1h",
+   "name": "패턴 1",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchjrog1c": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchjrog1d": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     }
+    ],
+    "cmwchjrog1e": [
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 432,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 528,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 624,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 720,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     }
+    ],
+    "cmwchjrog1f": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     }
+    ],
+    "cmwchjrog1g": [
+     {
+      "t": 0,
+      "d": 180,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 0,
+      "d": 180,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 0,
+      "d": 180,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 57,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 65,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 69,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 71,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjrog1h",
+ "selected": "cmwchjrog1g",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kpmwchjrog1h",
+    "pattern": "pmwchjrog1h",
+    "track": 0,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchjroh1n",
+    "kind": "auto",
+    "auto": "amwchjroh1j",
+    "track": 4,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchjroh1o",
+    "kind": "auto",
+    "auto": "amwchjroh1k",
+    "track": 5,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchjroh1p",
+    "kind": "auto",
+    "auto": "amwchjroh1l",
+    "track": 6,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchjroh1q",
+    "kind": "auto",
+    "auto": "amwchjroh1m",
+    "track": 7,
+    "start": 0,
+    "len": 2
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": []
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [
+  {
+   "id": "amwchjroh1j",
+   "name": "Lead vol",
+   "color": "#5fd8d0",
+   "target": "ch:cmwchjrog1g:vol",
+   "len": 2,
+   "points": [
+    {
+     "t": 0,
+     "v": 0.4
+    },
+    {
+     "t": 0.5,
+     "v": 0.9
+    },
+    {
+     "t": 1,
+     "v": 0.6
+    }
+   ]
+  },
+  {
+   "id": "amwchjroh1k",
+   "name": "Filter res",
+   "color": "#c8a2ff",
+   "target": "fx:cmwchjrog1g:fmwchjroh1i:res",
+   "len": 2,
+   "points": [
+    {
+     "t": 0,
+     "v": 0.1
+    },
+    {
+     "t": 1,
+     "v": 0.6
+    }
+   ]
+  },
+  {
+   "id": "amwchjroh1l",
+   "name": "Master",
+   "color": "#e8a15d",
+   "target": "master:vol",
+   "len": 2,
+   "points": [
+    {
+     "t": 0,
+     "v": 0.85
+    },
+    {
+     "t": 1,
+     "v": 0.7
+    }
+   ]
+  },
+  {
+   "id": "amwchjroh1m",
+   "name": "Pan",
+   "color": "#9fd67a",
+   "target": "ch:cmwchjrog1c:pan",
+   "len": 2,
+   "points": [
+    {
+     "t": 0,
+     "v": 0.2
+    },
+    {
+     "t": 1,
+     "v": 0.8
+    }
+   ]
+  }
+ ],
+ "media": {},
+ "scale": null,
+ "midiMap": [],
+ "_fixture": "cadae31 basic + automation clips on channel vol / pan, master vol and a filter's resonance"
+}

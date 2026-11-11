@@ -7,6 +7,7 @@ import { SynthChannel } from './synth.js';
 import { VstChannel } from './vstchannel.js';
 import { Strip } from './strip.js';
 import { FX_TYPES, fromNorm, PEAK_FX } from './fx.js';
+import { legacyGainDb } from './compat.js';
 
 // what a project channel is played by, inside the engine
 class Host {
@@ -24,7 +25,12 @@ class Host {
   slideTo(n, at, time) { this.src?.slideTo?.(n, at, time); }
   liveOn(n, v) { this.src?.liveOn(n, v); }
   liveOff(n) { this.src?.liveOff(n); }
-  set(ch) { this.strip.set(ch); this.src?.setGain?.(ch.mute ? 0 : (ch.vol ?? 1) ** 2); }
+  set(ch) {
+    this.strip.set(ch);
+    // projects from before the measured instrument levels keep their balance (compat.js)
+    this.strip.input.gain.setValueAtTime(10 ** (legacyGainDb(ch) / 20), this.engine.ctx.currentTime);
+    this.src?.setGain?.(ch.mute ? 0 : (ch.vol ?? 1) ** 2);
+  }
   level() { return this.strip.level(); }
   stop() {
     this.src?.stop();
@@ -133,7 +139,17 @@ export class StudioEngine {
   }
 
   // offline only: sources that render outside the graph (VST plugins) put their audio in now
-  async finalize() { await Promise.all([...this.channels.values()].map((h) => h.src?.finalize?.())); }
+  // A channel that cannot render (a VST plugin or the VST host missing, e.g. an older project opened
+  // on another computer) stays silent instead of failing the whole export: listed in this.warnings.
+  // offline only, after rendering: samplers let go of their sample copies (see SamplerChannel.freeSamples)
+  freeSamples() { for (const h of this.channels.values()) h.src?.freeSamples?.(); }
+
+  async finalize() {
+    this.warnings = [];
+    await Promise.all([...this.channels.entries()].map(async ([id, h]) => {
+      try { await h.src?.finalize?.(); } catch (err) { this.warnings.push({ ch: id, message: String(err?.message || err) }); console.warn('render: channel left silent', id, err); }
+    }));
+  }
 
   // offline only: every sampler has its samples and notes before rendering runs past them
   async settle() { await Promise.all([...this.channels.values()].map((h) => h.src?.ready?.())); }

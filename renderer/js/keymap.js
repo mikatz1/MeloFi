@@ -40,7 +40,7 @@ export function keyLabel(code) {
 }
 
 const EN = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-const KO = ['도', '도♯', '레', '레♯', '미', '파', '파♯', '솔', '솔♯', '라', '라♯', '시'];
+const KO = ['도', '도♯', '레', '레♯', '미', '파', '파♯', '솔', '솔♯', '라', '라♯', '시']; // i18n-ignore (solfege names the user picked)
 
 export function noteName(n, style = 'en', withOctave = true) {
   const pc = ((n % 12) + 12) % 12;

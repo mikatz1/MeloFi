@@ -3,6 +3,7 @@
 import { h } from './dom.js';
 import { exportForDaw } from '../io.js';
 import { T } from '../../js/strings.js';
+import { t } from '../../i18n/i18n.js';
 
 export class DawSheet {
   constructor(studio) {
@@ -12,7 +13,7 @@ export class DawSheet {
     this.busy = false;
     this.el = h('section', { id: 'daw', class: 'sheet', hidden: true },
       h('div', { class: 'sheet-card daw-card' },
-        h('div', { class: 'sheet-head' }, h('h2', {}, T.daw.title), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
+        h('div', { class: 'sheet-head' }, h('h2', {}, T.daw.title), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
         this.body = h('div', { class: 'daw-body' })));
     this.el.addEventListener('pointerdown', (e) => { if (e.target === this.el) this.close(); });
     document.body.append(this.el);

@@ -1,0 +1,662 @@
+{
+ "version": 2,
+ "name": "케이팝 댄스",
+ "bpm": 128,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjqjf7",
+   "name": "Kick",
+   "inst": "drumstrap",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjqjf8",
+   "name": "Clap",
+   "inst": "drumstrap",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 39,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjqjf9",
+   "name": "Hat",
+   "inst": "drumstrap",
+   "color": "#9fd67a",
+   "vol": 0.55,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjqjfa",
+   "name": "808",
+   "inst": "sub808",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [
+    {
+     "id": "fmwchjqjfd",
+     "type": "sidechain",
+     "on": true,
+     "params": {
+      "source": "cmwchjqjf7",
+      "depth": 0.6,
+      "release": 0.18
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjqjfb",
+   "name": "Supersaw",
+   "inst": "synth",
+   "color": "#c8a2ff",
+   "vol": 0.6,
+   "pan": 0,
+   "send": 0.2,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "synth",
+   "fx": [
+    {
+     "id": "fmwchjqjfe",
+     "type": "sidechain",
+     "on": true,
+     "params": {
+      "source": "cmwchjqjf7",
+      "depth": 0.75,
+      "release": 0.18
+     }
+    },
+    {
+     "id": "fmwchjqjff",
+     "type": "delay",
+     "on": true,
+     "params": {
+      "time": 2,
+      "feedback": 0.35,
+      "tone": 5000,
+      "ping": 1,
+      "mix": 0.15
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "synth": {
+    "w1": 0,
+    "o1": 0,
+    "l1": 0.8,
+    "w2": 0,
+    "o2": 0,
+    "s2": 0,
+    "f2": 0,
+    "l2": 0.6,
+    "sub": 0,
+    "noise": 0,
+    "uni": 7,
+    "det": 28,
+    "spread": 0.9,
+    "ft": 0,
+    "cut": 9000,
+    "res": 0.8,
+    "fenv": 0.8,
+    "kt": 0.5,
+    "fa": 0.005,
+    "fd": 0.35,
+    "fs": 0.3,
+    "fr": 0.3,
+    "aa": 0.004,
+    "ad": 0.3,
+    "as": 0.9,
+    "ar": 0.35,
+    "lt": 0,
+    "lr": 5,
+    "ld": 0.2,
+    "glide": 0,
+    "vol": 0.7
+   },
+   "synthPreset": "슈퍼쏘 리드"
+  },
+  {
+   "id": "cmwchjqjfc",
+   "name": "Brass",
+   "inst": "brassstab",
+   "color": "#5fd8d0",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.18,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjqjfi",
+   "name": "비트",
+   "color": "#5a7bd6",
+   "bars": 1,
+   "notes": {
+    "cmwchjqjf7": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchjqjf8": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     }
+    ],
+    "cmwchjqjf9": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     },
+     {
+      "t": 360,
+      "d": 24,
+      "n": 42,
+      "v": 80
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjqjfj",
+   "name": "808 베이스",
+   "color": "#d68a5a",
+   "bars": 2,
+   "notes": {
+    "cmwchjqjfa": [
+     {
+      "t": 0,
+      "d": 144,
+      "n": 33,
+      "v": 110
+     },
+     {
+      "t": 144,
+      "d": 48,
+      "n": 33,
+      "v": 110
+     },
+     {
+      "t": 192,
+      "d": 192,
+      "n": 36,
+      "v": 110
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 31,
+      "v": 110
+     },
+     {
+      "t": 528,
+      "d": 48,
+      "n": 31,
+      "v": 110
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 28,
+      "v": 110
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjqjfk",
+   "name": "코드",
+   "color": "#5ab98a",
+   "bars": 2,
+   "notes": {
+    "cmwchjqjfb": [
+     {
+      "t": 0,
+      "d": 192,
+      "n": 57,
+      "v": 82
+     },
+     {
+      "t": 0,
+      "d": 192,
+      "n": 60,
+      "v": 82
+     },
+     {
+      "t": 0,
+      "d": 192,
+      "n": 64,
+      "v": 82
+     },
+     {
+      "t": 192,
+      "d": 192,
+      "n": 53,
+      "v": 82
+     },
+     {
+      "t": 192,
+      "d": 192,
+      "n": 57,
+      "v": 82
+     },
+     {
+      "t": 192,
+      "d": 192,
+      "n": 60,
+      "v": 82
+     },
+     {
+      "t": 384,
+      "d": 192,
+      "n": 55,
+      "v": 82
+     },
+     {
+      "t": 384,
+      "d": 192,
+      "n": 59,
+      "v": 82
+     },
+     {
+      "t": 384,
+      "d": 192,
+      "n": 62,
+      "v": 82
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 52,
+      "v": 82
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 55,
+      "v": 82
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 59,
+      "v": 82
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjqjgl",
+   "name": "브라스 히트",
+   "color": "#b95ab0",
+   "bars": 2,
+   "notes": {
+    "cmwchjqjfc": [
+     {
+      "t": 0,
+      "d": 48,
+      "n": 69,
+      "v": 110
+     },
+     {
+      "t": 0,
+      "d": 48,
+      "n": 72,
+      "v": 110
+     },
+     {
+      "t": 0,
+      "d": 48,
+      "n": 76,
+      "v": 110
+     },
+     {
+      "t": 72,
+      "d": 48,
+      "n": 69,
+      "v": 110
+     },
+     {
+      "t": 72,
+      "d": 48,
+      "n": 72,
+      "v": 110
+     },
+     {
+      "t": 72,
+      "d": 48,
+      "n": 76,
+      "v": 110
+     },
+     {
+      "t": 336,
+      "d": 48,
+      "n": 65,
+      "v": 110
+     },
+     {
+      "t": 336,
+      "d": 48,
+      "n": 69,
+      "v": 110
+     },
+     {
+      "t": 336,
+      "d": 48,
+      "n": 72,
+      "v": 110
+     },
+     {
+      "t": 384,
+      "d": 48,
+      "n": 67,
+      "v": 110
+     },
+     {
+      "t": 384,
+      "d": 48,
+      "n": 71,
+      "v": 110
+     },
+     {
+      "t": 384,
+      "d": 48,
+      "n": 74,
+      "v": 110
+     },
+     {
+      "t": 720,
+      "d": 48,
+      "n": 64,
+      "v": 110
+     },
+     {
+      "t": 720,
+      "d": 48,
+      "n": 67,
+      "v": 110
+     },
+     {
+      "t": 720,
+      "d": 48,
+      "n": 71,
+      "v": 110
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjqjfi",
+ "selected": "cmwchjqjf7",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjqjgm",
+    "pattern": "pmwchjqjfi",
+    "track": 0,
+    "start": 0,
+    "len": 16
+   },
+   {
+    "id": "kmwchjqjgn",
+    "pattern": "pmwchjqjfj",
+    "track": 1,
+    "start": 4,
+    "len": 12
+   },
+   {
+    "id": "kmwchjqjgo",
+    "pattern": "pmwchjqjfk",
+    "track": 2,
+    "start": 0,
+    "len": 16
+   },
+   {
+    "id": "kmwchjqjgp",
+    "pattern": "pmwchjqjgl",
+    "track": 3,
+    "start": 8,
+    "len": 8
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": [
+   {
+    "id": "fmwchjqjfg",
+    "type": "eq",
+    "on": true,
+    "params": {
+     "cut": 25,
+     "low": 0,
+     "lowF": 110,
+     "mid": 0,
+     "midF": 1000,
+     "q": 1,
+     "high": 1.5,
+     "highF": 7000
+    }
+   },
+   {
+    "id": "fmwchjqjfh",
+    "type": "limiter",
+    "on": true,
+    "params": {
+     "gain": 4,
+     "ceiling": -0.3
+    }
+   }
+  ]
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [
+  {
+   "bar": 0,
+   "name": "인트로"
+  },
+  {
+   "bar": 4,
+   "name": "벌스"
+  },
+  {
+   "bar": 8,
+   "name": "후렴"
+  }
+ ],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": {
+  "root": 9,
+  "type": "minor"
+ },
+ "midiMap": [],
+ "_fixture": "cadae31 template kpop: before sends, time signature markers, synth presets and the master fader change"
+}

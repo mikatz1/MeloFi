@@ -5,6 +5,7 @@
 const path = require('node:path');
 const fsp = require('node:fs/promises');
 const { safeStorage, shell } = require('electron');
+const { t } = require('./i18n-main.js');
 
 function register(ipcMain, { app }) {
   const FILE = () => path.join(app.getPath('userData'), 'account.json');
@@ -31,22 +32,22 @@ function register(ipcMain, { app }) {
   }
 
   async function call(method, url, body, authed = true) {
-    if (!state.server) throw Object.assign(new Error('서버 주소가 설정되지 않았습니다.'), { code: 'no_server' });
+    if (!state.server) throw Object.assign(new Error(t('서버 주소가 설정되지 않았습니다.')), { code: 'no_server' });
     const headers = { 'content-type': 'application/json' };
     if (authed) {
-      if (!state.token) throw Object.assign(new Error('로그인이 필요합니다.'), { code: 'login_required' });
+      if (!state.token) throw Object.assign(new Error(t('로그인이 필요합니다.')), { code: 'login_required' });
       headers.authorization = `Bearer ${state.token}`;
     }
     let r;
     try {
       r = await fetch(state.server.replace(/\/+$/, '') + url, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
     } catch {
-      throw Object.assign(new Error('서버에 연결할 수 없습니다.'), { code: 'offline' });
+      throw Object.assign(new Error(t('서버에 연결할 수 없습니다.')), { code: 'offline' });
     }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       if (r.status === 401 && authed) { state.token = null; state.user = null; await save(); }
-      throw Object.assign(new Error(data.message || `서버 오류 (${r.status})`), { code: data.error || 'server' });
+      throw Object.assign(new Error(data.message || t('서버 오류 ({status})', { status: r.status })), { code: data.error || 'server' });
     }
     return data;
   }
@@ -55,7 +56,7 @@ function register(ipcMain, { app }) {
     state: async () => ({ server: state.server, user: state.user, signedIn: !!state.token }),
     setServer: async ({ url }) => {
       const u = String(url || '').trim();
-      if (u && !/^https?:\/\/[^\s]+$/i.test(u)) throw Object.assign(new Error('http:// 또는 https://로 시작하는 주소를 넣어 주세요.'), { code: 'bad_url' });
+      if (u && !/^https?:\/\/[^\s]+$/i.test(u)) throw Object.assign(new Error(t('http:// 또는 https://로 시작하는 주소를 넣어 주세요.')), { code: 'bad_url' });
       state.server = u.replace(/\/+$/, '');
       await save();
       return ops.state();
@@ -71,7 +72,7 @@ function register(ipcMain, { app }) {
       const data = await call('GET', '/api/me/export');
       const dir = path.join(app.getPath('documents'), 'MeloFi');
       await fsp.mkdir(dir, { recursive: true });
-      const file = path.join(dir, `MeloFi 계정 데이터 ${new Date().toISOString().slice(0, 10)}.json`);
+      const file = path.join(dir, `${t('MeloFi 계정 데이터')} ${new Date().toISOString().slice(0, 10)}.json`);
       await fsp.writeFile(file, JSON.stringify(data, null, 2));
       return file;
     },

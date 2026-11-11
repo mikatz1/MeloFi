@@ -1,0 +1,10 @@
+OpenVPI DiffSinger Community Vocoder — PC-NSF-HiFiGAN 44.1k hop512 128bin (2025.02)
+https://github.com/openvpi/vocoders/releases/tag/pc-nsf-hifigan-44.1k-hop512-128bin-2025.02
+
+All model weights are provided by the OpenVPI Team under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International licence (CC BY-NC-SA 4.0):
+https://creativecommons.org/licenses/by-nc-sa/4.0/
+The package's own NOTICE.txt (with the list of data contributors) is kept next to it.
+
+MeloFi uses it for DiffSinger voicebanks that have no vocoder of their own. Audio made through it is
+for non-commercial use only.

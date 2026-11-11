@@ -1,0 +1,522 @@
+{
+ "version": 2,
+ "name": "levels",
+ "bpm": 120,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchk1d61",
+   "name": "Kick",
+   "inst": "drums808",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d65",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.25,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d67",
+   "name": "recorder",
+   "inst": "recorder",
+   "color": "#9fd67a",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 72,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d68",
+   "name": "flute",
+   "inst": "flute",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 74,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d69",
+   "name": "supersaw",
+   "inst": "supersaw",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d6a",
+   "name": "marimba",
+   "inst": "marimba",
+   "color": "#5fd8d0",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 67,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d6b",
+   "name": "ebass",
+   "inst": "ebass",
+   "color": "#f0d264",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d6c",
+   "name": "clarinet",
+   "inst": "clarinet",
+   "color": "#ff8a7a",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 62,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d6d",
+   "name": "harp",
+   "inst": "harp",
+   "color": "#8fc0a9",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 55,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk1d6e",
+   "name": "banjo",
+   "inst": "banjo",
+   "color": "#b8b3ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 64,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchk1d66",
+   "name": "패턴 1",
+   "color": "#5a7bd6",
+   "bars": 4,
+   "notes": {
+    "cmwchk1d61": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 768,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 864,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 960,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 1056,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 1152,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 1248,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 1344,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 1440,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchk1d65": [
+     {
+      "t": 0,
+      "d": 384,
+      "n": 48,
+      "v": 100
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 55,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 53,
+      "v": 100
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 52,
+      "v": 100
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 50,
+      "v": 100
+     }
+    ],
+    "cmwchk1d67": [
+     {
+      "t": 0,
+      "d": 180,
+      "n": 72,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 90,
+      "n": 74,
+      "v": 100
+     }
+    ],
+    "cmwchk1d68": [
+     {
+      "t": 192,
+      "d": 180,
+      "n": 74,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 90,
+      "n": 76,
+      "v": 100
+     }
+    ],
+    "cmwchk1d69": [
+     {
+      "t": 384,
+      "d": 180,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 90,
+      "n": 62,
+      "v": 100
+     }
+    ],
+    "cmwchk1d6a": [
+     {
+      "t": 576,
+      "d": 180,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 90,
+      "n": 69,
+      "v": 100
+     }
+    ],
+    "cmwchk1d6b": [
+     {
+      "t": 768,
+      "d": 180,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 864,
+      "d": 90,
+      "n": 38,
+      "v": 100
+     }
+    ],
+    "cmwchk1d6c": [
+     {
+      "t": 960,
+      "d": 180,
+      "n": 62,
+      "v": 100
+     },
+     {
+      "t": 1056,
+      "d": 90,
+      "n": 64,
+      "v": 100
+     }
+    ],
+    "cmwchk1d6d": [
+     {
+      "t": 1152,
+      "d": 180,
+      "n": 55,
+      "v": 100
+     },
+     {
+      "t": 1248,
+      "d": 90,
+      "n": 57,
+      "v": 100
+     }
+    ],
+    "cmwchk1d6e": [
+     {
+      "t": 1344,
+      "d": 180,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 1440,
+      "d": 90,
+      "n": 66,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchk1d66",
+ "selected": "cmwchk1d65",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchk1d6f",
+    "pattern": "pmwchk1d66",
+    "track": 0,
+    "start": 0,
+    "len": 4
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": []
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": null,
+ "midiMap": [],
+ "_fixture": "bb98162 piano + drums + eight instruments whose loudness was trimmed later (recorder -17.8 dB ... supersaw +10.2 dB)"
+}

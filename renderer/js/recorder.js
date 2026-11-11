@@ -129,9 +129,10 @@ export class Recorder {
     return this._warm;
   }
 
+  // e.lag: ms the event arrived late (a MIDI keyboard's measured latency); its time is moved back
   event(e) {
     if (!this.active) return;
-    this.active.events.push({ ...e, ms: performance.now() - this.active.t0 });
+    this.active.events.push({ ...e, ms: performance.now() - this.active.t0 - (e.lag || 0) });
   }
 
   async start() {
@@ -189,7 +190,9 @@ export class Recorder {
     this.active = null;
     const bpm = this.settings.get('bpm');
     if (!s) return null;
-    const firstOn = s.events.find((e) => e.type === 'on')?.ms;
+    const first = s.events.find((e) => e.type === 'on'), firstOn = first?.ms;
+    // the sound itself was made when the late note arrived: audio is cut that much later
+    const audioLag = first?.lag || 0;
     const lastMs = s.events.length ? s.events[s.events.length - 1].ms : 0;
     const name = this.instrumentName();
 
@@ -224,11 +227,11 @@ export class Recorder {
 
     const raw = await s.stopPcm();
     if (firstOn == null) return null;
-    const pcm = trimPcm(raw, zero, lastMs);
+    const pcm = trimPcm(raw, zero + audioLag, lastMs + audioLag);
     if (s.fmt === 'wav') return { files: [{ ext: 'wav', data: encodeWav(pcm) }] };
     if (s.fmt === 'mp3') return { files: [{ ext: 'mp3', data: await mp3(pcm, this.settings.get('recKbps')) }] };
     // FL Studio: MIDI and WAV aligned to the same zero point
-    const evs = s.events.map((e) => ({ ...e, ms: e.ms - pcm.offsetMs }));
+    const evs = s.events.map((e) => ({ ...e, ms: e.ms - (pcm.offsetMs - audioLag) }));
     return {
       files: [
         { ext: 'mid', data: encodeMidi(evs, { name, bpm }) },

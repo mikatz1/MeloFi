@@ -164,6 +164,26 @@ await check('look settings', async () => {
   A.settings.set({ studioLook: null }); S.applyLook();
 });
 
+await check('toolbar: FL order, menus open, every item has an action', async () => {
+  S.setProject(TEMPLATES.basic.make()); await sleep(80);
+  const tb = document.querySelector('.st-tool');
+  const order = [...tb.querySelectorAll(':scope > .tb-grp')].map((g) => g.className.replace('tb-grp ', ''));
+  const want = ['tb-menu', 'tb-transport', 'tb-rec', 'tb-pat', 'tb-wins', 'tb-master'];
+  if (order.join() !== want.join()) throw new Error(`groups ${order}`);
+  const names = [...tb.querySelectorAll('.mb')].map((b) => b.textContent).join(' ');
+  if (names !== '파일 편집 추가 패턴 보기 옵션 도구 도움말') throw new Error(`menus ${names}`);
+  let items = 0;
+  for (const b of tb.querySelectorAll('.mb')) {
+    const list = S.menuItems(b.dataset.menu, { clientX: 10, clientY: 40 });
+    for (const it of list) { if (it.sep || it.group) continue; if (typeof it.act !== 'function') throw new Error(`${b.dataset.menu}: ${it.label} has no action`); items++; }
+    b.click(); await sleep(30);
+    if (!document.querySelector('.st-menupop')) throw new Error(`${b.dataset.menu} did not open`);
+    document.querySelector('.st-menupop').remove(); await sleep(10);
+  }
+  for (const k of ['playlist', 'roll', 'mixer']) { tb.querySelector(`.tb-ico[data-win=${k}]`).click(); await sleep(30); if (!tb.querySelector(`.tb-ico[data-win=${k}]`).classList.contains('on')) throw new Error(`${k} icon not lit`); }
+  return `${items} menu items`;
+});
+
 // ---------------- AI analysis ----------------
 await check('ai: cleanDownbeats edge cases', () => {
   const f = ai.cleanDownbeats;

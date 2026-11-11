@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // MeloFi Studio — transport: plays the current pattern (loop) or the playlist (song), scheduling
 // notes, audio clips and automation ~150 ms ahead with exact AudioContext times. Song mode
 // follows the tempo map and the loop region. Also records live notes.
@@ -330,17 +331,22 @@ export class Transport {
   }
 
   // ---- recording live notes into the current pattern ----
-  liveOn(chId, n, v) {
+  // lag: ms the note arrived late (a MIDI keyboard's measured latency); it is put back that much
+  liveOn(chId, n, v, lag = 0) {
     if (!this.recording || !this.playing) return;
-    this.recorded.push({ ch: chId, n, v, t0: this.now(), open: true });
+    let t0 = this.now() - this.lagTicks(lag);
+    if (t0 < 0) t0 = this.length > 0 ? t0 + this.length : 0; // just before the loop wrapped
+    this.recorded.push({ ch: chId, n, v, t0, open: true });
   }
 
-  liveOff(chId, n, commit) {
+  lagTicks(ms) { return ms ? (ms / 1000) * (this.get().bpm / 60) * PPQ : 0; }
+
+  liveOff(chId, n, commit, lag = 0) {
     if (!this.recording) return;
     const r = this.recorded.find((x) => x.open && x.ch === chId && x.n === n);
     if (!r) return;
     r.open = false;
-    let d = this.now() - r.t0;
+    let d = this.now() - this.lagTicks(lag) - r.t0;
     if (d <= 0) d += this.length; // wrapped around the loop
     commit({ ch: r.ch, t: r.t0, d: Math.max(STEP / 2, d), n: r.n, v: r.v });
   }

@@ -1,0 +1,438 @@
+{
+ "version": 2,
+ "name": "새 프로젝트",
+ "bpm": 120,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjtib1r",
+   "name": "Kick",
+   "inst": "drums808",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjtib1s",
+   "name": "Clap",
+   "inst": "drums808",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 39,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjtib1t",
+   "name": "Hat",
+   "inst": "drums808",
+   "color": "#9fd67a",
+   "vol": 0.6,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjtib1u",
+   "name": "Snare",
+   "inst": "drums808",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 38,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjtib1v",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.25,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjtib1x",
+   "name": "Saw sample",
+   "inst": "splendid",
+   "color": "#5fd8d0",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "sample",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "sample": {
+    "media": "b14167b8870452304412",
+    "root": 57,
+    "tune": 0,
+    "start": 0,
+    "end": null,
+    "attack": 0,
+    "release": 0.12,
+    "reverse": false,
+    "loop": false
+   }
+  },
+  {
+   "id": "cmwchjtib1y",
+   "name": "Loop slicer",
+   "inst": "splendid",
+   "color": "#f0d264",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "slicer",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "sample": {
+    "media": "a9fe2d8d2b465e30b142",
+    "root": 60
+   },
+   "slices": [
+    0,
+    0.25,
+    0.5,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    1.75
+   ]
+  },
+  {
+   "id": "cmwchjtib1z",
+   "name": "Loop audio",
+   "inst": "splendid",
+   "color": "#ff8a7a",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "audio",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjtib1w",
+   "name": "패턴 1",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchjtib1x": [
+     {
+      "t": 0,
+      "d": 90,
+      "n": 57,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 90,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 90,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 90,
+      "n": 62,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 57,
+      "v": 100
+     }
+    ],
+    "cmwchjtib1y": [
+     {
+      "t": 0,
+      "d": 48,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 48,
+      "d": 48,
+      "n": 61,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 48,
+      "n": 62,
+      "v": 100
+     },
+     {
+      "t": 144,
+      "d": 48,
+      "n": 63,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 48,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 240,
+      "d": 48,
+      "n": 65,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 48,
+      "n": 66,
+      "v": 100
+     },
+     {
+      "t": 336,
+      "d": 48,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 48,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 432,
+      "d": 48,
+      "n": 61,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 48,
+      "n": 62,
+      "v": 100
+     },
+     {
+      "t": 528,
+      "d": 48,
+      "n": 63,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 48,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 624,
+      "d": 48,
+      "n": 65,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 48,
+      "n": 66,
+      "v": 100
+     },
+     {
+      "t": 720,
+      "d": 48,
+      "n": 67,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjtib1w",
+ "selected": "cmwchjtib1x",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjtib20",
+    "pattern": "pmwchjtib1w",
+    "track": 0,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchjtib21",
+    "kind": "audio",
+    "media": "a9fe2d8d2b465e30b142",
+    "ch": "cmwchjtib1z",
+    "track": 1,
+    "start": 0,
+    "len": 1,
+    "offset": 0,
+    "gain": 0.8,
+    "sync": true
+   },
+   {
+    "id": "kmwchjtib22",
+    "kind": "audio",
+    "media": "a9fe2d8d2b465e30b142",
+    "ch": "cmwchjtib1z",
+    "track": 1,
+    "start": 1,
+    "len": 1,
+    "offset": 0,
+    "gain": 0.8,
+    "sync": false
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": []
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {
+  "a9fe2d8d2b465e30b142": {
+   "name": "drum loop 120.wav",
+   "rate": 48000,
+   "ch": 1,
+   "dur": 2,
+   "bpm": 120
+  },
+  "b14167b8870452304412": {
+   "name": "saw tone A3.wav",
+   "rate": 48000,
+   "ch": 1,
+   "dur": 1,
+   "bpm": null
+  }
+ },
+ "scale": null,
+ "midiMap": [],
+ "_fixture": "cadae31 sample, slicer and audio channels with audio clips (media in fixtures/media)"
+}

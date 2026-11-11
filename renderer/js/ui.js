@@ -1,10 +1,12 @@
 // DOM side: title bar readouts, settings drawer, help, key mapping, menus, toasts.
 import { T } from './strings.js';
+import { t, tc, tdyn, N_, langChoices, onLangChange } from '../i18n/i18n.js';
 import { THEMES } from './themes.js';
 import { openPicker } from './picker-client.js';
+import { LATENCY_DEFAULT, pairKeyFor, measureRoundTrip, midiTapTest } from './latency.js';
 
 // background pictures that ship with the app (drawn by tools/make-backgrounds.py, CC0)
-export const SAMPLE_BGS = [['dusk-mountains', '저녁 산'], ['night-city', '밤의 도시'], ['nebula', '성운'], ['misty-forest', '안개 숲'], ['sunset-sea', '노을 바다']];
+export const SAMPLE_BGS = [['dusk-mountains', N_('저녁 산')], ['night-city', N_('밤의 도시')], ['nebula', N_('성운')], ['misty-forest', N_('안개 숲')], ['sunset-sea', N_('노을 바다')]];
 export const bgUrl = (id) => `melofi://app/renderer/assets/bg/${id}.jpg`;
 const WINDOW_SIZES = [[1280, 720], [1600, 900], [1920, 1080]]; // 16:9, for screen sharing
 const FAMILY_ORDER = ['piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'drums', 'fx'];
@@ -16,6 +18,7 @@ const byFamily = (list) => {
 const mb = (bytes) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`);
 import { LAYOUT, PRESETS, keyLabel, noteName, isBlack } from './keymap.js';
 import { HAND_COLORS } from './app-colors.js';
+import { infraMenuItems } from './appinfra.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -40,14 +43,10 @@ export class UI {
     this.kmSel = null;
     this.quiet = false;
 
-    for (const el of document.querySelectorAll('[data-t]')) el.textContent = path(T, el.dataset.t);
-    for (const el of document.querySelectorAll('[data-t-title]')) el.title = path(T, el.dataset.tTitle);
+    this.relabel();
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.close());
-    $('#instName').parentElement.title = '악기 선택 창 열기';
     $('#instName').parentElement.addEventListener('click', () => this.pickInstrument());
-    $('#fsBtn').title = T.menu.fsTip;
     $('#fsBtn').addEventListener('click', () => app.action('fullscreen'));
-    $('#susFlag').title = T.menu.latchTip;
     $('#susFlag').addEventListener('click', () => app.action('latch'));
     this.menuOpen = null;
     for (const b of document.querySelectorAll('.menubar [data-menu]')) {
@@ -62,6 +61,24 @@ export class UI {
     this.buildKeymapTools();
     this.s.on(() => { if (!this.quiet) this.refresh(); });
     this.refresh();
+    // another language: the text set once above, the help, an open menu or sheet (docs/i18n.md)
+    onLangChange(() => {
+      this.relabel();
+      this.buildHelp();
+      this.openMenu(null);
+      this.refresh();
+      this.updateTransport?.();
+    });
+  }
+
+  // text set once from the strings table (data-t / data-t-title in index.html, a few titles)
+  relabel() {
+    for (const el of document.querySelectorAll('[data-t]')) el.textContent = path(T, el.dataset.t);
+    for (const el of document.querySelectorAll('[data-t-title]')) el.title = path(T, el.dataset.tTitle);
+    $('#instName').parentElement.title = t('악기 선택 창 열기');
+    $('#fsBtn').title = T.menu.fsTip;
+    $('#fsBtn').setAttribute('aria-label', T.menu.fullscreen);
+    $('#susFlag').title = T.menu.latchTip;
   }
 
   get modal() {
@@ -91,7 +108,7 @@ export class UI {
   // the instrument picker window: stays open, every click switches the piano's instrument
   pickInstrument() {
     const app = this.app;
-    openPicker({ title: '피아노', current: this.s.v.instrument, closeOnPick: false },
+    openPicker({ title: t('피아노'), current: this.s.v.instrument, closeOnPick: false },
       async (id) => { await app.refreshInstruments(); this.s.set({ instrument: id }); },
       () => app.store.show());
   }
@@ -149,7 +166,7 @@ export class UI {
         { label: M.midiImport, act: inStudio(() => St.importMidi()) },
         { label: M.midiExport, act: () => St.exportMidi(), disabled: !St.isOpen },
         { label: M.wavExport, act: () => St.exportWav(), disabled: !St.isOpen },
-        { label: 'AI로 음원 분리 · MIDI 변환…', act: inStudio(() => St.aiSheet.show()) },
+        { label: t('AI로 음원 분리 · MIDI 변환…'), act: inStudio(() => St.aiSheet.show()) },
         { label: T.daw.open, act: inStudio(() => St.dawSheet.show()) },
         { sep: true },
         { label: T.cloud.menuSave, act: inStudio(() => St.cloudSheet.show('projects')) },
@@ -207,14 +224,14 @@ export class UI {
         ] },
         { sep: true },
         { label: M.theme, sub: [
-          ...Object.entries(THEMES).map(([id, th]) => radio(v.theme === id, th.name, () => this.s.set({ theme: id }))),
+          ...Object.entries(THEMES).map(([id, th]) => radio(v.theme === id, t(th.name), () => this.s.set({ theme: id }))),
           ...(v.customTheme ? [radio(v.theme === 'custom', M.customTheme, () => this.s.set({ theme: 'custom' }))] : []),
           { sep: true },
           { label: M.bgTheme, act: () => app.themeFromBackground(), disabled: !v.bgImage },
         ] },
         { label: M.background, sub: [
           { label: M.bgPick, act: () => app.pickBackground() },
-          { label: M.bgSamples, sub: SAMPLE_BGS.map(([id, nm]) => radio(v.bgImage === bgUrl(id), nm, () => app.useSampleBackground(id))) },
+          { label: M.bgSamples, sub: SAMPLE_BGS.map(([id, nm]) => radio(v.bgImage === bgUrl(id), t(nm), () => app.useSampleBackground(id))) },
           { sep: true },
           ...[[0.3, M.bgDim30], [0.55, M.bgDim55], [0.75, M.bgDim75]].map(([val, label]) => radio(v.bgDim === val, label, () => this.s.set({ bgDim: val }), { disabled: !v.bgImage })),
           { sep: true },
@@ -244,9 +261,12 @@ export class UI {
     return [
       { label: M.prefs, key: 'F10', act: () => this.open('settings') },
       { label: M.keymap, key: 'F3', act: () => this.open('keymap') },
+      { label: M.language, sub: langChoices().map(([k, label]) => radio((v.lang || 'system') === k, label, () => this.s.set({ lang: k }))) },
       { label: M.layout, sub: Object.entries(T.presets).filter(([k]) => k !== 'custom' || v.customMap).map(([k, label]) => radio(v.keyPreset === k, label, () => this.s.set({ keyPreset: k }))) },
       { sep: true },
       { label: M.help, key: 'F1', act: () => this.open('help') },
+      { sep: true },
+      ...infraMenuItems(), // 업데이트 확인 · 문제 신고 (appinfra.js)
     ];
   }
 
@@ -596,19 +616,19 @@ export class UI {
     const a = this.app.scoreParts?.get(lineId);
     const name = (id) => this.app.instruments.find((i) => i.id === id)?.name || id;
     if (!a) return '';
-    if (a.inst === null) return '효과음 · 소리 없음';
+    if (a.inst === null) return t('효과음 · 소리 없음');
     if (a.inst === 'piano') return name(this.s.get('instrument'));
-    return a.kit ? `${name(a.inst)} · 드럼` : name(a.inst);
+    return a.kit ? t('{name} · 드럼', { name: name(a.inst) }) : name(a.inst);
   }
 
   pickPartInstrument(l) {
     const a = this.app.scoreParts?.get(l.id);
-    openPicker({ title: `파트 · ${l.name}`, current: a?.inst === 'piano' ? this.s.get('instrument') : a?.inst, closeOnPick: true },
+    openPicker({ title: t('파트 · {name}', { name: tdyn(l.name) }), current: a?.inst === 'piano' ? this.s.get('instrument') : a?.inst, closeOnPick: true },
       async (id) => {
         await this.app.refreshInstruments();
         await this.app.setPartInstrument(l.id, id);
         if (!this.app.player.enabled.has(l.id)) this.app.player.setLine(l.id, true);
-        this.toast(`${l.name} 파트를 ${this.partInstName(l.id)}(으)로 연주합니다`, { ms: 2500 });
+        this.toast(t('{part} 파트를 {inst}(으)로 연주합니다', { part: tdyn(l.name), inst: this.partInstName(l.id) }), { ms: 2500 });
       },
       () => this.app.store.show());
   }
@@ -620,14 +640,14 @@ export class UI {
     this.closeSub();
     const lines = P.song.lines;
     const items = [
-      ...lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', keepOpen: true, act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
+      ...lines.map((l) => ({ label: tdyn(l.name), hint: this.partInstName(l.id), chip: this.app.lineColor(l.id, 72), check: P.enabled.has(l.id) ? 'tick' : '', keepOpen: true, act: () => { P.setLine(l.id, !P.enabled.has(l.id)); this.openPartsMenu(); } })),
       { sep: true },
       { label: T.score.hands, check: this.s.get('scoreHands') ? 'tick' : '', keepOpen: true, act: () => { this.s.set({ scoreHands: !this.s.get('scoreHands') }); this.openPartsMenu(); this.updateTransport(); } },
       { sep: true },
       { label: T.score.pianoOnly, act: () => { for (const l of lines) P.setLine(l.id, l.piano); }, disabled: !lines.some((l) => l.piano) },
       { label: T.score.all, act: () => { for (const l of lines) P.setLine(l.id, true); } },
       { sep: true },
-      { label: '파트 악기 바꾸기', sub: lines.map((l) => ({ label: l.name, hint: this.partInstName(l.id), act: () => this.pickPartInstrument(l) })) },
+      { label: t('파트 악기 바꾸기'), sub: lines.map((l) => ({ label: tdyn(l.name), hint: this.partInstName(l.id), act: () => this.pickPartInstrument(l) })) },
     ];
     this.renderMenu(menu, items);
     const r = $('#tpParts').getBoundingClientRect();
@@ -780,7 +800,7 @@ export class UI {
         }
         return h('div', { class: `inst-row${i.id === v.instrument ? ' on' : ''}${i.installed ? '' : ' off'}` },
           h('button', { class: 'pick', disabled: !i.installed, onclick: () => this.s.set({ instrument: i.id }) },
-            h('span', { class: 'r' }), h('span', {}, h('b', {}, i.name), h('small', {}, `${i.model} · ${i.license}`))),
+            h('span', { class: 'r' }), h('span', {}, h('b', {}, i.name), h('small', {}, `${t(i.model)} · ${i.license}`))),
           side);
       })])),
       this.row('', h('button', { class: 'btn', onclick: () => this.open('mixer') }, `${T.mixer.title}  F4`)),
@@ -791,12 +811,12 @@ export class UI {
     const v = this.s.v, S = T.settings;
     const swatch = (id, th) => {
       const light = id === 'ink';
-      const el = h('button', { class: `theme${v.theme === id ? ' on' : ''}${light ? ' light' : ''}`, title: th.name, onclick: () => this.s.set({ theme: id }),
+      const el = h('button', { class: `theme${v.theme === id ? ' on' : ''}${light ? ' light' : ''}`, title: t(th.name), onclick: () => this.s.set({ theme: id }),
         style: `background:linear-gradient(${th.bg[0]},${th.bg[2]} 70%,${th.white[0]} 70%,${th.white[1]})` },
       h('i', { style: `position:absolute;left:30%;bottom:34%;width:3px;height:42%;border-radius:2px;background:${th.bar};box-shadow:0 0 6px ${th.barGlow}` }),
       h('i', { style: `position:absolute;left:58%;bottom:34%;width:3px;height:24%;border-radius:2px;background:${th.bar};box-shadow:0 0 6px ${th.barGlow}` }),
       h('i', { style: `position:absolute;left:0;right:0;bottom:30%;height:1px;background:${th.hitLine}` }),
-      h('span', {}, th.name));
+      h('span', {}, t(th.name)));
       return el;
     };
     return [
@@ -844,9 +864,9 @@ export class UI {
         v.bgImage ? h('button', { class: 'btn', onclick: () => this.s.set({ bgImage: '' }) }, T.settings.clear) : null,
       ]),
       h('div', { class: 'bg-samples' }, ...SAMPLE_BGS.map(([id, name]) => h('button', {
-        class: `bg-sample${v.bgImage === bgUrl(id) ? ' on' : ''}`, title: name, onclick: () => this.app.useSampleBackground(id),
+        class: `bg-sample${v.bgImage === bgUrl(id) ? ' on' : ''}`, title: t(name), onclick: () => this.app.useSampleBackground(id),
         style: `background-image:url(${bgUrl(id)})`,
-      }, h('span', {}, name)))),
+      }, h('span', {}, t(name))))),
       v.bgImage ? this.row(S.bgDim, this.slider(0, 0.9, 0.05, v.bgDim, (x) => `${Math.round(x * 100)}%`, (x) => this.set({ bgDim: x }))) : null,
     ];
   }
@@ -865,18 +885,83 @@ export class UI {
       rows.push(this.row(S.videoQuality, this.slider(4, 40, 1, v.recMbps, (x) => `${x}M`, (x) => this.set({ recMbps: x }))));
     }
     if (v.recFormat === 'mp3') rows.push(this.row(S.mp3Rate, this.seg([[192, '192'], [256, '256'], [320, '320']], v.recKbps, (x) => this.s.set({ recKbps: x }))));
-    return rows;
+    return [...rows, ...this.latencyRows()];
+  }
+
+  // ---------- input latency (latency.js) ----------
+  // measured round trip per input/output pair and MIDI feel per keyboard; both come off recordings
+  latencyRows() {
+    const app = this.app, ctx = app.engine.ctx, L = { ...LATENCY_DEFAULT, ...(this.s.v.latency || {}) };
+    const put = (patch) => this.s.set({ latency: { ...L, ...patch } });
+    const ms = (x) => `${x >= 0 ? '' : '−'}${Math.abs(x).toFixed(1)}`;
+    const busy = !!this.latBusy;
+    const msg = h('div', { class: 'lat-msg' }, this.latMsg || '');
+    const say = (t) => { this.latMsg = t; msg.textContent = t; };
+
+    // inputs: the list fills in once the browser hands it over (labels need mic permission once)
+    const sel = h('select', {}, h('option', { value: '' }, t('기본 입력')));
+    sel.value = this.latIn || '';
+    sel.addEventListener('change', () => { this.latIn = sel.value; this.renderDrawer(); });
+    navigator.mediaDevices?.enumerateDevices().then((ds) => {
+      for (const [i, d] of ds.filter((x) => x.kind === 'audioinput' && x.deviceId && x.deviceId !== 'default').entries()) sel.append(h('option', { value: d.deviceId }, d.label || t('입력 {n}', { n: i + 1 })));
+      sel.value = this.latIn || '';
+    }).catch(() => {});
+    const key = pairKeyFor(ctx, this.latIn), got = L.audio[key];
+    const rep = t('기본 {base} · 출력 {out} ms', { base: ((ctx.baseLatency || 0) * 1000).toFixed(1), out: ((ctx.outputLatency || 0) * 1000).toFixed(1) });
+
+    const runAudio = async () => {
+      this.latBusy = true; say(t('준비 중')); this.renderDrawer();
+      try {
+        const r = await measureRoundTrip(ctx, this.latIn || null, { onState: (m) => say(tdyn(m)) });
+        const audio = { ...L.audio, [r.key]: { ms: Math.round(r.ms * 10) / 10, spread: Math.round(r.spread * 10) / 10, n: r.n, label: r.label, at: Date.now() } };
+        this.latMsg = t('왕복 {ms} ms · 클릭 {n}/{of}개 편차 {sp} ms', { ms: r.ms.toFixed(1), n: r.n, of: r.of, sp: r.spread.toFixed(1) });
+        this.latBusy = false; put({ audio });
+      } catch (e) { this.latBusy = false; this.latMsg = e.message || String(e); this.renderDrawer(); }
+    };
+    const runMidi = async () => {
+      if (!app.midi?.access) { say(t('연결된 MIDI 건반이 없습니다')); return; }
+      this.latBusy = true; this.latMsg = ''; this.renderDrawer();
+      try {
+        if (ctx.state !== 'running') await ctx.resume();
+        const r = await midiTapTest(ctx, app.midi, (t, acc) => app.metronome.click(t, acc), {
+          onState: (m) => say(tdyn(m)), onBeat: (i) => say(i < 4 ? t('하나 둘 셋 넷').split(' ')[i] : `${i - 3} / 8`) });
+        const midi = { ...L.midi, [r.device]: { ms: Math.round(r.ms * 10) / 10, spread: Math.round(r.spread * 10) / 10, n: r.n, at: Date.now() } };
+        this.latMsg = r.ms >= 0 ? t('{dev}: 평균 늦게 {ms} ms · 편차 {sp} ms', { dev: r.device, ms: Math.abs(r.ms).toFixed(1), sp: r.spread.toFixed(1) }) : t('{dev}: 평균 일찍 {ms} ms · 편차 {sp} ms', { dev: r.device, ms: Math.abs(r.ms).toFixed(1), sp: r.spread.toFixed(1) });
+        this.latBusy = false; put({ midi });
+      } catch (e) { this.latBusy = false; this.latMsg = e.message || String(e); this.renderDrawer(); }
+    };
+
+    const devs = [...new Set([...(app.midiDevices || []), ...Object.keys(L.midi)])];
+    const forget = (kind, k) => h('button', { class: 'btn sm ghost', title: t('측정값 지우기'), onclick: () => { const o = { ...L[kind] }; delete o[k]; put({ [kind]: o }); } }, '×');
+    return [
+      h('div', { class: 'group-title' }, t('입력 지연 보정')),
+      this.row(t('보정'), this.toggle(L.on, (x) => put({ on: x })), t('녹음한 소리와 노트를 지연만큼 당겨 박자에 맞춥니다')),
+      this.row(t('오디오 입력'), sel, t('마이크를 스피커에 대거나 출력을 입력에 케이블로 잇고 측정. 클릭 10번이 나갑니다')),
+      this.row(t('왕복 지연'), [
+        h('span', { class: 'val', style: 'width:auto;flex:1;text-align:left;font-family:inherit' }, got ? `${got.ms.toFixed(1)} ms ±${(got.spread / 2).toFixed(1)}` : t('측정 안 함')),
+        got ? forget('audio', key) : null,
+        h('button', { class: 'btn sm', disabled: busy, onclick: runAudio }, t('측정'))],
+      got ? rep : t('{rep} (측정 전엔 이 값으로 보정)', { rep })),
+      this.row(t('오디오 미세'), this.slider(-50, 50, 1, L.audioManual, (x) => `${x > 0 ? '+' : ''}${x}`, (x) => this.set({ latency: { ...L, ...this.s.v.latency, audioManual: x } }))),
+      ...devs.map((d) => this.row(d.length > 14 ? `${d.slice(0, 13)}…` : d, [
+        h('span', { class: 'val', style: 'width:auto;flex:1;text-align:left;font-family:inherit' }, L.midi[d] ? `${ms(L.midi[d].ms)} ms ±${(L.midi[d].spread / 2).toFixed(1)}` : t('측정 안 함')),
+        L.midi[d] ? forget('midi', d) : null])),
+      this.row(t('MIDI 건반'), h('button', { class: 'btn sm', disabled: busy, onclick: runMidi }, t('박자 테스트')), t('넷을 센 뒤 이어지는 8박에 맞춰 칩니다')),
+      this.row(t('MIDI 미세'), this.slider(-50, 50, 1, L.midiManual, (x) => `${x > 0 ? '+' : ''}${x}`, (x) => this.set({ latency: { ...L, ...this.s.v.latency, midiManual: x } }))),
+      msg,
+    ];
   }
 
   tab_about() {
-    const S = T.settings;
+    const S = T.settings, v = this.s.v;
     return [
+      this.row(T.menu.language, this.select(langChoices(), this.s.v.lang || 'system', (x) => this.s.set({ lang: x }))),
       this.row(S.version, h('span', { class: 'val', style: 'width:auto' }, this.app.env.version)),
       this.row(S.graphics, [h('span', { class: 'path', style: 'direction:ltr', title: this.app.stage.renderer }, this.app.stage.renderer),
         this.toggle(v.gpu, (x) => this.app.setGpu(x))]),
       h('div', { class: 'group-title' }, S.credits),
       h('div', { class: 'credits' }, ...this.app.instruments.map((i) =>
-        h('p', {}, h('b', {}, i.name), ` — ${i.maker}`, h('br'), `${i.model} · ${i.license}`, h('br'), h('span', { class: 'path', style: 'direction:ltr;display:block' }, i.url)))),
+        h('p', {}, h('b', {}, i.name), ` — ${i.maker}`, h('br'), `${t(i.model)} · ${i.license}`, h('br'), h('span', { class: 'path', style: 'direction:ltr;display:block' }, i.url)))),
       this.row('', h('button', { class: 'btn', onclick: () => this.app.resetSettings() }, S.reset)),
     ];
   }

@@ -7,6 +7,7 @@
 import { clamp, popup, ask, form } from './dom.js';
 import { pattern, patternTicks, barTicks, uid, newTrack, songBars, barLines, barAt, tickToSec } from '../model.js';
 import { decode, peaks } from '../media.js';
+import { t, tc } from '../../i18n/i18n.js';
 
 const HEAD_W = 112, RULER_H = 20, LANE_H = 16, SB = 12; // SB: scroll bar thickness
 
@@ -74,9 +75,9 @@ export class Playlist {
 
   clipName(c) {
     const p = this.proj;
-    if (c.kind === 'audio') return p.media[c.media]?.name || '오디오';
-    if (c.kind === 'auto') return p.autos.find((a) => a.id === c.auto)?.name || '오토메이션';
-    return pattern(p, c.pattern)?.name || '패턴';
+    if (c.kind === 'audio') return p.media[c.media]?.name || t('오디오');
+    if (c.kind === 'auto') return p.autos.find((a) => a.id === c.auto)?.name || t('오토메이션');
+    return pattern(p, c.pattern)?.name || t('패턴');
   }
   clipColor(c) {
     const p = this.proj;
@@ -160,7 +161,7 @@ export class Playlist {
     }
     // marker / tempo lane
     g.fillStyle = '#131418'; g.fillRect(0, RULER_H, W, LANE_H);
-    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", "Malgun Gothic", sans-serif'; g.fillText('마커 · 템포', 8, RULER_H + 12);
+    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", "Malgun Gothic", sans-serif'; g.fillText(t('마커 · 템포'), 8, RULER_H + 12);
     for (const m of proj.markers) { const x = this.bToX(m.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#8fc0a9'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(m.name, x + 4, RULER_H + 12); }
     for (const tc of proj.tempos) { const x = this.bToX(tc.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#e0a440'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`BPM ${tc.bpm}`, x + 4, RULER_H + 12); }
     for (const sm of proj.sigs || []) { const x = this.bToX(sm.tick / bt); if (x < HEAD_W || x > W) continue; g.fillStyle = '#9fb6e8'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`${sm.sig[0]}/${sm.sig[1]}`, x + 4, RULER_H + 12); }
@@ -173,7 +174,7 @@ export class Playlist {
       if (x >= HEAD_W - 1) { g.fillRect(x, 14, 1, 6); if (this.barW * L.len / bt > 16 || L.num % 4 === 0) g.fillText(String(L.num + 1), x + 3, 15); }
     }
     g.fillStyle = '#16171c'; g.fillRect(0, 0, HEAD_W, RULER_H);
-    g.fillStyle = '#5d5c58'; g.fillText(this.tool === 'slice' ? '자르기 도구' : '', 8, 14);
+    g.fillStyle = '#5d5c58'; g.fillText(this.tool === 'slice' ? t('자르기 도구') : '', 8, 14);
     if (this.proj.mode === 'song' && this.S.transport) {
       const T = this.S.transport.songPos();
       const x = this.bToX(T / bt);
@@ -422,11 +423,11 @@ export class Playlist {
   dbl(e) {
     const [x, y] = this.pos(e);
     if (x < HEAD_W) {
-      const t = this.yToT(y), tr = this.proj.playlist.tracks[t];
-      if (tr) ask('트랙 이름', tr.name).then((v) => { if (v && v.trim()) this.S.edit(() => { tr.name = v.trim(); }); });
+      const ti = this.yToT(y), tr = this.proj.playlist.tracks[ti];
+      if (tr) ask(t('트랙 이름'), tr.name).then((v) => { if (v && v.trim()) this.S.edit(() => { tr.name = v.trim(); }); });
       return;
     }
-    if (y < this.top && y >= RULER_H) { const b = this.floorB(this.xToB(x)); ask('마커 이름', `구간 ${this.proj.markers.length + 1}`).then((v) => { if (v) this.S.edit(() => this.proj.markers.push({ bar: b, name: v })); }); return; }
+    if (y < this.top && y >= RULER_H) { const b = this.floorB(this.xToB(x)); ask(t('마커 이름'), t('구간 {n}', { n: this.proj.markers.length + 1 })).then((v) => { if (v) this.S.edit(() => this.proj.markers.push({ bar: b, name: v })); }); return; }
     const hit = this.clipAt(x, y);
     if (!hit) return;
     if (!hit.kind) this.S.setPattern(hit.pattern, true);
@@ -454,49 +455,49 @@ export class Playlist {
     const S = this.S, proj = this.proj;
     const items = [];
     if (!c.kind) {
-      items.push({ label: '패턴 편집', act: () => S.setPattern(c.pattern, true) });
-      items.push({ label: 'Make unique', hint: '이 클립만 따로 수정 (고유 패턴)', act: () => S.edit(() => { const p = pattern(proj, c.pattern); const np = JSON.parse(JSON.stringify(p)); np.id = uid('p'); np.name = `${p.name} *`; proj.patterns.push(np); c.pattern = np.id; }) });
-      items.push({ label: '패턴 길이에 맞추기', act: () => S.edit(() => { c.len = pattern(proj, c.pattern).bars; }) });
+      items.push({ label: t('패턴 편집'), act: () => S.setPattern(c.pattern, true) });
+      items.push({ label: 'Make unique', hint: t('이 클립만 따로 수정 (고유 패턴)'), act: () => S.edit(() => { const p = pattern(proj, c.pattern); const np = JSON.parse(JSON.stringify(p)); np.id = uid('p'); np.name = `${p.name} *`; proj.patterns.push(np); c.pattern = np.id; }) });
+      items.push({ label: t('패턴 길이에 맞추기'), act: () => S.edit(() => { c.len = pattern(proj, c.pattern).bars; }) });
     }
     if (c.kind === 'audio' && proj.media[c.media]?.loop) {
-      items.push({ label: '루프 바꾸기 (셔플)', hint: '같은 파트의 다른 변형', act: () => S.shuffleLoop(c) });
+      items.push({ label: t('루프 바꾸기 (셔플)'), hint: t('같은 파트의 다른 변형'), act: () => S.shuffleLoop(c) });
     }
-    if (c.kind === 'audio') items.push({ label: 'Newtone으로 음정 편집…', hint: '노래 한 줄의 음정·길이 고치기', act: () => S.newtone.open(c) });
+    if (c.kind === 'audio') items.push({ label: t('Newtone으로 음정 편집…'), hint: t('노래 한 줄의 음정·길이 고치기'), act: () => S.newtone.open(c) });
     if (c.kind === 'audio') {
       const m = proj.media[c.media];
-      items.push({ label: c.sync ? '템포 맞추기 끄기' : '프로젝트 템포에 맞추기', hint: m?.bpm ? `원본 ${m.bpm} BPM` : '원본 템포 모름', disabled: !m?.bpm, act: () => S.edit(() => { c.sync = !c.sync; }) });
-      items.push({ label: '원본 템포 입력…', act: async () => { const v = await ask('이 파일의 원래 BPM', String(m?.bpm || 120), { type: 'number' }); if (v && +v > 20) S.edit(() => { m.bpm = +v; }); } });
-      items.push({ label: '게인…', act: async () => { const v = await ask('클립 게인 (1 = 그대로)', String(c.gain ?? 1), { type: 'number' }); if (v && +v >= 0) S.edit(() => { c.gain = +v; }); } });
-      items.push({ label: '노멀라이즈', hint: '가장 큰 소리를 -1dB까지', act: () => this.S.processClip(c, 'normalize') });
-      items.push({ label: '거꾸로', act: () => this.S.processClip(c, 'reverse') });
-      items.push({ label: '앞뒤 무음 자르기', act: () => this.S.processClip(c, 'trim') });
-      items.push({ label: '페이드 인/아웃 0.5초', act: () => S.edit(() => { c.fadeIn = 0.5; c.fadeOut = 0.5; }) });
-      items.push({ label: '페이드 없애기', act: () => S.edit(() => { c.fadeIn = 0.003; c.fadeOut = 0.01; }) });
-      items.push({ label: '오디오 파일 길이에 맞추기', act: () => S.edit(() => { const secPerBar = (60 / proj.bpm) * proj.sig[0] * (4 / proj.sig[1]); const ratio = c.sync && m?.bpm ? m.bpm / proj.bpm : 1; c.len = Math.max(this.step, Math.round((m.dur * ratio / secPerBar) / this.step) * this.step); }) });
+      items.push({ label: c.sync ? t('템포 맞추기 끄기') : t('프로젝트 템포에 맞추기'), hint: m?.bpm ? t('원본 {bpm} BPM', { bpm: m.bpm }) : t('원본 템포 모름'), disabled: !m?.bpm, act: () => S.edit(() => { c.sync = !c.sync; }) });
+      items.push({ label: t('원본 템포 입력…'), act: async () => { const v = await ask(t('이 파일의 원래 BPM'), String(m?.bpm || 120), { type: 'number' }); if (v && +v > 20) S.edit(() => { m.bpm = +v; }); } });
+      items.push({ label: t('게인…'), act: async () => { const v = await ask(t('클립 게인 (1 = 그대로)'), String(c.gain ?? 1), { type: 'number' }); if (v && +v >= 0) S.edit(() => { c.gain = +v; }); } });
+      items.push({ label: tc('clip', '노멀라이즈'), hint: t('가장 큰 소리를 -1dB까지'), act: () => this.S.processClip(c, 'normalize') });
+      items.push({ label: tc('clip', '거꾸로'), act: () => this.S.processClip(c, 'reverse') });
+      items.push({ label: t('앞뒤 무음 자르기'), act: () => this.S.processClip(c, 'trim') });
+      items.push({ label: t('페이드 인/아웃 0.5초'), act: () => S.edit(() => { c.fadeIn = 0.5; c.fadeOut = 0.5; }) });
+      items.push({ label: t('페이드 없애기'), act: () => S.edit(() => { c.fadeIn = 0.003; c.fadeOut = 0.01; }) });
+      items.push({ label: t('오디오 파일 길이에 맞추기'), act: () => S.edit(() => { const secPerBar = (60 / proj.bpm) * proj.sig[0] * (4 / proj.sig[1]); const ratio = c.sync && m?.bpm ? m.bpm / proj.bpm : 1; c.len = Math.max(this.step, Math.round((m.dur * ratio / secPerBar) / this.step) * this.step); }) });
     }
     if (c.kind === 'auto') {
       const a = proj.autos.find((q) => q.id === c.auto);
-      items.push({ label: '이름 바꾸기…', act: async () => { const v = await ask('오토메이션 이름', a.name); if (v) S.edit(() => { a.name = v; }); } });
-      items.push({ label: '점 모두 지우기', act: () => S.edit(() => { a.points = [{ t: 0, v: a.points[0]?.v ?? 0.5 }]; }) });
-      items.push({ label: '상승 곡선', act: () => S.edit(() => { a.points = [{ t: 0, v: 0 }, { t: 1, v: 1 }]; }) });
-      items.push({ label: '하강 곡선', act: () => S.edit(() => { a.points = [{ t: 0, v: 1 }, { t: 1, v: 0 }]; }) });
+      items.push({ label: t('이름 바꾸기…'), act: async () => { const v = await ask(t('오토메이션 이름'), a.name); if (v) S.edit(() => { a.name = v; }); } });
+      items.push({ label: t('점 모두 지우기'), act: () => S.edit(() => { a.points = [{ t: 0, v: a.points[0]?.v ?? 0.5 }]; }) });
+      items.push({ label: t('상승 곡선'), act: () => S.edit(() => { a.points = [{ t: 0, v: 0 }, { t: 1, v: 1 }]; }) });
+      items.push({ label: t('하강 곡선'), act: () => S.edit(() => { a.points = [{ t: 0, v: 1 }, { t: 1, v: 0 }]; }) });
       const ap = this.autoPoint(c, ...this.pos(e));
-      if (ap && ap.i >= 0) items.unshift({ label: '이 점 지우기', act: () => S.edit(() => { ap.a.points.splice(ap.i, 1); }) });
+      if (ap && ap.i >= 0) items.unshift({ label: t('이 점 지우기'), act: () => S.edit(() => { ap.a.points.splice(ap.i, 1); }) });
     }
-    items.push({ sep: true }, { label: '복제', hint: 'Ctrl+드래그', act: () => S.edit(() => proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })) },
-      { label: '삭제', act: () => S.edit(() => { proj.playlist.clips.splice(proj.playlist.clips.indexOf(c), 1); S.selClip = null; }) });
+    items.push({ sep: true }, { label: t('복제'), hint: t('Ctrl+드래그'), act: () => S.edit(() => proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })) },
+      { label: t('삭제'), act: () => S.edit(() => { proj.playlist.clips.splice(proj.playlist.clips.indexOf(c), 1); S.selClip = null; }) });
     popup(e.clientX, e.clientY, items);
   }
 
-  trackMenu(e, t) {
-    const S = this.S, proj = this.proj, tr = proj.playlist.tracks[t];
+  trackMenu(e, ti) {
+    const S = this.S, proj = this.proj, tr = proj.playlist.tracks[ti];
     popup(e.clientX, e.clientY, [
-      { label: '이름 바꾸기…', act: async () => { const v = await ask('트랙 이름', tr.name); if (v) S.edit(() => { tr.name = v; }); } },
-      { label: '트랙 추가', act: () => S.edit(() => proj.playlist.tracks.splice(t + 1, 0, newTrack(proj.playlist.tracks.length))) },
-      { label: '트랙 삭제', disabled: proj.playlist.tracks.length <= 1, act: () => S.edit(() => {
-        proj.playlist.tracks.splice(t, 1);
-        proj.playlist.clips = proj.playlist.clips.filter((c) => c.track !== t);
-        for (const c of proj.playlist.clips) if (c.track > t) c.track--;
+      { label: t('이름 바꾸기…'), act: async () => { const v = await ask(t('트랙 이름'), tr.name); if (v) S.edit(() => { tr.name = v; }); } },
+      { label: t('트랙 추가'), act: () => S.edit(() => proj.playlist.tracks.splice(ti + 1, 0, newTrack(proj.playlist.tracks.length))) },
+      { label: t('트랙 삭제'), disabled: proj.playlist.tracks.length <= 1, act: () => S.edit(() => {
+        proj.playlist.tracks.splice(ti, 1);
+        proj.playlist.clips = proj.playlist.clips.filter((c) => c.track !== ti);
+        for (const c of proj.playlist.clips) if (c.track > ti) c.track--;
       }) },
     ]);
   }
@@ -506,8 +507,8 @@ export class Playlist {
     const S = this.S, proj = this.proj, b = barAt(proj, tick);
     const SIGS = ['2/4', '3/4', '4/4', '5/4', '6/8', '7/8', '9/8', '12/8'];
     const cur = `${b.sig[0]}/${b.sig[1]}`;
-    const v = await form(`${b.num + 1}마디부터 박자표`, [{ key: 'sig', label: '박자', type: 'select', value: cur, options: SIGS.map((s) => [s, s]) }],
-      { note: '이 마디부터 눈금·마디 번호와 메트로놈이 바뀌며, 패턴 길이는 그대로 유지됩니다.' });
+    const v = await form(t('{bar}마디부터 박자표', { bar: b.num + 1 }), [{ key: 'sig', label: t('박자'), type: 'select', value: cur, options: SIGS.map((s) => [s, s]) }],
+      { note: t('이 마디부터 눈금·마디 번호와 메트로놈이 바뀌며, 패턴 길이는 그대로 유지됩니다.') });
     if (!v) return;
     const sig = String(v.sig).split('/').map(Number);
     S.edit(() => {
@@ -520,14 +521,14 @@ export class Playlist {
     const S = this.S, proj = this.proj, bt = barTicks(proj);
     const tick = Math.max(0, exact * bt), here = barAt(proj, tick);
     popup(e.clientX, e.clientY, [
-      { label: `${here.num + 1}마디부터 박자표 바꾸기…`, hint: 'Shift+Alt+T', act: () => this.sigDialog(tick) },
-      ...(proj.sigs || []).filter((x) => x.tick === here.start).map((x) => ({ label: `박자표 ${x.sig[0]}/${x.sig[1]} 지우기`, act: () => S.edit(() => proj.sigs.splice(proj.sigs.indexOf(x), 1)) })),
-      { label: `${bar + 1}마디에 마커 추가…`, act: async () => { const v = await ask('마커 이름', `구간 ${proj.markers.length + 1}`); if (v) S.edit(() => proj.markers.push({ bar, name: v })); } },
-      { label: `${bar + 1}마디부터 템포 바꾸기…`, disabled: bar === 0, act: async () => { const v = await ask(`${bar + 1}마디부터 쓸 BPM`, String(proj.bpm), { type: 'number' }); if (v && +v >= 30 && +v <= 300) S.edit(() => { proj.tempos = proj.tempos.filter((x) => x.bar !== bar); proj.tempos.push({ bar, bpm: +v }); }); } },
+      { label: t('{bar}마디부터 박자표 바꾸기…', { bar: here.num + 1 }), hint: 'Shift+Alt+T', act: () => this.sigDialog(tick) },
+      ...(proj.sigs || []).filter((x) => x.tick === here.start).map((x) => ({ label: t('박자표 {sig} 지우기', { sig: `${x.sig[0]}/${x.sig[1]}` }), act: () => S.edit(() => proj.sigs.splice(proj.sigs.indexOf(x), 1)) })),
+      { label: t('{bar}마디에 마커 추가…', { bar: bar + 1 }), act: async () => { const v = await ask(t('마커 이름'), t('구간 {n}', { n: proj.markers.length + 1 })); if (v) S.edit(() => proj.markers.push({ bar, name: v })); } },
+      { label: t('{bar}마디부터 템포 바꾸기…', { bar: bar + 1 }), disabled: bar === 0, act: async () => { const v = await ask(t('{bar}마디부터 쓸 BPM', { bar: bar + 1 }), String(proj.bpm), { type: 'number' }); if (v && +v >= 30 && +v <= 300) S.edit(() => { proj.tempos = proj.tempos.filter((x) => x.bar !== bar); proj.tempos.push({ bar, bpm: +v }); }); } },
       { sep: true },
-      ...proj.markers.filter((m) => Math.abs(m.bar - bar) < 1).map((m) => ({ label: `마커 "${m.name}" 지우기`, act: () => S.edit(() => proj.markers.splice(proj.markers.indexOf(m), 1)) })),
-      ...proj.tempos.filter((x) => Math.abs(x.bar - bar) < 1).map((x) => ({ label: `템포 변화 (${x.bpm}) 지우기`, act: () => S.edit(() => proj.tempos.splice(proj.tempos.indexOf(x), 1)) })),
-      { label: proj.loopOn ? '반복 구간 끄기' : '반복 구간 켜기', disabled: !proj.loop, act: () => S.edit(() => { proj.loopOn = !proj.loopOn; }) },
+      ...proj.markers.filter((m) => Math.abs(m.bar - bar) < 1).map((m) => ({ label: t('마커 "{name}" 지우기', { name: m.name }), act: () => S.edit(() => proj.markers.splice(proj.markers.indexOf(m), 1)) })),
+      ...proj.tempos.filter((x) => Math.abs(x.bar - bar) < 1).map((x) => ({ label: t('템포 변화 ({bpm}) 지우기', { bpm: x.bpm }), act: () => S.edit(() => proj.tempos.splice(proj.tempos.indexOf(x), 1)) })),
+      { label: proj.loopOn ? t('반복 구간 끄기') : t('반복 구간 켜기'), disabled: !proj.loop, act: () => S.edit(() => { proj.loopOn = !proj.loopOn; }) },
     ]);
   }
 

@@ -3,6 +3,7 @@
 // playlist afterwards.
 import { h } from './dom.js';
 import { barTicks, uid, newTrack } from '../model.js';
+import { t } from '../../i18n/i18n.js';
 
 export class Live {
   constructor(studio, el) {
@@ -79,10 +80,10 @@ export class Live {
         }))));
     this.el.replaceChildren(
       h('div', { class: 'lv-bar' },
-        h('b', {}, '라이브'), h('span', { class: 'hint' }, '칸을 누르면 다음 마디부터 그 트랙에서 패턴이 반복됩니다. 깜빡이는 칸은 대기 중입니다.'),
+        h('b', {}, t('라이브')), h('span', { class: 'hint' }, t('칸을 누르면 다음 마디부터 그 트랙에서 패턴이 반복됩니다. 깜빡이는 칸은 대기 중입니다.')),
         h('span', { class: 'sp' }),
-        h('button', { class: 'btn sm', onclick: () => this.stopAll() }, '모두 멈춤'),
-        h('button', { class: 'btn sm', disabled: !this.log.length, title: '라이브로 연주한 순서를 플레이리스트 끝에 클립으로 남깁니다', onclick: () => this.toPlaylist() }, '플레이리스트로 옮기기')),
+        h('button', { class: 'btn sm', onclick: () => this.stopAll() }, t('모두 멈춤')),
+        h('button', { class: 'btn sm', disabled: !this.log.length, title: t('라이브로 연주한 순서를 플레이리스트 끝에 클립으로 남깁니다'), onclick: () => this.toPlaylist() }, t('플레이리스트로 옮기기'))),
       grid);
     void S;
   }

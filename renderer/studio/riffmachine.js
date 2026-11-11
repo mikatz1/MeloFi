@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // Riff Machine (FL Studio's piano roll tool): a riff is built in stages, each working on the notes
 // the previous one made — Chord progression → Arpeggiate → Groove → Mirror → Levels. Every stage
 // is a pure function of (notes, options, seed), so going back and changing an earlier stage simply

@@ -7,10 +7,15 @@ const { spawn } = require('node:child_process');
 const daw = require('./daw.js');
 const account = require('./account.js');
 const studioFiles = require('./studio-files.js');
+const crashlog = require('./crashlog.js');
+const i18n = require('./i18n-main.js');
+const { t } = i18n;
 
 app.setName('MeloFi');
 if (process.platform === 'win32') app.setAppUserModelId('com.melofi.app'); // taskbar groups under our icon
 if (process.env.MELOFI_USERDATA) app.setPath('userData', process.env.MELOFI_USERDATA);
+// crashes and errors from every process go to userData/logs (this PC only)
+crashlog.init({ app, ipcMain });
 // Keep audio + animation running when the window is in the background.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -214,6 +219,8 @@ function stamp() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  i18n.init(SETTINGS_FILE()); // the language of dialogs and window titles (docs/i18n.md)
+  ipcMain.on('i18n:boot', (e) => { e.returnValue = i18n.boot(); }); // each window's language at start
 
   // Everything the page loads comes from melofi://app/... so workers, worklets and
   // sample fetches are all same-origin.
@@ -276,6 +283,24 @@ app.whenReady().then(() => {
     await fsp.mkdir(path.join(dir, 's'), { recursive: true });
     const ac = new AbortController();
     downloads.set(id, ac);
+    if (src.kind === 'archive' || src.kind === 'sf2') {
+      // zip / 7z / tar.xz / SoundFont from the original publisher (lib/install-source.js)
+      let last = 0;
+      const progress = (done, total) => {
+        const now = Date.now();
+        if (done < total && now - last < 120) return;
+        last = now;
+        if (!e.sender.isDestroyed()) e.sender.send('instruments:progress', { id, done, total });
+      };
+      try {
+        await require('./lib/install-source').installSource(src, dir, { id: path.basename(id), signal: ac.signal, tmpDir: path.join(USER_INST(), '_downloads'), progress });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, cancelled: ac.signal.aborted, error: String(err.message || err) };
+      } finally {
+        downloads.delete(id);
+      }
+    }
     const jobs = Object.entries(src.files);
     const total = src.bytes;
     let done = 0, last = 0;
@@ -320,6 +345,8 @@ app.whenReady().then(() => {
   ipcMain.handle('instruments:remove', async (_e, id) => {
     downloads.get(id)?.abort();
     await fsp.rm(path.join(USER_INST(), path.basename(id)), { recursive: true, force: true });
+    // a half-downloaded archive / SoundFont kept for resuming
+    for (const f of await fsp.readdir(path.join(USER_INST(), '_downloads')).catch(() => [])) if (f.startsWith(path.basename(id) + '.')) await fsp.rm(path.join(USER_INST(), '_downloads', f), { force: true });
     return true;
   });
 
@@ -336,6 +363,7 @@ app.whenReady().then(() => {
       await fsp.mkdir(path.dirname(SETTINGS_FILE()), { recursive: true });
       await fsp.writeFile(SETTINGS_FILE(), JSON.stringify({ ...cur, ...patch }, null, 2));
     });
+    if (patch && 'lang' in patch) i18n.setPref(patch.lang);
     for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== e.sender) w.webContents.send('settings:changed', patch);
     return settingsWrite.then(() => true);
   });
@@ -420,7 +448,7 @@ app.whenReady().then(() => {
       pickerWin.show(); pickerWin.focus();
       return true;
     }
-    pickerWin = makeWindow({ width: 600, height: 720, minWidth: 440, minHeight: 380, title: '악기 선택', parent }, '', 'picker.html');
+    pickerWin = makeWindow({ width: 600, height: 720, minWidth: 440, minHeight: 380, title: t('악기 선택'), parent }, '', 'picker.html');
     pickerWin.on('closed', () => { pickerWin = null; });
     if (process.env.MELOFI_SHOT && process.env.MELOFI_PICKER_SCRIPT) runShotScript(pickerWin, process.env.MELOFI_PICKER_SCRIPT, 'picker');
     return true;
@@ -434,12 +462,23 @@ app.whenReady().then(() => {
     keysOwner = e.sender;
     if (keysWin && keysWin.getParentWindow() !== parent) { keysWin.destroy(); keysWin = null; }
     if (keysWin) { if (keysWin.isMinimized()) keysWin.restore(); keysWin.show(); keysWin.focus(); return true; }
-    keysWin = makeWindow({ width: 900, height: 230, minWidth: 420, minHeight: 150, title: '화면 건반', parent }, '', 'keys.html');
+    keysWin = makeWindow({ width: 900, height: 230, minWidth: 420, minHeight: 150, title: t('화면 건반'), parent }, '', 'keys.html');
     keysWin.on('closed', () => { keysWin = null; if (keysOwner && !keysOwner.isDestroyed()) keysOwner.send('keys:closed'); });
     if (process.env.MELOFI_SHOT && process.env.MELOFI_KEYS_SCRIPT) runShotScript(keysWin, process.env.MELOFI_KEYS_SCRIPT, 'keys');
     return true;
   });
   ipcMain.handle('keys:close', () => { keysWin?.close(); return true; });
+  // headless tests (tools/e2e/i18n-e2e.js): read and capture the other windows
+  if (HEADLESS) {
+    const testWin = (e, which) => ({ picker: pickerWin, keys: keysWin, splash, studio: studioWin, piano: win }[which] || BrowserWindow.fromWebContents(e.sender));
+    ipcMain.handle('test:eval', (e, which, code) => { const w = testWin(e, which); return w && !w.isDestroyed() ? w.webContents.executeJavaScript(code) : null; });
+    ipcMain.handle('test:shot', async (e, which, name) => {
+      const w = testWin(e, which);
+      if (!w || w.isDestroyed()) return false;
+      fs.writeFileSync(path.join(process.env.MELOFI_SHOT, `${String(name).replace(/[^\w.-]+/g, '_')}.png`), (await w.webContents.capturePage()).toPNG());
+      return true;
+    });
+  }
   ipcMain.on('keys:note', (_e, m) => { if (keysOwner && !keysOwner.isDestroyed()) keysOwner.send('keys:note', m); });
   ipcMain.handle('picker:choose', (_e, id) => {
     if (picker && !picker.sender.isDestroyed()) picker.sender.send('picker:chosen', { token: picker.opts.token, id });
@@ -495,8 +534,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle('score:pick', async () => {
     const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [
-      { name: 'Scores', extensions: ['mscz', 'mscx', 'mxl', 'musicxml', 'xml', 'mid', 'midi'] },
-      { name: 'All files', extensions: ['*'] },
+      { name: i18n.tc('filter', '악보'), extensions: ['mscz', 'mscx', 'mxl', 'musicxml', 'xml', 'mid', 'midi'] },
+      { name: t('모든 파일'), extensions: ['*'] },
     ] });
     if (r.canceled || !r.filePaths[0]) return null;
     return readScoreFile(r.filePaths[0]);
@@ -509,7 +548,7 @@ app.whenReady().then(() => {
   ipcMain.handle('score:clearRecent', async () => { await saveRecent([]); return []; });
 
   ipcMain.handle('bg:pick', async () => {
-    const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
+    const r = await dialog.showOpenDialog(ownerWin(), { properties: ['openFile'], filters: [{ name: t('이미지'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
     if (r.canceled || !r.filePaths[0]) return null;
     const src = r.filePaths[0];
     const dir = path.join(app.getPath('userData'), 'user', 'backgrounds');
@@ -526,6 +565,9 @@ app.whenReady().then(() => {
   require('./vocal').register(ipcMain, { app });
   require('./stems').register(ipcMain, { app, findFfmpeg });
   require('./vsthost').register(ipcMain, { app });
+  // updates (GitHub releases, only on the user's click) and 문제 신고
+  require('./updater').register(ipcMain, { app, BrowserWindow, settingsFile: SETTINGS_FILE, log: (lv, m) => crashlog.log(lv, 'update', m), quiet: HEADLESS && !process.env.MELOFI_UPDATE_TEST });
+  require('./report').register(ipcMain, { app, screen, shell, defaultDir: defaultRecordDir });
   ipcMain.handle('shell:openFolder', async (_e, p) => {
     const dir = p || defaultRecordDir();
     await fsp.mkdir(dir, { recursive: true });

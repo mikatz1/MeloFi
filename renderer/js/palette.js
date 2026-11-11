@@ -3,6 +3,8 @@
 // backdrop, the most vivid colour drives bars/particles/glow, and a second vivid hue
 // (if there is one) accents the sparks and the hit line.
 
+import { N_ } from '../i18n/i18n.js';
+
 function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -52,7 +54,7 @@ function kmeans(px, k = 7, iters = 10) {
   return cent.map((c, i) => ({ rgb: c, share: count[i] / n, hsl: rgbToHsl(...c) })).filter((c) => c.share > 0.005);
 }
 
-export async function themeFromImage(url, name = '내 테마') {
+export async function themeFromImage(url, name = N_('내 테마')) {
   const img = await loadImage(url);
   const S = 80;
   const cv = document.createElement('canvas');

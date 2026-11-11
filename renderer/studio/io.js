@@ -114,8 +114,11 @@ export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, on
   // of them and come out (partly) silent. Hold at the start until every sampler has them.
   ctx.suspend(0).then(async () => { await eng.settle(); await ctx.resume(); });
   const buf = await ctx.startRendering();
+  eng.freeSamples();
   onProgress('render', 1);
-  return { left: buf.getChannelData(0), right: buf.getChannelData(1), rate: SR };
+  // warnings: channels that could not render and stay silent [{ ch, name, message }]
+  const warnings = (eng.warnings || []).map((w) => ({ ...w, name: proj.channels.find((c) => c.id === w.ch)?.name || w.ch }));
+  return { left: buf.getChannelData(0), right: buf.getChannelData(1), rate: SR, warnings };
 }
 
 export async function renderWav(proj, onProgress = () => {}) {
