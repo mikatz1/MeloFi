@@ -553,7 +553,9 @@ app.whenReady().then(() => {
     if (files.length > 1) { folder = path.join(target, name); await fsp.mkdir(folder, { recursive: true }); }
     const written = [];
     for (const f of files) {
-      const p = path.join(folder, `${name}${f.suffix || ''}.${f.ext}`);
+      // a file in a folder of its own can carry just its own name ("01 리드 보컬")
+      const own = files.length > 1 && f.name ? String(f.name).replace(/[\/:*?"<>|]+/g, ' ').trim().slice(0, 80) : null;
+      const p = path.join(folder, own ? `${own}.${f.ext}` : `${name}${f.suffix || ''}.${f.ext}`);
       await fsp.writeFile(p, Buffer.from(f.data));
       written.push(p);
     }
