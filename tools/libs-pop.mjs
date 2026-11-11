@@ -106,6 +106,9 @@ export const POP_LIBS = {
     license: 'CC BY 4.0', url: 'https://github.com/sfzinstruments/MTG.SoloSax', strings: false,
     tags: ['kpop', 'pop', 'jpop'], use: '시티팝, R&B 팝의 색소폰 솔로',
     sfz: 'MTG.SoloSax-master/MTG Solo Saxophones/MTG Alto Sax.sfz',
+    // two short key-noise samples (alt_b_01, alt_*_34-ish) were mapped across whole octaves and won over
+    // the real notes, so the sax came out silent: keep only regions that span a few keys
+    filter: (r) => !/alt_[bk]_\d/.test(r.file || ''), // breath and key noises: one key each in the SFZ, but gap filling would stretch them over octaves
   },
 
   // ---------------- voice ----------------

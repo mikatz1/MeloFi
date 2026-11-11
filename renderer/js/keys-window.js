@@ -1,6 +1,8 @@
 // On-screen keyboard window: plays the window that opened it (MeloFi Studio's selected channel, or
 // the piano). Mouse: press / drag across keys. Computer keys while this window is focused:
 // A S D F G H J K L ; ' white keys, W E T Y U O P black keys, Z / X octave down / up.
+import '../i18n/i18n.js'; // the static text in keys.html follows the language (translateDom)
+
 const api = window.melofi;
 const $ = (s) => document.querySelector(s);
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];

@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // MeloFi Studio — insert effects, all built from Web Audio nodes so they run the same live and
 // in the offline renderer. Each effect type lists its parameters (for the UI and automation) and
 // builds a unit { input, output, set(params, at), param(name) -> AudioParam | null, dispose() }.

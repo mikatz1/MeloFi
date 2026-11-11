@@ -1,3 +1,4 @@
+// i18n-ignore-file: search words in both languages are data, not UI
 // Instrument search that works in Korean and English alike: "브라스" and "brass", "바이올린" and
 // "violin", "케이팝" and "k-pop" all find the same things. Also Korean initial consonants
 // ("ㅂㄹㅅ" -> 브라스), and several words at once ("케이팝 베이스").

@@ -7,8 +7,10 @@ import { Recorder } from './recorder.js';
 import { UI } from './ui.js';
 import { PRESETS, RESERVED, keyLabel, noteName } from './keymap.js';
 import { T } from './strings.js';
+import { t, onLangChange } from '../i18n/i18n.js';
 import { Metronome } from './metronome.js';
 import { MidiInput } from './midi-input.js';
+import { midiOffsetMs } from './latency.js';
 import { ScorePlayer } from './player.js';
 import { readScore, SCORE_EXT } from './score/index.js';
 import { encodeMidi } from './recorder.js';
@@ -33,19 +35,20 @@ class App {
     // the MeloFi logo opens the start card's choice again (piano or MeloFi Studio)
     const brand = document.querySelector('#bar .brand');
     if (brand) {
-      brand.title = '피아노 / MeloFi Studio 고르기';
+      brand.title = t('피아노 / MeloFi Studio 고르기');
+      onLangChange(() => { brand.title = t('피아노 / MeloFi Studio 고르기'); });
       brand.setAttribute('role', 'button');
       brand.tabIndex = 0;
       const open = () => window.melofi.startShow?.();
       brand.addEventListener('click', open);
       brand.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
     }
-    boot(0.02, '설정을 불러오는 중…');
+    boot(0.02, t('설정을 불러오는 중…'));
     this.settings = new Settings();
     await this.settings.load();
     this.env = await window.melofi.envInfo();
     this.instruments = await window.melofi.listInstruments();
-    boot(0.07, '오디오 엔진을 준비하는 중…', '샘플러 · 리미터 · 리버브');
+    boot(0.07, t('오디오 엔진을 준비하는 중…'), t('샘플러 · 리미터 · 리버브'));
     this.dl = new Map(); // instrument id -> download progress 0..1
     this.recent = [];
     this.loadRecent();
@@ -53,7 +56,7 @@ class App {
 
     this.engine = new Engine();
     await this.engine.init();
-    boot(0.13, '화면을 준비하는 중…');
+    boot(0.13, t('화면을 준비하는 중…'));
     this.stage = new Stage(document.getElementById('stage'), { gpu: this.settings.get('gpu') });
     console.log('renderer:', this.stage.renderer);
     const bg = this.settings.get('bgImage');
@@ -70,12 +73,14 @@ class App {
     if (this.studioWindow) { mark(); window.addEventListener('beforeunload', () => { try { localStorage.setItem('melofi.activeWindow', 'piano'); } catch { /* */ } }); }
     const mine = () => { try { return (localStorage.getItem('melofi.activeWindow') || 'piano') === this.role; } catch { return true; } };
     this.midi = new MidiInput({
-      onNote: (n, vel, on) => {
+      // lag: how late this keyboard's notes arrive (measured in settings; taken off recordings)
+      onNote: (n, vel, on, dev) => {
         if (on && !mine()) return;
-        if (on) this.midiHeld.set(n, this.userDown(n, vel));
-        else { this.userUp(this.midiHeld.get(n) ?? [n]); this.midiHeld.delete(n); }
+        const lag = midiOffsetMs(this.settings.v, dev);
+        if (on) this.midiHeld.set(n, this.userDown(n, vel, lag));
+        else { this.userUp(this.midiHeld.get(n) ?? [n], lag); this.midiHeld.delete(n); }
       },
-      onSustain: (on) => { if (mine()) this.sustain(on); },
+      onSustain: (on, dev) => { if (!mine()) return; this.evLag = midiOffsetMs(this.settings.v, dev); this.sustain(on); this.evLag = 0; },
       onSostenuto: (on) => this.setSostenuto(on),
       onSoft: (on) => this.setSoft(on),
       // composer: MIDI learn and mapped controllers (true = handled there)
@@ -121,7 +126,7 @@ class App {
     requestAnimationFrame(this.loop);
     new ResizeObserver(() => this.stage.layout()).observe(this.stage.c);
 
-    const ready = () => { boot(1, '준비 완료'); window.melofi.bootReady?.(); };
+    const ready = () => { boot(1, t('준비 완료')); window.melofi.bootReady?.(); };
     if (studioWin) { await this.bootStudioWindow(boot); ready(); return; } // the composer loads its own instruments
 
     // the video encoder warms up meanwhile (its first start is slow), then the instrument's samples
@@ -129,10 +134,10 @@ class App {
     const usable = this.instruments.filter((i) => i.installed);
     if (!usable.length) { ready(); this.ui.toast(T.toast.noInstruments, { err: true, ms: 10000 }); return; }
     if (!usable.some((i) => i.id === this.settings.get('instrument'))) this.settings.set({ instrument: (usable.find((i) => i.bundled) || usable[0]).id });
-    this.booting = (p, meta) => boot(0.2 + 0.68 * p, `악기 샘플을 불러오는 중… ${meta.name}`, `${meta.model || ''}${meta.maker ? ` · ${meta.maker}` : ''}`);
+    this.booting = (p, meta) => boot(0.2 + 0.68 * p, t('악기 샘플을 불러오는 중… {name}', { name: meta.name }), `${t(meta.model || '')}${meta.maker ? ` · ${meta.maker}` : ''}`);
     await this.loadInstrument();
     this.booting = null;
-    boot(0.9, '녹화 준비 중…');
+    boot(0.9, t('녹화 준비 중…'));
     await warm;
     // one frame drawn before the window shows
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -146,7 +151,7 @@ class App {
     document.title = 'MeloFi Studio';
     const brand = document.querySelector('#bar .brand');
     if (brand) brand.lastChild.textContent = 'MeloFi Studio';
-    boot(0.3, '작곡 스튜디오를 준비하는 중…');
+    boot(0.3, t('작곡 스튜디오를 준비하는 중…'));
     await this.studio.open();
     await this.studio.syncAudio(); // the project's instruments, loaded before the window shows
     const run = (cmd) => this.studio.command(cmd);
@@ -293,7 +298,7 @@ class App {
     return clamp(Math.round(v.velocity + (Math.random() * 2 - 1) * v.humanize), 1, 127);
   }
 
-  play(note, velocity) {
+  play(note, velocity, lag = 0) {
     if (note < 21 || note > 108) return;
     if (this.engine.ctx.state !== 'running') this.engine.ctx.resume();
     let vel = velocity ?? this.velocity();
@@ -301,28 +306,28 @@ class App {
     this.count[note]++;
     this.engine.noteOn(note, vel);
     this.stage.noteOn(note, vel);
-    this.recorder.event({ type: 'on', note, vel });
+    this.recorder.event({ type: 'on', note, vel, lag });
   }
 
   // A key / MIDI note / click from the player (judged first when practising).
   // Returns the notes it sounded, which key-up releases.
-  userDown(note, vel) {
-    if (this.studio?.isOpen) { this.studio.liveOn(note, vel ?? this.velocity()); return [note]; } // plays the studio's selected channel
-    this.play(note, vel);
+  userDown(note, vel, lag = 0) {
+    if (this.studio?.isOpen) { this.studio.liveOn(note, vel ?? this.velocity(), lag); return [note]; } // plays the studio's selected channel
+    this.play(note, vel, lag);
     return [note];
   }
 
-  userUp(notes) {
-    if (this.studio?.isOpen) { for (const n of notes) this.studio.liveOff(n); return; }
-    for (const n of notes) this.release(n);
+  userUp(notes, lag = 0) {
+    if (this.studio?.isOpen) { for (const n of notes) this.studio.liveOff(n, lag); return; }
+    for (const n of notes) this.release(n, lag);
   }
 
-  release(note) {
+  release(note, lag = 0) {
     if (note < 21 || note > 108 || !this.count[note]) return;
     if (--this.count[note] > 0) return;
     this.engine.noteOff(note);
     this.stage.noteOff(note, this.engine.isSounding(note));
-    this.recorder.event({ type: 'off', note });
+    this.recorder.event({ type: 'off', note, lag });
   }
 
   preview(note) {
@@ -348,7 +353,7 @@ class App {
     this.sustainDown = on;
     this.stage.setPedal(on);
     this.engine.setSustain(on);
-    this.recorder.event({ type: 'sus', on });
+    this.recorder.event({ type: 'sus', on, lag: this.evLag || 0 });
   }
 
   // Soft pedal (left): notes come out quieter and darker while it is down.
@@ -753,7 +758,7 @@ class App {
     this.engine.partGain = Math.max(0.3, Math.min(1, 1.8 / Math.sqrt(Math.max(1, sounding))));
     this.engine.dropParts(need);
     if (!need.length) return;
-    this.ui.toast(`악기 ${need.length}개를 불러오는 중…`, { ms: 20000 });
+    this.ui.toast(t('악기 {n}개를 불러오는 중…', { n: need.length }), { ms: 20000 });
     const t0 = performance.now();
     await Promise.all(need.map((id) => this.engine.loadPart(id).catch((err) => console.error(err))));
     console.log(`score parts: ${need.join(', ')} in ${Math.round(performance.now() - t0)} ms`);
@@ -777,14 +782,14 @@ class App {
     }
     if (!missing.size) return 0;
     const names = [...missing.keys()].map((id) => this.instruments.find((i) => i.id === id)?.name || id);
-    this.ui.toast(`이 곡에 필요한 악기 ${missing.size}개를 받는 중입니다 (${names.slice(0, 3).join(', ')}${names.length > 3 ? ' …' : ''}). 받는 동안은 비슷한 악기로 연주합니다.`, { ms: 8000 });
+    this.ui.toast(t('이 곡에 필요한 악기 {n}개를 받는 중입니다 ({names}). 받는 동안은 비슷한 악기로 연주합니다.', { n: missing.size, names: `${names.slice(0, 3).join(', ')}${names.length > 3 ? ' …' : ''}` }), { ms: 8000 });
     for (const [id, list] of missing) {
       this.downloadInstrument(id, { quiet: true }).then(async (r) => {
         if (!r?.ok || this.player.song !== song) return;
         await this.engine.loadPart(id);
         for (const a of list) { a.inst = id; this.player.setLine(a.line.id, true); }
         const name = this.instruments.find((i) => i.id === id)?.name || id;
-        this.ui.toast(`${name} 받기 완료 — ${list.length}파트를 원래 악기로 연주합니다`, { ms: 3500 });
+        this.ui.toast(t('{name} 받기 완료 — {n}파트를 원래 악기로 연주합니다', { name, n: list.length }), { ms: 3500 });
       });
     }
     return missing.size;

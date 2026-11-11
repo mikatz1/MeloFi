@@ -1,0 +1,311 @@
+{
+ "version": 2,
+ "name": "stems song",
+ "bpm": 120,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchk2gom",
+   "name": "베이스",
+   "inst": "splendid",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0,
+   "mute": true,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "audio",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk2gon",
+   "name": "베이스 · Synth Bass",
+   "inst": "synbass",
+   "color": "#7fb0ff",
+   "vol": 0.75,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchk2goo",
+   "name": "드럼 · Drum Kit 808",
+   "inst": "drums808",
+   "color": "#9fd67a",
+   "vol": 0.85,
+   "pan": 0,
+   "send": 0.05,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchk2gop",
+   "name": "구간 1",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchk2gon": [
+     {
+      "t": 0,
+      "d": 180,
+      "n": 45,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 45,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 48,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 43,
+      "v": 100
+     }
+    ],
+    "cmwchk2goo": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchk2goq",
+   "name": "구간 2",
+   "color": "#d68a5a",
+   "bars": 2,
+   "notes": {
+    "cmwchk2gon": [
+     {
+      "t": 0,
+      "d": 180,
+      "n": 47,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 47,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 50,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 45,
+      "v": 100
+     }
+    ],
+    "cmwchk2goo": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchk2gop",
+ "selected": "cmwchk2gon",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "베이스",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchk2gor",
+    "kind": "audio",
+    "media": "dc3ed340826128465956",
+    "ch": "cmwchk2gom",
+    "track": 0,
+    "start": 0,
+    "len": 4,
+    "offset": 0,
+    "gain": 1,
+    "sync": false
+   },
+   {
+    "id": "kmwchk2gos",
+    "pattern": "pmwchk2gop",
+    "track": 1,
+    "start": 0,
+    "len": 2
+   },
+   {
+    "id": "kmwchk2got",
+    "pattern": "pmwchk2goq",
+    "track": 1,
+    "start": 2,
+    "len": 2
+   }
+  ]
+ },
+ "mode": "song",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": []
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {
+  "dc3ed340826128465956": {
+   "name": "베이스.flac",
+   "rate": 24000,
+   "ch": 1,
+   "dur": 8,
+   "bpm": null
+  }
+ },
+ "scale": null,
+ "midiMap": [],
+ "_fixture": "bb98162 shaped like the AI window's stems -> MIDI result: a muted audio stem channel next to MIDI channels, one pattern per section"
+}

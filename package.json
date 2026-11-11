@@ -1,13 +1,13 @@
 {
   "name": "melofi",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Virtual piano with a visualizer, score playback and practice",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "set MELOFI_DEV=1&& electron .",
     "build:instruments": "node tools/build-instruments.mjs",
-    "dist": "electron-builder --win nsis",
+    "dist": "electron-builder --win nsis --publish never",
     "server": "node server/index.mjs"
   },
   "author": "mikatz1",
@@ -19,6 +19,7 @@
     "linkedom": "^0.18.9"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "lamejs": "^1.2.1",
     "mp4-muxer": "^5.2.2"
   },
@@ -33,15 +34,22 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "daw.js",
       "account.js",
       "studio-files.js",
       "vocal.js",
       "stems.js",
+      "engine-install.js",
       "vsthost.js",
+      "crashlog.js",
+      "updater.js",
+      "report.js",
+      "i18n-main.js",
       "tools/vocal/svs_render.py",
       "tools/stems/analyze.py",
       "tools/stems/instruments.py",
+      "tools/stems/engine/**",
       "package.json",
       "renderer/**/*",
       "!renderer/_test/**",
@@ -49,6 +57,7 @@
       "instruments/splendid/s/**"
     ],
     "asarUnpack": [
+      "lib/unpack/**",
       "tools/vocal/**",
       "tools/stems/**",
       "instruments/**"
@@ -71,12 +80,21 @@
       "createDesktopShortcut": true,
       "shortcutName": "MeloFi",
       "installerIcon": "renderer/assets/icon.ico",
-      "uninstallerIcon": "renderer/assets/icon.ico"
+      "uninstallerIcon": "renderer/assets/icon.ico",
+      "artifactName": "MeloFi-Setup-${version}.${ext}"
     },
     "extraResources": [
       {
         "from": "native/build/MeloFiVstHost_artefacts/Release/MeloFi VST Host.exe",
         "to": "vsthost/MeloFi VST Host.exe"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mikatz1",
+        "repo": "MeloFi",
+        "releaseType": "release"
       }
     ]
   }

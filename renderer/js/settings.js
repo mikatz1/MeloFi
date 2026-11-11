@@ -1,4 +1,7 @@
+import { setLangPref } from '../i18n/i18n.js';
+
 export const DEFAULTS = {
+  lang: 'system',           // 'system' | 'ko' | 'en' (docs/i18n.md)
   keyPreset: 'piano',
   customMap: null,
   octave: 4,
@@ -74,6 +77,8 @@ export const DEFAULTS = {
   recRes: 'window',
   recMbps: 16,
   recKbps: 320,
+  // input latency (latency.js): measured round trip per input/output pair, MIDI feel per device
+  latency: { on: true, audioManual: 0, midiManual: 0, audio: {}, midi: {} },
 };
 
 export class Settings {
@@ -98,10 +103,12 @@ export class Settings {
   get(k) { return this.v[k]; }
   set(patch) {
     Object.assign(this.v, patch);
+    if ('lang' in patch) setLangPref(patch.lang); // every window re-renders (onLangChange)
     Object.assign(this._dirty, patch);
     for (const fn of this.listeners) fn(patch, this.v);
     clearTimeout(this._t);
-    this._t = setTimeout(() => { const d = this._dirty; this._dirty = {}; window.melofi.saveSettings(d); }, 300);
+    // a new language is saved at once, so the other windows switch together
+    this._t = setTimeout(() => { const d = this._dirty; this._dirty = {}; window.melofi.saveSettings(d); }, 'lang' in patch ? 0 : 300);
   }
   reset() { this.set({ ...DEFAULTS }); }
   on(fn) { this.listeners.add(fn); }

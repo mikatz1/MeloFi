@@ -308,7 +308,7 @@ export function parseMusicXml(xml, fallbackTitle = 'Score') {
       }
     }
     for (const [staff, notes] of [...byStaff.entries()].sort((a, b) => a[0] - b[0])) {
-      const hand = staves === 2 ? (staff === 1 ? '오른손' : '왼손') : staves > 2 ? `${staff}단` : '';
+      const hand = staves === 2 ? (staff === 1 ? '오른손' : '왼손') : staves > 2 ? `${staff}단` : ''; // i18n-ignore (shown through tdyn)
       lines.push({ name: hand ? `${meta.name} · ${hand}` : meta.name, piano: meta.piano, program: meta.program, drum: !!meta.drum, notes });
     }
   });

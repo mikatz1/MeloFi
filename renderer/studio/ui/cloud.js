@@ -5,6 +5,7 @@
 import { h, ask } from './dom.js';
 import { migrate } from '../model.js';
 import { T } from '../../js/strings.js';
+import { t, tdyn } from '../../i18n/i18n.js';
 
 const A = (op, payload) => window.melofi.account(op, payload);
 const fmtDate = (t) => { const d = new Date(t); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -22,7 +23,7 @@ export class CloudSheet {
     this.msg = '';
     this.el = h('section', { id: 'cloud', class: 'sheet', hidden: true },
       h('div', { class: 'sheet-card cloud-card' },
-        h('div', { class: 'sheet-head' }, this.titleEl = h('h2', {}, T.cloud.title), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
+        h('div', { class: 'sheet-head' }, this.titleEl = h('h2', {}, T.cloud.title), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
         this.body = h('div', { class: 'cloud-body' })));
     this.el.addEventListener('pointerdown', (e) => { if (e.target === this.el) this.close(); });
     document.body.append(this.el);
@@ -45,7 +46,7 @@ export class CloudSheet {
     if (this.mode === 'projects') this.loadList();
   }
 
-  say(text, err = true) { this.msg = text ? { text, err } : ''; this.render(); }
+  say(text, err = true) { this.msg = text ? { text: tdyn(text), err } : ''; this.render(); }
 
   async loadList() {
     const r = await A('projects');

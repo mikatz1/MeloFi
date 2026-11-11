@@ -1,0 +1,8 @@
+Yoko (NNSVS pretrained model "r9y9/yoko_latest") — licence notes kept by MeloFi (checked 2026-11-12)
+
+Model: published by Ryuichi Yamamoto (r9y9) with NNSVS (https://github.com/nnsvs/nnsvs, MIT licence for the code).
+Download: https://www.dropbox.com/s/k8mya65yt52m0ps/yoko_latest.tar.gz
+
+The licence of the trained model and of the singing data it was trained on could NOT be verified.
+MeloFi shows this voice as "라이선스 미확인" (licence unverified): use it for personal practice only,
+and do not publish songs made with it until the licence is known.

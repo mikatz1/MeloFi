@@ -19,14 +19,26 @@ import argparse, json, os, sys, time, subprocess, shutil, glob, re
 from pathlib import Path
 
 
+# The overall bar: each part of the run gets a share of 0..1 by how long it takes. With MuScriptor
+# on, its transcription is often the longest part, so the stages before it are squeezed into the
+# first share instead of the bar sitting at ~94% for the whole transcription.
+_SPAN = [0.0, 1.0]
+SECONDS_PER_AUDIO_SECOND = {"sep_full": 1.35, "sep_fast": 0.9, "rest": 0.15, "small": 0.3, "medium": 0.65, "large": 1.8}
+
+
 def say(p, label, **extra):
-    print(json.dumps({"p": round(p, 3), "label": label, **extra}, ensure_ascii=False), flush=True)
+    lo, hi = _SPAN
+    print(json.dumps({"p": round(lo + (hi - lo) * max(0.0, min(1.0, p)), 3), "label": label, **extra}, ensure_ascii=False), flush=True)
+
+
+def set_span(lo, hi):
+    _SPAN[0], _SPAN[1] = lo, hi
 
 
 def run_muscriptor(src, out, model, times):
     """MuScriptor (Kyutai x Mirelo) on the whole mix -> {model, license, notes: {instrument: [[t, d, pitch, vel]]}}
     or {error}. Weights are CC BY-NC 4.0 (non-commercial) and gated: HF_TOKEN must be set."""
-    say(0.935, f"악기별로 받아 적는 중 (MuScriptor {model}, 비상업 전용)")
+    say(0.0, f"MuScriptor {model} 모델을 불러오는 중… (비상업 전용)")
     t0 = time.time()
     # run as a module with this Python: a console-script .exe remembers the folder it was installed in
     js = out / f"muscriptor_{model}.json"
@@ -45,7 +57,7 @@ def run_muscriptor(src, out, model, times):
         m = re.search(r"(\d+) chunk\(s\) of ([\d.]+)s", line)
         if m:
             total = int(m.group(1))
-            say(0.935, f"MuScriptor {model} · 구간 0/{total} (구간마다 {float(m.group(2)):g}초)", stage=0.0)
+            say(0.02, f"MuScriptor {model} · 구간 0/{total} (구간마다 {float(m.group(2)):g}초)", stage=0.0)
         elif "encode conditions" in line and total:
             started += 1
             now = time.time()
@@ -55,7 +67,7 @@ def run_muscriptor(src, out, model, times):
             if done >= 1:
                 left = (now - first) / done * (total - done)
                 eta = f" · 남은 시간 약 {max(1, round(left / 60))}분" if left >= 60 else f" · 남은 시간 약 {max(5, round(left / 5) * 5)}초"
-            say(0.935 + 0.06 * done / total, f"MuScriptor {model} · 구간 {started}/{total}{eta}", stage=done / total)
+            say(0.02 + 0.97 * done / total, f"MuScriptor {model} · 구간 {started}/{total}{eta}", stage=done / total)
 
     while True:
         ch = p2.stdout.read(1)
@@ -92,17 +104,50 @@ def run_muscriptor(src, out, model, times):
     return {"model": model, "license": "CC BY-NC 4.0 (non-commercial)", "notes": by, "seconds": times[f"muscriptor_{model}"]}
 
 
+
+def to_wav(a, dst):
+    """The input as a 44.1 kHz stereo float WAV. ffmpeg reads anything (video too); without it (most PCs
+    have none: it is not part of Windows) soundfile reads WAV, FLAC, OGG/Opus and MP3 itself and soxr
+    resamples, so a missing ffmpeg is not the "file not found" it used to look like."""
+    try:
+        r = subprocess.run([a.ffmpeg, "-y", "-v", "error", "-i", a.input, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(dst)], capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        why = r.stderr.strip()[-300:]
+    except (FileNotFoundError, PermissionError, OSError):
+        why = None  # no ffmpeg on this PC
+    import numpy as np
+    import soundfile as sf
+    try:
+        x, rate = sf.read(a.input, dtype="float32", always_2d=True)
+    except Exception as e:
+        if why:
+            raise SystemExit(f"ffmpeg: {why}")
+        raise SystemExit("이 형식은 열 수 없어요(ffmpeg가 없어서 WAV·MP3·FLAC·OGG만 읽을 수 있어요). "
+                         f"음원을 그 형식으로 바꿔 다시 넣어 주세요. ({type(e).__name__}: {e})")
+    x = x[:, :2] if x.shape[1] >= 2 else np.repeat(x, 2, axis=1)
+    if rate != 44100:
+        try:
+            import soxr
+            x = soxr.resample(x, rate, 44100, quality="VHQ")
+        except ImportError:
+            from scipy.signal import resample_poly
+            from math import gcd
+            g = gcd(int(rate), 44100)
+            x = resample_poly(x, 44100 // g, int(rate) // g, axis=0).astype("float32")
+    sf.write(str(dst), x, 44100, subtype="FLOAT")
+
 def only_muscriptor(a):
     """Add a MuScriptor run to an analysis that is already done (the stems, beats and notes stay)."""
     out = Path(a.out)
     res = json.loads((out / "result.json").read_text(encoding="utf-8"))
     say(0.02, "오디오를 준비하는 중")
     src = out / "input.wav"
-    r = subprocess.run([a.ffmpeg, "-y", "-v", "error", "-i", a.input, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(src)], capture_output=True, text=True)
-    if r.returncode:
-        raise SystemExit(f"ffmpeg: {r.stderr.strip()[-300:]}")
+    to_wav(a, src)
     times = res.setdefault("times", {})
+    set_span(0.03, 0.99)
     mus = run_muscriptor(src, out, a.muscriptor, times)
+    set_span(0.0, 1.0)
     runs = res.setdefault("muscriptor_runs", {})
     if "error" not in mus: runs[a.muscriptor] = mus
     res["muscriptor"] = mus
@@ -132,9 +177,7 @@ def main():
     # ---------- 1. a clean 44.1 kHz stereo WAV to work on ----------
     say(0.01, "오디오를 준비하는 중")
     src = out / "input.wav"
-    r = subprocess.run([a.ffmpeg, "-y", "-v", "error", "-i", a.input, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(src)], capture_output=True, text=True)
-    if r.returncode:
-        raise SystemExit(f"ffmpeg: {r.stderr.strip()[-300:]}")
+    to_wav(a, src)
 
     import numpy as np
     import soundfile as sf
@@ -143,6 +186,11 @@ def main():
     say(0.03, f"장치: {torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU'}")
     mix, sr = sf.read(str(src), always_2d=True)
     duration = len(mix) / sr
+    if a.muscriptor != "off":
+        pre = SECONDS_PER_AUDIO_SECOND["sep_fast" if a.quick else "sep_full"] + SECONDS_PER_AUDIO_SECOND["rest"]
+        mus_share = SECONDS_PER_AUDIO_SECOND[a.muscriptor] / (pre + SECONDS_PER_AUDIO_SECOND[a.muscriptor])
+        pre_end = round(1 - mus_share, 3)
+        set_span(0.0, pre_end / 0.95)  # the stages before MuScriptor run 0..0.95 of their own scale
 
     # ---------- 2. separation ----------
     from audio_separator.separator import Separator
@@ -229,7 +277,11 @@ def main():
     # beats per bar from the downbeats
     if len(downbeats) > 2:
         per = [sum(1 for b in beats if d0 - 1e-3 <= b < d1 - 1e-3) for d0, d1 in zip(downbeats, downbeats[1:])]
-        meter = int(np.bincount(per).argmax()) if per else 4
+        # only bar lengths a song can have count (the tracker marks some downbeats a beat apart on
+        # busy fast songs, which gave "1/4"); when most bars are not like that the downbeats can't be
+        # trusted and the song is taken as 4/4, by far the most common
+        ok = [c for c in per if 2 <= c <= 7]
+        meter = int(np.bincount(ok).argmax()) if len(ok) >= 0.6 * len(per) and ok else 4
     else:
         meter = 4
 
@@ -278,7 +330,9 @@ def main():
     # ---------- 5b. MuScriptor: the whole mix -> notes per instrument (35 classes) ----------
     mus = None
     if a.muscriptor != "off":
+        set_span(pre_end, 0.985)
         mus = run_muscriptor(src, out, a.muscriptor, times)
+        set_span(0.985 - 0.95 * 0.015 / 0.05, 0.985 + 0.05 * 0.015 / 0.05)  # drums: the last sliver
 
     # ---------- 6. drum hits from the DrumSep stems ----------
     say(0.95, "드럼 타격을 찾는 중")

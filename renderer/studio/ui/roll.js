@@ -9,23 +9,25 @@
 import { clamp, noteLabel, isBlackKey } from './dom.js';
 import { PPQ, STEP, barTicks, pattern, channel, notesOf, patternTicks, inScale, snapToScale, SCALES } from '../model.js';
 import { kitNames } from '../../js/drums.js';
+import { t, N_ } from '../../i18n/i18n.js';
 
 const KEYS_W = 54, RULER_H = 20, LANE_H = 64;
 
 export const CHORDS = {
-  auto: { name: '스케일 화음 (자동)', iv: null },
-  maj: { name: '메이저', iv: [0, 4, 7] },
-  min: { name: '마이너', iv: [0, 3, 7] },
-  '7': { name: '도미넌트 7', iv: [0, 4, 7, 10] },
-  maj7: { name: '메이저 7', iv: [0, 4, 7, 11] },
-  m7: { name: '마이너 7', iv: [0, 3, 7, 10] },
+  auto: { name: N_('스케일 화음 (자동)'), iv: null },
+  maj: { name: N_('메이저'), iv: [0, 4, 7] },
+  min: { name: N_('마이너'), iv: [0, 3, 7] },
+  '7': { name: N_('도미넌트 7'), iv: [0, 4, 7, 10] },
+  maj7: { name: N_('메이저 7'), iv: [0, 4, 7, 11] },
+  m7: { name: N_('마이너 7'), iv: [0, 3, 7, 10] },
   sus2: { name: 'sus2', iv: [0, 2, 7] },
   sus4: { name: 'sus4', iv: [0, 5, 7] },
   add9: { name: 'add9', iv: [0, 4, 7, 14] },
-  dim: { name: '디미니시', iv: [0, 3, 6] },
-  power: { name: '파워 코드', iv: [0, 7, 12] },
+  dim: { name: N_('디미니시'), iv: [0, 3, 6] },
+  power: { name: N_('파워 코드'), iv: [0, 7, 12] },
 };
-export const LANES = { v: '벨로시티', pan: '팬', fine: '파인 피치' };
+// names are shown with t(LANES[k]) / t(CHORDS[k].name)
+export const LANES = { v: N_('벨로시티'), pan: N_('팬'), fine: N_('파인 피치') };
 
 export class Roll {
   constructor(studio, canvas) {
@@ -208,7 +210,7 @@ export class Roll {
     g.fillStyle = '#0c0d10'; g.fillRect(KEYS_W, vy, W - KEYS_W, LANE_H);
     g.fillStyle = '#24252b'; g.fillRect(KEYS_W, vy, W - KEYS_W, 1);
     if (lane !== 'v') { g.fillStyle = '#24252b'; g.fillRect(KEYS_W, vy + LANE_H / 2, W - KEYS_W, 1); }
-    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(LANES[lane], 6, vy + 14);
+    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(t(LANES[lane]), 6, vy + 14);
     for (const nt of this.list) {
       const x = this.tToX(nt.t);
       if (x < KEYS_W || x > W) continue;

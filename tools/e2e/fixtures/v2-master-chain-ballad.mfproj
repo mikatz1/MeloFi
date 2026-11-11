@@ -1,0 +1,384 @@
+{
+ "version": 2,
+ "name": "발라드",
+ "bpm": 72,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjz6e7",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.35,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjz6e8",
+   "name": "Strings",
+   "inst": "strings",
+   "color": "#7fb0ff",
+   "vol": 0.7,
+   "pan": 0,
+   "send": 0.35,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjz6e9",
+   "name": "Cello",
+   "inst": "cello",
+   "color": "#9fd67a",
+   "vol": 0.7,
+   "pan": 0,
+   "send": 0.3,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjz6ec",
+   "name": "피아노",
+   "color": "#5a7bd6",
+   "bars": 4,
+   "notes": {
+    "cmwchjz6e7": [
+     {
+      "t": 0,
+      "d": 384,
+      "n": 55,
+      "v": 70
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 59,
+      "v": 70
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 62,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 52,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 55,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 59,
+      "v": 70
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 48,
+      "v": 70
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 52,
+      "v": 70
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 55,
+      "v": 70
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 50,
+      "v": 70
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 54,
+      "v": 70
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 57,
+      "v": 70
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjz6ed",
+   "name": "스트링",
+   "color": "#d68a5a",
+   "bars": 4,
+   "notes": {
+    "cmwchjz6e8": [
+     {
+      "t": 0,
+      "d": 384,
+      "n": 67,
+      "v": 60
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 71,
+      "v": 60
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 74,
+      "v": 60
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 64,
+      "v": 60
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 67,
+      "v": 60
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 71,
+      "v": 60
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 60,
+      "v": 60
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 64,
+      "v": 60
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 67,
+      "v": 60
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 62,
+      "v": 60
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 66,
+      "v": 60
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 69,
+      "v": 60
+     }
+    ],
+    "cmwchjz6e9": [
+     {
+      "t": 0,
+      "d": 384,
+      "n": 43,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 40,
+      "v": 70
+     },
+     {
+      "t": 768,
+      "d": 384,
+      "n": 36,
+      "v": 70
+     },
+     {
+      "t": 1152,
+      "d": 384,
+      "n": 38,
+      "v": 70
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjz6ec",
+ "selected": "cmwchjz6e7",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjz6ee",
+    "pattern": "pmwchjz6ec",
+    "track": 0,
+    "start": 0,
+    "len": 8
+   },
+   {
+    "id": "kmwchjz6ef",
+    "pattern": "pmwchjz6ed",
+    "track": 1,
+    "start": 4,
+    "len": 4
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.7,
+  "reverb": "hall",
+  "fx": [
+   {
+    "id": "fmwchjz6eg",
+    "type": "eq",
+    "on": true,
+    "params": {
+     "cut": 25,
+     "low": 0,
+     "lowF": 110,
+     "mid": 0,
+     "midF": 1000,
+     "q": 1,
+     "high": 1,
+     "highF": 7000
+    }
+   },
+   {
+    "id": "fmwchjz6eh",
+    "type": "comp",
+    "on": true,
+    "params": {
+     "threshold": -16,
+     "ratio": 2,
+     "attack": 0.03,
+     "release": 0.2,
+     "knee": 6,
+     "makeup": 2
+    }
+   },
+   {
+    "id": "fmwchjz6ei",
+    "type": "limiter",
+    "on": true,
+    "params": {
+     "gain": 4,
+     "ceiling": -0.5
+    }
+   }
+  ]
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": {
+  "root": 7,
+  "type": "major"
+ },
+ "midiMap": [],
+ "_fixture": "bddf88d ballad + the 마스터 기본 chain (EQ, compressor, limiter) on the master, master fader 0.7"
+}

@@ -1,0 +1,16 @@
+Hoshino Hanami ~AI❤dol~ for DiffSinger v1.0 — licence notes kept by MeloFi (checked 2026-11-12)
+
+Author: Team L❤VE (LotteV) — https://lottev.moe/  ·  licence page: https://lottev.moe/utau/voicebank-license/
+The full licence files ship inside the voicebank (folder "__License") and stay next to it:
+LICENSE_voicebank.txt, LICENSE_vocoder.txt, LICENSE_character.txt, LICENSE_dictionaries.txt, ...
+plus "Terms of Use.pdf".
+
+Voicebank (Team L❤VE Voicebank License): use for any creative purpose, also commercially, without
+asking first; you must give attribution to the original creator; do not modify or redistribute the
+original audio files; ports need permission.
+
+Vocoder (bundled "AI❤dolGAN", fine-tuned from OpenVPI NSF-HiFiGAN): CC BY-NC-SA 4.0 (non-commercial).
+Because every render goes through this vocoder, songs made with this voice in MeloFi are for
+NON-COMMERCIAL use only.
+
+Credit to show: Hoshino Hanami ~AI❤dol~ (Team L❤VE)

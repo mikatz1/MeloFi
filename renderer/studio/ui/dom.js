@@ -1,4 +1,5 @@
 // Small DOM helpers and controls shared by the studio panels.
+import { t } from '../../i18n/i18n.js';
 
 export const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -94,7 +95,7 @@ export const noteLabel = (n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`
 export const isBlackKey = (n) => [1, 3, 6, 8, 10].includes(n % 12);
 
 // A small text dialog (Electron has no window.prompt). Resolves with the text, or null if cancelled.
-export function ask(label, value = '', { type = 'text', ok = '확인', cancel = '취소' } = {}) {
+export function ask(label, value = '', { type = 'text', ok = t('확인'), cancel = t('취소') } = {}) {
   return new Promise((resolve) => {
     document.querySelector('.st-ask')?.remove();
     const input = h('input', { type, value, class: 'cl-in' });
@@ -114,7 +115,7 @@ export function ask(label, value = '', { type = 'text', ok = '확인', cancel = 
 
 // A small form dialog: fields [{ key, label, type: 'number'|'select'|'range'|'check', min, max, step, value, options: [[v, label]] }]
 // Resolves with { key: value } or null if cancelled.
-export function form(title, fields, { ok = '적용', cancel = '취소', note = '' } = {}) {
+export function form(title, fields, { ok = t('적용'), cancel = t('취소'), note = '' } = {}) {
   return new Promise((resolve) => {
     document.querySelector('.st-ask')?.remove();
     const inputs = {};

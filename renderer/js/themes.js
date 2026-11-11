@@ -5,6 +5,8 @@
 //   grid / stars / rays: painted backdrops (retro sun + neon floor, starfield + nebula, light shafts)
 //   pixel: 8-bit look — particles are square pixels on a grid, notes are square-cut, no smooth wisps or mist
 
+import { N_ } from '../i18n/i18n.js';
+
 export const THEMES = {
   midnight: {
     name: 'Midnight',
@@ -31,7 +33,7 @@ export const THEMES = {
     white: ['#f6ead7', '#d9c2a2'], black: ['#2a1a12', '#0c0604'], felt: '#3a1205', keyEdge: '#ff8a3c', blackRim: '#ff9a4a',
   },
   sakura: {
-    name: '벚꽃',
+    name: N_('벚꽃'),
     bg: ['#0b0509', '#1a0b16', '#2a1223'],
     lane: 'rgba(255,170,210,0.04)',
     bar: '#ffe0ee', barGlow: '#ff5fa2',
@@ -55,7 +57,7 @@ export const THEMES = {
     white: ['#eaf7f2', '#c4ddd5'], black: ['#0f2a26', '#030a09'], felt: '#06281f', keyEdge: '#2fe0b0', blackRim: '#5cf2c4',
   },
   snow: {
-    name: '첫눈',
+    name: N_('첫눈'),
     bg: ['#070b12', '#0e1622', '#172334'],
     lane: 'rgba(190,220,255,0.05)',
     bar: '#f2f8ff', barGlow: '#7fb6ff',
@@ -67,7 +69,7 @@ export const THEMES = {
     white: ['#f5f9fd', '#d2dce8'], black: ['#1d2838', '#06090e'], felt: '#14233a', keyEdge: '#a9cfff', blackRim: '#cfe4ff',
   },
   ink: {
-    name: '먹',
+    name: N_('먹'),
     keys: 'ink', // rice-paper keys, brush lines between them, black keys painted in ink
     // hanji paper; on the GPU the ink really bleeds (water + pigment simulation)
     paper: true, inkSim: true,
@@ -82,7 +84,7 @@ export const THEMES = {
     white: ['#faf7f0', '#e2dccf'], black: ['#1e1c1a', '#0a0908'], felt: '#5a1d14',
   },
   arcade: {
-    name: '아케이드',
+    name: N_('아케이드'),
     keys: 'pixel', // flat keys with pixel bevels
     // 8-bit: square pixels on a grid, square-cut notes, CRT scanlines (stage.pixel / gl SH_PIXEL)
     bg: ['#05030f', '#0b0820', '#140c30'],
@@ -96,7 +98,7 @@ export const THEMES = {
     white: ['#ececec', '#c8c8d0'], black: ['#1a1a24', '#060608'], felt: '#3a0a2a',
   },
   synthwave: {
-    name: '신스웨이브',
+    name: N_('신스웨이브'),
     bg: ['#0b0420', '#2a0b3d', '#52154a'],
     lane: 'rgba(255,90,200,0.05)',
     bar: '#ffe1f4', barGlow: '#ff2fa8',
@@ -108,7 +110,7 @@ export const THEMES = {
     white: ['#efeaf2', '#cfc6d8'], black: ['#1c1424', '#07040a'], felt: '#3a0a2e', keys: 'neon',
   },
   deepsea: {
-    name: '심해',
+    name: N_('심해'),
     bg: ['#010812', '#03182a', '#062a40'],
     lane: 'rgba(120,220,255,0.04)',
     bar: '#d8f7ff', barGlow: '#1fb6ff',
@@ -120,7 +122,7 @@ export const THEMES = {
     white: ['#eef4f6', '#cbd9de'], black: ['#14202a', '#03080c'], felt: '#04263a', keys: 'glass',
   },
   space: {
-    name: '우주',
+    name: N_('우주'),
     bg: ['#000004', '#04030f', '#0a0820'],
     lane: 'rgba(180,170,255,0.035)',
     bar: '#f2eeff', barGlow: '#8d6bff',
@@ -132,7 +134,7 @@ export const THEMES = {
     white: ['#f0eef6', '#d0cbe0'], black: ['#16121f', '#050308'], felt: '#120a2a', keys: 'lacquer',
   },
   contrast: {
-    name: '고대비',
+    name: N_('고대비'),
     // for readability: black, white and one strong colour, nothing soft
     bg: ['#000000', '#000000', '#000000'],
     lane: 'rgba(255,255,255,0.12)',

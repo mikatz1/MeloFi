@@ -1,0 +1,448 @@
+{
+ "version": 2,
+ "name": "로파이",
+ "bpm": 78,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0.45,
+ "channels": [
+  {
+   "id": "cmwchjr8cw",
+   "name": "Kick",
+   "inst": "drums808",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjr8cx",
+   "name": "Snare",
+   "inst": "drums808",
+   "color": "#7fb0ff",
+   "vol": 0.7,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 38,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjr8cy",
+   "name": "Hat",
+   "inst": "drums808",
+   "color": "#9fd67a",
+   "vol": 0.45,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjr8cz",
+   "name": "Rhodes",
+   "inst": "rhodes",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.3,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [
+    {
+     "id": "fmwchjr8c11",
+     "type": "chorus",
+     "on": true,
+     "params": {
+      "rate": 0.8,
+      "depth": 0.5,
+      "mix": 0.35
+     }
+    },
+    {
+     "id": "fmwchjr8c12",
+     "type": "filter",
+     "on": true,
+     "params": {
+      "type": 0,
+      "freq": 5000,
+      "res": 0.7
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjr8c10",
+   "name": "Bass",
+   "inst": "upright",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjr8c16",
+   "name": "비트",
+   "color": "#5a7bd6",
+   "bars": 1,
+   "notes": {
+    "cmwchjr8cw": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 168,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchjr8cx": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 90
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 90
+     }
+    ],
+    "cmwchjr8cy": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 70
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjr8c17",
+   "name": "코드",
+   "color": "#d68a5a",
+   "bars": 2,
+   "notes": {
+    "cmwchjr8cz": [
+     {
+      "t": 0,
+      "d": 384,
+      "n": 50,
+      "v": 70
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 53,
+      "v": 70
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 57,
+      "v": 70
+     },
+     {
+      "t": 0,
+      "d": 384,
+      "n": 60,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 55,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 59,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 62,
+      "v": 70
+     },
+     {
+      "t": 384,
+      "d": 384,
+      "n": 65,
+      "v": 70
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjr8c18",
+   "name": "베이스",
+   "color": "#5ab98a",
+   "bars": 2,
+   "notes": {
+    "cmwchjr8c10": [
+     {
+      "t": 0,
+      "d": 144,
+      "n": 38,
+      "v": 90
+     },
+     {
+      "t": 192,
+      "d": 96,
+      "n": 38,
+      "v": 90
+     },
+     {
+      "t": 288,
+      "d": 96,
+      "n": 41,
+      "v": 90
+     },
+     {
+      "t": 384,
+      "d": 144,
+      "n": 43,
+      "v": 90
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 41,
+      "v": 90
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjr8c16",
+ "selected": "cmwchjr8cw",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjr8c19",
+    "pattern": "pmwchjr8c16",
+    "track": 0,
+    "start": 0,
+    "len": 8
+   },
+   {
+    "id": "kmwchjr8c1a",
+    "pattern": "pmwchjr8c17",
+    "track": 1,
+    "start": 0,
+    "len": 8
+   },
+   {
+    "id": "kmwchjr8c1b",
+    "pattern": "pmwchjr8c18",
+    "track": 2,
+    "start": 0,
+    "len": 8
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": [
+   {
+    "id": "fmwchjr8c13",
+    "type": "eq",
+    "on": true,
+    "params": {
+     "cut": 20,
+     "low": 0,
+     "lowF": 110,
+     "mid": 0,
+     "midF": 1000,
+     "q": 1,
+     "high": -3,
+     "highF": 7000
+    }
+   },
+   {
+    "id": "fmwchjr8c14",
+    "type": "comp",
+    "on": true,
+    "params": {
+     "threshold": -20,
+     "ratio": 3,
+     "attack": 0.01,
+     "release": 0.15,
+     "knee": 6,
+     "makeup": 4
+    }
+   },
+   {
+    "id": "fmwchjr8c15",
+    "type": "limiter",
+    "on": true,
+    "params": {
+     "gain": 2,
+     "ceiling": -0.3
+    }
+   }
+  ]
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": {
+  "root": 2,
+  "type": "dorian"
+ },
+ "midiMap": [],
+ "_fixture": "cadae31 template lofi: before sends, time signature markers, synth presets and the master fader change"
+}

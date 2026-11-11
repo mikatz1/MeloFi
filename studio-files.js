@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
+const { t } = require('./i18n-main.js');
 
 const AUDIO = /\.(wav|mp3|ogg|flac|m4a|aac|aif|aiff|opus|webm)$/i;
 
@@ -38,7 +39,7 @@ function register(ipcMain, { app, dialog, getWin, defaultDir, settings }) {
   });
   ipcMain.handle('media:pickFiles', async (_e, opts = {}) => {
     const audio = ['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aif', 'aiff'];
-    const filters = opts.video ? [{ name: '오디오 · 동영상', extensions: [...audio, 'mp4', 'mov', 'webm', 'mkv', 'aac'] }] : [{ name: '오디오', extensions: audio }];
+    const filters = opts.video ? [{ name: t('오디오 · 동영상'), extensions: [...audio, 'mp4', 'mov', 'webm', 'mkv', 'aac'] }] : [{ name: t('오디오'), extensions: audio }];
     const r = await dialog.showOpenDialog(getWin(), { properties: opts.video ? ['openFile'] : ['openFile', 'multiSelections'], filters });
     if (r.canceled) return [];
     return Promise.all(r.filePaths.slice(0, 32).map(async (p) => ({ name: path.basename(p), data: new Uint8Array(await fsp.readFile(p)) })));
@@ -68,7 +69,7 @@ function register(ipcMain, { app, dialog, getWin, defaultDir, settings }) {
   });
 
   // ---- project files: <name>.mfproj + "<name> 오디오/" holding the audio it uses ----
-  const mediaDir = (file) => file.replace(/\.mfproj$/i, '') + ' 오디오';
+  const mediaDir = (file) => file.replace(/\.mfproj$/i, '') + ' 오디오'; // i18n-ignore (a folder name projects are read back from)
   ipcMain.handle('studio:save', async (_e, json, name, p) => {
     let target = p;
     if (!target) {

@@ -3,6 +3,7 @@
 // Instruments that are not installed can be downloaded right here.
 import { T } from './strings.js';
 import { haystack, matches } from './search.js';
+import { t, tdyn, N_, onLangChange } from '../i18n/i18n.js';
 
 const $ = (s) => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -18,7 +19,7 @@ const h = (tag, attrs = {}, ...kids) => {
 };
 const mb = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 const FAMILY_ORDER = ['piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'drums', 'fx', 'mfsynth'];
-const FAMILY_NAMES = { mfsynth: 'MeloFi 신스 프리셋' };
+const FAMILY_NAMES = { mfsynth: N_('MeloFi 신스 프리셋') };
 const api = window.melofi;
 
 const state = { opts: {}, list: [], hay: new Map(), q: '', family: 'all', installedOnly: false, sel: null, dl: new Map() };
@@ -32,19 +33,19 @@ async function load() {
 // MeloFi Synth presets (sent by the studio) appear as their own family, grouped by category
 function withSynths() {
   state.list = state.list.filter((i) => i.family !== 'mfsynth');
-  (state.opts.synths || []).forEach((p, k) => state.list.push({ id: p.id, name: p.name, model: `신스 · ${p.cat}`, use: '편집 가능한 신시사이저', family: 'mfsynth', installed: true, order: k, cat: p.cat }));
-  for (const i of state.list) if (i.family === 'mfsynth') state.hay.set(i.id, haystack({ ...i, name: `${i.name} ${i.cat} 신스 synth` }, T));
+  (state.opts.synths || []).forEach((p, k) => state.list.push({ id: p.id, name: p.name, model: t('신스 · {cat}', { cat: t(p.cat) }), use: t('편집 가능한 신시사이저'), family: 'mfsynth', installed: true, order: k, cat: p.cat }));
+  for (const i of state.list) if (i.family === 'mfsynth') state.hay.set(i.id, haystack({ ...i, name: `${i.name} ${i.cat} ${t(i.cat)} 신스 synth` }, T)); // i18n-ignore (search words)
 }
 
 function setup(opts) {
   state.opts = opts || {};
   withSynths();
-  $('#pkFor').textContent = state.opts.title ? `· ${state.opts.title}` : '';
-  const head = state.opts.heading || '악기 선택'; // the studio calls it the plugin picker, as FL Studio does
+  $('#pkFor').textContent = state.opts.title ? `· ${tdyn(state.opts.title)}` : '';
+  const head = tdyn(state.opts.heading) || t('악기 선택'); // the studio calls it the plugin picker, as FL Studio does
   document.querySelector('.pk-title').textContent = head;
-  document.title = state.opts.title ? `${head} · ${state.opts.title}` : head;
+  document.title = state.opts.title ? `${head} · ${tdyn(state.opts.title)}` : head;
   state.sel = state.opts.current || state.sel;
-  $('#pkHint').textContent = state.opts.closeOnPick ? '클릭하거나 Enter로 선택 · Esc 닫기' : '클릭하면 바로 바뀝니다 · Esc 닫기';
+  $('#pkHint').textContent = state.opts.closeOnPick ? t('클릭하거나 Enter로 선택 · Esc 닫기') : t('클릭하면 바로 바뀝니다 · Esc 닫기');
   render(true);
 }
 
@@ -60,29 +61,29 @@ function render(scrollToSel = false) {
   const count = (f) => base.filter((i) => (i.family || 'piano') === f).length;
   const fams = FAMILY_ORDER.filter((f) => state.list.some((i) => (i.family || 'piano') === f));
   $('#pkFam').replaceChildren(
-    h('button', { class: state.family === 'all' ? 'on' : '', onclick: () => { state.family = 'all'; render(); } }, '전체', h('small', {}, base.length)),
-    ...fams.map((f) => h('button', { class: state.family === f ? 'on' : '', onclick: () => { state.family = f; render(); } }, FAMILY_NAMES[f] || T.families[f] || f, h('small', {}, count(f)))));
+    h('button', { class: state.family === 'all' ? 'on' : '', onclick: () => { state.family = 'all'; render(); } }, t('전체'), h('small', {}, base.length)),
+    ...fams.map((f) => h('button', { class: state.family === f ? 'on' : '', onclick: () => { state.family = f; render(); } }, (FAMILY_NAMES[f] && t(FAMILY_NAMES[f])) || T.families[f] || f, h('small', {}, count(f)))));
 
   const items = visible();
   const list = $('#pkList');
-  if (!items.length) { list.replaceChildren(h('li', { class: 'pk-empty' }, '찾는 악기가 없습니다. 다른 이름이나 초성으로 검색해 보세요.')); return; }
+  if (!items.length) { list.replaceChildren(h('li', { class: 'pk-empty' }, t('찾는 악기가 없습니다. 다른 이름이나 초성으로 검색해 보세요.'))); return; }
   const rows = [];
   let lastFam = null;
   for (const i of [...items].sort((a, b) => FAMILY_ORDER.indexOf(a.family || 'piano') - FAMILY_ORDER.indexOf(b.family || 'piano') || a.order - b.order)) {
     const fam = i.family || 'piano';
-    const grp = fam === 'mfsynth' ? `${FAMILY_NAMES.mfsynth} · ${i.cat}` : fam;
+    const grp = fam === 'mfsynth' ? `${t(FAMILY_NAMES.mfsynth)} · ${t(i.cat)}` : fam;
     if ((state.family === 'all' || fam === 'mfsynth') && grp !== lastFam) { rows.push(h('li', { class: 'pk-group' }, fam === 'mfsynth' ? grp : T.families[fam] || fam)); lastFam = grp; }
     const cur = i.id === state.opts.current;
     const dl = state.dl.get(i.id);
-    const st = cur ? h('span', { class: 'st cur' }, '사용 중')
+    const st = cur ? h('span', { class: 'st cur' }, t('사용 중'))
       : i.installed ? h('span', { class: 'st' }, '')
-        : dl != null ? h('button', { class: 'pk-btn', onclick: (e) => { e.stopPropagation(); cancel(i.id); } }, `${Math.round(dl * 100)}% · 취소`)
-          : h('button', { class: 'pk-btn', onclick: (e) => { e.stopPropagation(); download(i.id); } }, `받기 · ${mb(i.size)}`);
+        : dl != null ? h('button', { class: 'pk-btn', onclick: (e) => { e.stopPropagation(); cancel(i.id); } }, t('{p}% · 취소', { p: Math.round(dl * 100) }))
+          : h('button', { class: 'pk-btn', onclick: (e) => { e.stopPropagation(); download(i.id); } }, t('받기 · {size}', { size: mb(i.size) }));
     rows.push(h('li', {
       class: `pk-row${i.installed ? '' : ' off'}${cur ? ' cur' : ''}${state.sel === i.id ? ' sel' : ''}`, role: 'option', 'data-id': i.id,
-      title: i.use || '',
+      title: t(i.use || ''),
       onclick: () => { state.sel = i.id; if (i.installed) choose(i.id); else render(); },
-    }, h('div', { class: 'nm' }, h('b', {}, i.name), h('span', {}, [i.model, i.use].filter(Boolean).join(' · '))), st));
+    }, h('div', { class: 'nm' }, h('b', {}, i.name), h('span', {}, [i.model, i.use].filter(Boolean).map((x) => t(x)).join(' · '))), st));
   }
   list.replaceChildren(...rows);
   if (scrollToSel && state.sel) list.querySelector(`[data-id="${CSS.escape(state.sel)}"]`)?.scrollIntoView({ block: 'center' });
@@ -101,7 +102,7 @@ async function download(id) {
   state.dl.delete(id);
   await load();
   render();
-  if (r && r.ok === false && !r.cancelled) $('#pkHint').textContent = '다운로드하지 못했습니다. 인터넷 연결을 확인해 주세요.';
+  if (r && r.ok === false && !r.cancelled) $('#pkHint').textContent = t('다운로드하지 못했습니다. 인터넷 연결을 확인해 주세요.');
 }
 async function cancel(id) { await api.cancelDownload(id); state.dl.delete(id); render(); }
 
@@ -110,7 +111,7 @@ api.onInstrumentProgress((p) => {
   const x = p.total ? p.done / p.total : 0;
   state.dl.set(p.id, x);
   const row = $(`#pkList [data-id="${CSS.escape(p.id)}"] .pk-btn`);
-  if (row) row.textContent = `${Math.round(x * 100)}% · 취소`;
+  if (row) row.textContent = t('{p}% · 취소', { p: Math.round(x * 100) });
 });
 
 // keyboard: type to search, arrows to move, Enter to pick, Esc to close
@@ -138,3 +139,5 @@ api.onPickerSetup((opts) => setup(opts));
 await load();
 setup(await api.pickerOptions());
 $('#pkSearch').focus();
+// another language chosen in a window: the list and its labels again (the static text: translateDom)
+onLangChange(() => { withSynths(); setup(state.opts); });

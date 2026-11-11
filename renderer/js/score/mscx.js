@@ -461,7 +461,7 @@ export function parseMscx(xml, fallbackTitle = 'Score') {
       recording = null;
     });
 
-    const hand = info.count === 2 ? (info.k === 0 ? '오른손' : '왼손') : info.count > 1 ? `${info.k + 1}단` : '';
+    const hand = info.count === 2 ? (info.k === 0 ? '오른손' : '왼손') : info.count > 1 ? `${info.k + 1}단` : ''; // i18n-ignore (shown through tdyn)
     lines.push({ name: hand ? `${info.name} · ${hand}` : info.name, piano: info.piano, notes });
   });
 

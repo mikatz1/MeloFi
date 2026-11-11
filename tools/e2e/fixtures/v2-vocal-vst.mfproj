@@ -1,0 +1,500 @@
+{
+ "version": 2,
+ "name": "새 프로젝트",
+ "bpm": 120,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjwj5o",
+   "name": "Kick",
+   "inst": "drums808",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjwj5p",
+   "name": "Clap",
+   "inst": "drums808",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 39,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjwj5q",
+   "name": "Hat",
+   "inst": "drums808",
+   "color": "#9fd67a",
+   "vol": 0.6,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjwj5r",
+   "name": "Snare",
+   "inst": "drums808",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 38,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjwj5s",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.25,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjwj5u",
+   "name": "보컬",
+   "inst": "synth",
+   "color": "#5fd8d0",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "synth",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "synth": {
+    "w1": 1,
+    "o1": 0,
+    "l1": 0.8,
+    "w2": 0,
+    "o2": 1,
+    "s2": 0,
+    "f2": 7,
+    "l2": 0.3,
+    "sub": 0,
+    "noise": 0,
+    "uni": 1,
+    "det": 18,
+    "spread": 0.6,
+    "ft": 0,
+    "cut": 3500,
+    "res": 3,
+    "fenv": 1,
+    "kt": 0.5,
+    "fa": 0.005,
+    "fd": 0.35,
+    "fs": 0.3,
+    "fr": 0.3,
+    "aa": 0.004,
+    "ad": 0.3,
+    "as": 0.8,
+    "ar": 0.25,
+    "lt": 1,
+    "lr": 5.5,
+    "ld": 0.1,
+    "glide": 0.04,
+    "vol": 0.7
+   },
+   "synthPreset": "레트로 리드",
+   "vocal": {
+    "lyrics": "らららら",
+    "voice": "r9y9/yoko_latest"
+   }
+  },
+  {
+   "id": "cmwchjwj5v",
+   "name": "Missing VST",
+   "inst": "vst",
+   "color": "#f0d264",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "vst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "vst": {
+    "plugin": "vst3:missing-plugin-0001",
+    "file": "C:\\Program Files\\Common Files\\VST3\\NoSuchPlugin.vst3",
+    "name": "NoSuchPlugin",
+    "vendor": "Nobody"
+   }
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjwj5t",
+   "name": "패턴 1",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchjwj5o": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5p": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 39,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5q": [
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 432,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 528,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 624,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     },
+     {
+      "t": 720,
+      "d": 24,
+      "n": 42,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5r": [
+     {
+      "t": 96,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5s": [
+     {
+      "t": 0,
+      "d": 180,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 0,
+      "d": 180,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 0,
+      "d": 180,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 57,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 60,
+      "v": 100
+     },
+     {
+      "t": 192,
+      "d": 180,
+      "n": 64,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 65,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 180,
+      "n": 69,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 180,
+      "n": 71,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5u": [
+     {
+      "t": 0,
+      "d": 48,
+      "n": 67,
+      "v": 100
+     },
+     {
+      "t": 48,
+      "d": 48,
+      "n": 69,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 48,
+      "n": 71,
+      "v": 100
+     },
+     {
+      "t": 144,
+      "d": 48,
+      "n": 72,
+      "v": 100
+     }
+    ],
+    "cmwchjwj5v": [
+     {
+      "t": 0,
+      "d": 96,
+      "n": 48,
+      "v": 100
+     },
+     {
+      "t": 96,
+      "d": 96,
+      "n": 52,
+      "v": 100
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjwj5t",
+ "selected": "cmwchjwj5s",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kpmwchjwj5t",
+    "pattern": "pmwchjwj5t",
+    "track": 0,
+    "start": 0,
+    "len": 2
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": []
+ },
+ "buses": [],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": null,
+ "midiMap": [],
+ "_fixture": "b0843c3 basic + a vocal channel (lyrics) and a VST channel whose plugin is not installed"
+}

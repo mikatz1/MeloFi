@@ -1,10 +1,17 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // MeloFi Studio — project model. Plain data (saved as JSON), plus helpers and undo history.
 //
 // Time is in ticks: PPQ per quarter note. A 16th-note step is STEP ticks.
 
+import { upgrade } from './compat.js';
+import { t } from '../i18n/i18n.js';
+
 export const PPQ = 96;
 export const STEP = PPQ / 4;
-export const VERSION = 2;
+// 1: first studio. 2: composer 2 (inserts, buses, automation, audio). 3: sound fixes — compressor
+// without the browser's hidden make-up, filter resonance as a Q ratio, measured instrument levels
+// (older projects are upgraded in compat.js so they keep their sound; see docs/compat.md)
+export const VERSION = 3;
 
 let nextId = 1;
 export const uid = (p) => `${p}${Date.now().toString(36)}${(nextId++).toString(36)}`;
@@ -33,10 +40,10 @@ export function newBus(i, name) {
   return { id: uid('b'), name: name || `Insert ${i + 1}`, color: CHANNEL_COLORS[(i + 5) % CHANNEL_COLORS.length], vol: 0.8, pan: 0, mute: false, fx: [] };
 }
 
-export const newTrack = (i) => ({ name: `트랙 ${i + 1}`, color: null, mute: false, solo: false });
+export const newTrack = (i) => ({ name: t('트랙 {n}', { n: i + 1 }), color: null, mute: false, solo: false });
 
 export function newPattern(i, bars = 1) {
-  return { id: uid('p'), name: `패턴 ${i + 1}`, color: PATTERN_COLORS[i % PATTERN_COLORS.length], bars, notes: {} };
+  return { id: uid('p'), name: t('패턴 {n}', { n: i + 1 }), color: PATTERN_COLORS[i % PATTERN_COLORS.length], bars, notes: {} };
 }
 
 // A new project: the classic starting point — four drum channels and one instrument.
@@ -50,7 +57,7 @@ export function newProject() {
   ];
   const p = newPattern(0, 1);
   return {
-    version: VERSION, name: '새 프로젝트', bpm: 120, sig: [4, 4], swing: 0,
+    version: VERSION, name: t('새 프로젝트'), bpm: 120, sig: [4, 4], swing: 0,
     channels: chans, patterns: [p], current: p.id, selected: chans[4].id,
     playlist: { tracks: Array.from({ length: 8 }, (_, i) => newTrack(i)), clips: [] },
     mode: 'pattern', master: { vol: 0.85, reverb: 'hall', fx: [] },
@@ -215,7 +222,10 @@ export class History {
 }
 
 // make sure a loaded file has everything a current project needs
+// (a project without a version was made in code just now: it is current)
 export function migrate(p) {
+  const from = Number.isFinite(p.version) ? p.version : VERSION;
+  if (from < VERSION) p = structuredClone(p); // the upgrade edits effects and automation in place
   const base = newProject();
   const out = { ...base, ...p };
   out.playlist = { ...base.playlist, ...(p.playlist || {}) };
@@ -227,9 +237,10 @@ export function migrate(p) {
   // version 1 stored the playlist track count as a number
   const tr = out.playlist.tracks;
   out.playlist.tracks = typeof tr === 'number' ? Array.from({ length: tr }, (_, i) => newTrack(i)) : tr;
-  out.version = VERSION;
   out.patterns = (p.patterns?.length ? p.patterns : base.patterns).map((pt, i) => ({ ...newPattern(i), ...pt, notes: pt.notes || {} }));
   if (!out.patterns.some((x) => x.id === out.current)) out.current = out.patterns[0].id;
   if (!out.channels.some((x) => x.id === out.selected)) out.selected = out.channels[0]?.id;
+  if (from < VERSION) upgrade(out, from, VERSION);
+  out.version = VERSION;
   return out;
 }

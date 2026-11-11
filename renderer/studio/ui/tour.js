@@ -4,6 +4,7 @@
 import { h } from './dom.js';
 import { CHAPTERS } from './lessons.js';
 import { Demo } from './tourfx.js';
+import { t } from '../../i18n/i18n.js';
 
 export { CHAPTERS };
 
@@ -68,10 +69,10 @@ export class Tour {
     const next = st?.next ? CHAPTERS.find((c) => c.id === st.next) : null;
     const prog = intro ? 0 : (this.i + (this.done || !st.wait ? 1 : 0.5)) / n;
     const head = h('div', { class: 'tt-head' },
-      h('span', { class: 'tt-num' }, `${num}강`),
-      h('span', { class: 'tt-ch' }, ch.name),
-      h('span', { class: 'tt-count' }, intro ? `${n}단계` : `${this.i + 1} / ${n}`),
-      h('button', { class: 'x', title: '튜토리얼 끝내기 (Esc)', 'aria-label': '튜토리얼 끝내기', onclick: () => this.stop() }));
+      h('span', { class: 'tt-num' }, t('{num}강', { num })),
+      h('span', { class: 'tt-ch' }, t(ch.name)),
+      h('span', { class: 'tt-count' }, intro ? t('{n}단계', { n }) : `${this.i + 1} / ${n}`),
+      h('button', { class: 'x', title: t('튜토리얼 끝내기 (Esc)'), 'aria-label': t('튜토리얼 끝내기'), onclick: () => this.stop() }));
     const bar = h('div', { class: 'tt-prog' }, h('i', { style: `width:${Math.round(prog * 100)}%` }));
     const dots = h('div', { class: 'tt-dots' }, ...ch.steps.map((_, k) => h('i', { class: k < this.i || (k === this.i && this.done) ? 'done' : k === this.i ? 'now' : '' })));
     let body;
@@ -79,25 +80,25 @@ export class Tour {
       body = [
         // the lesson's most telling animation previews it
         this.demo.show(num === 1 ? { kind: 'welcome' } : ch.steps.find((s) => s.demo && !['done', 'key'].includes(s.demo.kind))?.demo || { kind: 'welcome' }),
-        h('b', { class: 'tt-title' }, ch.name),
-        h('p', {}, ch.goal),
-        h('ol', { class: 'tt-plan' }, ...ch.steps.filter((s) => !s.next && s.title && !/끝|마쳤어요|환영/.test(s.title)).map((s) => h('li', {}, s.title))),
+        h('b', { class: 'tt-title' }, t(ch.name)),
+        h('p', {}, t(ch.goal)),
+        h('ol', { class: 'tt-plan' }, ...ch.steps.filter((s) => !s.next && s.title && !/끝|마쳤어요|환영/.test(s.title)).map((s) => h('li', {}, t(s.title)))),
         h('div', { class: 'row' },
-          num > 1 ? h('button', { class: 'btn sm ghost', onclick: () => this.start(CHAPTERS[num - 2].id) }, '이전 강의') : null,
+          num > 1 ? h('button', { class: 'btn sm ghost', onclick: () => this.start(CHAPTERS[num - 2].id) }, t('이전 강의')) : null,
           h('span', { class: 'sp' }),
-          h('button', { class: 'btn sm primary', onclick: () => this.go(0) }, '시작')),
+          h('button', { class: 'btn sm primary', onclick: () => this.go(0) }, t('시작'))),
       ];
     } else {
       body = [
         this.demo.show(st.demo),
-        h('b', { class: 'tt-title' }, st.title),
-        h('p', {}, st.body),
-        st.wait ? h('div', { class: `tt-do${this.done ? ' ok' : ''}` }, h('i'), this.done ? '잘했어요! 다음으로 넘어가요.' : '직접 해 보세요. 하면 자동으로 넘어가요.') : null,
+        h('b', { class: 'tt-title' }, t(st.title)),
+        h('p', {}, t(st.body)),
+        st.wait ? h('div', { class: `tt-do${this.done ? ' ok' : ''}` }, h('i'), this.done ? t('잘했어요! 다음으로 넘어가요.') : t('직접 해 보세요. 하면 자동으로 넘어가요.')) : null,
         h('div', { class: 'row' },
-          h('button', { class: 'btn sm ghost', onclick: () => this.go(this.i - 1) }, this.i > 0 ? '이전' : '처음으로'),
+          h('button', { class: 'btn sm ghost', onclick: () => this.go(this.i - 1) }, this.i > 0 ? t('이전') : t('처음으로')),
           h('span', { class: 'sp' }),
-          next ? h('button', { class: 'btn sm primary', onclick: () => this.start(next.id) }, `다음 강의: ${next.name}`)
-            : h('button', { class: `btn sm ${st.wait && !this.done ? 'ghost' : 'primary'}`, onclick: () => this.go(this.i + 1) }, st.wait && !this.done ? '건너뛰기' : this.i === n - 1 ? '끝내기' : '다음')),
+          next ? h('button', { class: 'btn sm primary', onclick: () => this.start(next.id) }, t('다음 강의: {name}', { name: t(next.name) }))
+            : h('button', { class: `btn sm ${st.wait && !this.done ? 'ghost' : 'primary'}`, onclick: () => this.go(this.i + 1) }, st.wait && !this.done ? t('건너뛰기') : this.i === n - 1 ? t('끝내기') : t('다음'))),
       ];
     }
     // replaceChildren() would print a null child as the text "null": drop empty parts first

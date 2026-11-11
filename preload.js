@@ -1,16 +1,40 @@
 'use strict';
 const { contextBridge, ipcRenderer, webUtils, webFrame } = require('electron');
 
+// every window's uncaught errors go to the local log (main: crashlog.js). The page's errors are only
+// seen from the page's own world, so a small listener is put there; it hands plain strings over.
+{
+  const send = (m) => { try { ipcRenderer.send('log:error', { kind: String(m?.kind || 'error'), message: String(m?.message || ''), source: String(m?.source || ''), line: +m?.line || 0, stack: String(m?.stack || '') }); } catch { /* closing */ } };
+  contextBridge.exposeInMainWorld('__melofiLogError', send);
+  webFrame.executeJavaScript(`(() => {
+    const send = window.__melofiLogError;
+    if (!send) return;
+    window.addEventListener('error', (e) => {
+      if (!(e instanceof ErrorEvent)) return; // a failed <img>/<script> load, not an exception
+      send({ kind: 'error', message: e.message, source: e.filename, line: e.lineno, stack: e.error && e.error.stack || '' });
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const r = e.reason;
+      send({ kind: 'rejection', message: (r && r.message) || String(r), stack: (r && r.stack) || '' });
+    });
+  })()`).catch(() => {});
+}
+
+let bootDone = false;
+ipcRenderer.once('boot:done', () => { bootDone = true; });
+
 contextBridge.exposeInMainWorld('melofi', {
   listInstruments: () => ipcRenderer.invoke('instruments:list'),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
+  i18nBoot: () => ipcRenderer.sendSync('i18n:boot'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings:changed', (_e, p) => cb(p)),
   bootProgress: (m) => ipcRenderer.send('boot:progress', m),
   bootReady: () => ipcRenderer.send('boot:ready'),
   onBootProgress: (cb) => ipcRenderer.on('boot:progress', (_e, m) => cb(m)),
   openStudioWindow: (cmd) => ipcRenderer.invoke('studio:openWindow', cmd),
-  onBootDone: (cb) => ipcRenderer.on('boot:done', () => cb()),
+  // boot:done can come before the page's script is listening (its modules wait for the language)
+  onBootDone: (cb) => { if (bootDone) cb(); else ipcRenderer.once('boot:done', () => cb()); },
   startShow: () => ipcRenderer.invoke('start:show'),
   startChoose: (target) => ipcRenderer.invoke('start:choose', target),
   splashResize: (w, h) => ipcRenderer.invoke('splash:resize', w, h),
@@ -19,6 +43,9 @@ contextBridge.exposeInMainWorld('melofi', {
   openKeysWindow: () => ipcRenderer.invoke('keys:open'),
   setZoom: (f) => webFrame.setZoomFactor(Math.max(0.5, Math.min(2, +f || 1))),
   closeKeysWindow: () => ipcRenderer.invoke('keys:close'),
+  // headless tests only (main registers these when MELOFI_SHOT is set)
+  testEval: (which, code) => ipcRenderer.invoke('test:eval', which, code),
+  testShot: (which, name) => ipcRenderer.invoke('test:shot', which, name),
   keysNote: (m) => ipcRenderer.send('keys:note', m),
   onKeysNote: (cb) => ipcRenderer.on('keys:note', (_e, m) => cb(m)),
   onKeysClosed: (cb) => ipcRenderer.on('keys:closed', () => cb()),
@@ -71,7 +98,7 @@ contextBridge.exposeInMainWorld('melofi', {
   vstNote: (m) => ipcRenderer.send('vst:note', m),
   vstRender: (a) => ipcRenderer.invoke('vst:render', a),
   stemsStatus: () => ipcRenderer.invoke('stems:status'),
-  stemsSetup: () => ipcRenderer.invoke('stems:setup'),
+  stemsSetup: (opts) => ipcRenderer.invoke('stems:setup', opts), // { mode: 'install' | 'reinstall' | 'update' }
   stemsRun: (payload) => ipcRenderer.invoke('stems:run', payload),
   stemsCancel: () => ipcRenderer.invoke('stems:cancel'),
   stemsGpu: () => ipcRenderer.invoke('stems:gpu'),
@@ -82,9 +109,17 @@ contextBridge.exposeInMainWorld('melofi', {
   stemsRead: (file) => ipcRenderer.invoke('stems:read', file),
   onStemsLog: (cb) => { const f = (_e, t) => cb(t); ipcRenderer.on('stems:log', f); return () => ipcRenderer.removeListener('stems:log', f); },
   onStemsProgress: (cb) => { const f = (_e, p) => cb(p); ipcRenderer.on('stems:progress', f); return () => ipcRenderer.removeListener('stems:progress', f); },
-  vocalStatus: () => ipcRenderer.invoke('vocal:status'),
+  vocalStatus: (opts) => ipcRenderer.invoke('vocal:status', opts),
   vocalSetup: () => ipcRenderer.invoke('vocal:setup'),
+  vocalInstall: (id) => ipcRenderer.invoke('vocal:install', id),
+  vocalCancel: () => ipcRenderer.invoke('vocal:cancel'),
+  vocalRemove: (id) => ipcRenderer.invoke('vocal:remove', id),
+  vocalLicense: (id) => ipcRenderer.invoke('vocal:license', id),
+  // { voice, notes: [{t, d, n, syl}] (seconds), speaker? } -> { ok, wav, seconds, sr, use, credit }
   vocalRender: (payload) => ipcRenderer.invoke('vocal:render', payload),
+  // { path } or { name, data }, notes?: [{t, d, n}], language? -> { ok, text, syllables, notes: [syl] }
+  vocalLyrics: (payload) => ipcRenderer.invoke('vocal:lyrics', payload),
+  vocalCheck: (payload) => ipcRenderer.invoke('vocal:check', payload),
   onVocalProgress: (cb) => { const f = (_e, p) => cb(p); ipcRenderer.on('vocal:progress', f); return () => ipcRenderer.removeListener('vocal:progress', f); },
   mediaGet: (hash) => ipcRenderer.invoke('media:get', hash),
   mediaPickFiles: (opts) => ipcRenderer.invoke('media:pickFiles', opts),
@@ -101,5 +136,15 @@ contextBridge.exposeInMainWorld('melofi', {
   dawOpenFolder: (dir) => ipcRenderer.invoke('daw:openFolder', dir),
   dawDrag: (files) => ipcRenderer.send('daw:drag', files),
   account: (op, payload) => ipcRenderer.invoke('account', op, payload),
+  updateState: () => ipcRenderer.invoke('update:state'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateRestart: () => ipcRenderer.invoke('update:restart'),
+  updateDismiss: () => ipcRenderer.invoke('update:dismiss'),
+  onUpdateState: (cb) => ipcRenderer.on('update:state', (_e, s) => cb(s)),
+  reportInfo: () => ipcRenderer.invoke('report:info'),
+  reportSave: (text) => ipcRenderer.invoke('report:save', text),
+  reportGithub: (text) => ipcRenderer.invoke('report:github', text),
+  openLogs: () => ipcRenderer.invoke('report:openLogs'),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f) || ''; } catch { return ''; } },
 });

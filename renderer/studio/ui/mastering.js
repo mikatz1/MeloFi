@@ -9,36 +9,37 @@ import { uid } from '../model.js';
 import { renderMix } from '../io.js';
 import { measure, limit, gain as gainMix, dB } from '../master-dsp.js';
 import { LoudnessMeter, TARGETS } from '../meter.js';
+import { t, tc, N_ } from '../../i18n/i18n.js';
 
 const f = (x, d = 1) => (x <= -69.5 ? '—' : x.toFixed(d));
 
 // the same ratio and threshold in all five bands of the multiband compressor
 const mb = (r, t) => Object.fromEntries([1, 2, 3, 4, 5].flatMap((i) => [[`r${i}`, r], [`t${i}`, t]]));
 
-// ready-made chains: [name, hint, [[type, params]]]
+// ready-made chains: [name, hint, [[type, params]]] (shown with t(name), t(hint))
 export const MASTER_CHAINS = [
-  ['깔끔하게 (스트리밍)', '대부분의 곡: 가볍게 다듬고 -14 LUFS', [
+  [N_('깔끔하게 (스트리밍)'), N_('대부분의 곡: 가볍게 다듬고 -14 LUFS'), [
     ['peq', { hpF: 25, lsG: 0.5, p2F: 300, p2G: -1, p3F: 3000, p3G: 0.5, hsF: 10000, hsG: 1 }],
     ['mbcomp', mb(1.5, -20)],
     ['imager', { w1: 0.5, w2: 1, w3: 1.05, w4: 1.1 }],
     ['maximizer', { gain: 9, ceiling: -1, release: 0.15 }]]],
-  ['크게 (EDM · 케이팝)', '단단하고 큰 소리: 클리퍼 + 맥시마이저', [
+  [N_('크게 (EDM · 케이팝)'), N_('단단하고 큰 소리: 클리퍼 + 맥시마이저'), [
     ['peq', { hpF: 28, lsF: 70, lsG: 1, p2F: 250, p2G: -1.5, p3F: 2500, p3G: 1, hsF: 9000, hsG: 1.5, hsW: 2 }],
     ['mbcomp', { ...mb(2, -22), r1: 2.5, attack: 0.01, release: 0.12 }],
     ['exciter', { mode: 0, drive: 0.25, mix: 0.3 }],
     ['imager', { w1: 0.2, w2: 1, w3: 1.1, w4: 1.25 }],
     ['clipper', { drive: 2, knee: 0.5, ceiling: -0.5 }],
     ['maximizer', { gain: 13, ceiling: -1, release: 0.08 }]]],
-  ['따뜻하게 (로파이 · 어쿠스틱)', '테이프 질감, 고음은 살짝 눕히기', [
+  [N_('따뜻하게 (로파이 · 어쿠스틱)'), N_('테이프 질감, 고음은 살짝 눕히기'), [
     ['peq', { hpF: 30, lsF: 120, lsG: 1, p3F: 3500, p3G: -1, hsF: 9000, hsG: -1.5 }],
     ['exciter', { mode: 0, drive: 0.4, mix: 0.45 }],
     ['mbcomp', { ...mb(1.6, -21), attack: 0.03, release: 0.3 }],
     ['maximizer', { gain: 8, ceiling: -1, release: 0.25 }]]],
-  ['부드럽게 (발라드 · 클래식)', '다이내믹을 살리는 가벼운 마스터', [
+  [N_('부드럽게 (발라드 · 클래식)'), N_('다이내믹을 살리는 가벼운 마스터'), [
     ['peq', { hpF: 20, hsF: 12000, hsG: 0.5 }],
     ['mbcomp', { ...mb(1.3, -25), attack: 0.04, release: 0.4 }],
     ['maximizer', { gain: 6, ceiling: -1, release: 0.4 }]]],
-  ['방송용 (EBU R128)', '-23 LUFS, 피크 -1 dBTP', [
+  [N_('방송용 (EBU R128)'), N_('-23 LUFS, 피크 -1 dBTP'), [
     ['peq', { hpF: 30 }],
     ['mbcomp', mb(1.5, -27)],
     ['maximizer', { gain: 0, ceiling: -1, release: 0.2 }]]],
@@ -100,17 +101,17 @@ export class MasteringWindow {
     let head;
     this.el = h('section', { id: 'mastering', class: 'ch-float ms-float', hidden: true },
       h('div', { class: 'sheet-card ms-card' },
-        head = h('div', { class: 'sheet-head ch-drag', title: '끌어서 옮기기' }, h('h2', {}, '마스터링'), h('button', { class: 'x', 'aria-label': '닫기', onclick: () => this.close() })),
+        head = h('div', { class: 'sheet-head ch-drag', title: t('끌어서 옮기기') }, h('h2', {}, t('마스터링')), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
         this.bar = h('div', { class: 'ms-bar' }),
         h('div', { class: 'ms-main' },
           this.chainEl = h('div', { class: 'ms-chain' }),
           h('div', { class: 'ms-meters' },
             this.nums = h('div', { class: 'ms-nums' }),
             h('div', { class: 'ms-row' },
-              h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, '게인 리덕션'), this.grEl = h('div', { class: 'ms-gr' })),
-              h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, '벡터스코프 · 위상'), this.scope = h('canvas', { class: 'ms-scope' }), this.corrEl = h('div', { class: 'ms-corr' }, h('i')))),
-            h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, '스펙트럼 · EQ 곡선', h('em', { class: 'ms-legend' }, h('i', { class: 'mix' }), '믹스 ', h('i', { class: 'eq' }), 'EQ ', h('i', { class: 'ref' }), '레퍼런스 ', h('i', { class: 'tg' }), '균형 기준')), this.spec = h('canvas', { class: 'ms-spec' })),
-            h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, '음량 흐름 (3초 단위)'), this.hist = h('canvas', { class: 'ms-hist' })))),
+              h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, t('게인 리덕션')), this.grEl = h('div', { class: 'ms-gr' })),
+              h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, t('벡터스코프 · 위상')), this.scope = h('canvas', { class: 'ms-scope' }), this.corrEl = h('div', { class: 'ms-corr' }, h('i')))),
+            h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, t('스펙트럼 · EQ 곡선'), h('em', { class: 'ms-legend' }, h('i', { class: 'mix' }), `${t('믹스')} `, h('i', { class: 'eq' }), 'EQ ', h('i', { class: 'ref' }), `${t('레퍼런스')} `, h('i', { class: 'tg' }), t('균형 기준'))), this.spec = h('canvas', { class: 'ms-spec' })),
+            h('div', { class: 'ms-box' }, h('span', { class: 'ms-cap' }, t('음량 흐름 (3초 단위)')), this.hist = h('canvas', { class: 'ms-hist' })))),
         this.foot = h('div', { class: 'ms-foot' })));
     this.pos = null;
     head.addEventListener('pointerdown', (e) => {
@@ -179,33 +180,33 @@ export class MasteringWindow {
     const S = this.S;
     // toolbar
     this.bar.replaceChildren(
-      h('label', { class: 'ms-tg' }, '목표', h('select', { onchange: (e) => { this.target = e.target.value; S.app.settings.set({ masterTarget: this.target }); this.render(); } },
-        ...TARGETS.map(([k, n, l, c]) => h('option', { value: k, selected: k === this.target }, `${n} · ${l} LUFS / ${c} dBTP`)))),
-      h('button', { class: 'btn sm primary', disabled: !!this.busy, title: '믹스를 분석해서 EQ·멀티밴드·이미저·맥시마이저를 목표에 맞게 설정해요', onclick: () => this.assist() }, this.busy ? '분석 중…' : '자동 마스터링'),
-      h('button', { class: 'btn sm', onclick: (e) => popup(e.clientX, e.clientY, [{ group: '마스터 체인 프리셋 (지금 체인을 바꿔요)' }, ...MASTER_CHAINS.map(([n, hint, chain]) => ({ label: n, hint, act: () => this.setChain(chain, `마스터 프리셋: ${n}`) }))]).classList.add('tall') }, '프리셋 ▾'),
+      h('label', { class: 'ms-tg' }, t('목표'), h('select', { onchange: (e) => { this.target = e.target.value; S.app.settings.set({ masterTarget: this.target }); this.render(); } },
+        ...TARGETS.map(([k, n, l, c]) => h('option', { value: k, selected: k === this.target }, `${t(n)} · ${l} LUFS / ${c} dBTP`)))),
+      h('button', { class: 'btn sm primary', disabled: !!this.busy, title: t('믹스를 분석해서 EQ·멀티밴드·이미저·맥시마이저를 목표에 맞게 설정해요'), onclick: () => this.assist() }, this.busy ? t('분석 중…') : t('자동 마스터링')),
+      h('button', { class: 'btn sm', onclick: (e) => popup(e.clientX, e.clientY, [{ group: t('마스터 체인 프리셋 (지금 체인을 바꿔요)') }, ...MASTER_CHAINS.map(([n, hint, chain]) => ({ label: t(n), hint: t(hint), act: () => this.setChain(chain, t('마스터 프리셋: {name}', { name: t(n) })) }))]).classList.add('tall') }, t('프리셋 ▾')),
       h('span', { class: 'sp' }),
-      h('button', { class: `btn sm${this.bypass ? ' on' : ''}`, title: '마스터 체인을 끈 소리와 비교 (음량은 맞춰서)', onclick: () => this.toggleBypass(!this.bypass) }, this.bypass ? '원본 듣는 중' : '원본과 비교'),
-      h('button', { class: `btn sm${this.E.mono ? ' on' : ''}`, title: '모노로 듣기: 휴대폰 스피커나 매장 스피커에서 소리가 빠지지 않는지 확인', onclick: () => { this.E.setMono(!this.E.mono); this.render(); } }, '모노'),
-      h('button', { class: 'btn sm', title: '비교할 곡 파일 불러오기 (WAV · MP3 · FLAC)', onclick: () => this.pickRef() }, this.ref ? '레퍼런스 바꾸기' : '레퍼런스 곡…'),
+      h('button', { class: `btn sm${this.bypass ? ' on' : ''}`, title: t('마스터 체인을 끈 소리와 비교 (음량은 맞춰서)'), onclick: () => this.toggleBypass(!this.bypass) }, this.bypass ? t('원본 듣는 중') : t('원본과 비교')),
+      h('button', { class: `btn sm${this.E.mono ? ' on' : ''}`, title: t('모노로 듣기: 휴대폰 스피커나 매장 스피커에서 소리가 빠지지 않는지 확인'), onclick: () => { this.E.setMono(!this.E.mono); this.render(); } }, t('모노')),
+      h('button', { class: 'btn sm', title: t('비교할 곡 파일 불러오기 (WAV · MP3 · FLAC)'), onclick: () => this.pickRef() }, this.ref ? t('레퍼런스 바꾸기') : t('레퍼런스 곡…')),
       ...(this.ref ? [
-        h('button', { class: `btn sm${this.refOn ? ' on' : ''}`, onclick: () => this.toggleRef(!this.refOn) }, this.refOn ? '레퍼런스 듣는 중' : '레퍼런스 듣기'),
-        h('label', { class: 'ms-chk', title: '레퍼런스를 내 믹스와 같은 음량으로 들어요' }, h('input', { type: 'checkbox', checked: this.match, onchange: (e) => { this.match = e.target.checked; this.applyRefGain(); } }), '음량 맞춤')] : []));
+        h('button', { class: `btn sm${this.refOn ? ' on' : ''}`, onclick: () => this.toggleRef(!this.refOn) }, this.refOn ? t('레퍼런스 듣는 중') : t('레퍼런스 듣기')),
+        h('label', { class: 'ms-chk', title: t('레퍼런스를 내 믹스와 같은 음량으로 들어요') }, h('input', { type: 'checkbox', checked: this.match, onchange: (e) => { this.match = e.target.checked; this.applyRefGain(); } }), t('음량 맞춤'))] : []));
     // chain
     if (!this.fx.some((x) => x.id === this.sel)) this.sel = this.fx[0]?.id || null;
     const slots = this.fx.map((x, i) => h('div', { class: `ms-slot${x.id === this.sel ? ' sel' : ''}${x.on === false ? ' off' : ''}` },
       h('span', { class: 'no' }, String(i + 1)),
-      h('button', { class: 'nm', title: FX_TYPES[x.type]?.hint || '', onclick: () => { this.sel = x.id; this.render(); },
+      h('button', { class: 'nm', title: t(FX_TYPES[x.type]?.hint || ''), onclick: () => { this.sel = x.id; this.render(); },
         oncontextmenu: (e) => { e.preventDefault(); popup(e.clientX, e.clientY, [
-          { label: '위로', act: () => { S.edit(() => { if (i > 0) this.fx.splice(i - 1, 0, ...this.fx.splice(i, 1)); }); S.syncAudio(); this.render(); } },
-          { label: '아래로', act: () => { S.edit(() => { if (i < this.fx.length - 1) this.fx.splice(i + 1, 0, ...this.fx.splice(i, 1)); }); S.syncAudio(); this.render(); } },
+          { label: t('위로'), act: () => { S.edit(() => { if (i > 0) this.fx.splice(i - 1, 0, ...this.fx.splice(i, 1)); }); S.syncAudio(); this.render(); } },
+          { label: t('아래로'), act: () => { S.edit(() => { if (i < this.fx.length - 1) this.fx.splice(i + 1, 0, ...this.fx.splice(i, 1)); }); S.syncAudio(); this.render(); } },
           { sep: true },
-          { label: '삭제', act: () => { S.edit(() => this.fx.splice(i, 1)); S.syncAudio(); this.render(); } },
-        ]); } }, FX_TYPES[x.type]?.name || x.type),
-      h('input', { type: 'checkbox', checked: x.on !== false, title: '켜기 / 끄기', onchange: () => { S.edit(() => { x.on = x.on === false; }); S.syncAudio(); this.render(); } })));
+          { label: t('삭제'), act: () => { S.edit(() => this.fx.splice(i, 1)); S.syncAudio(); this.render(); } },
+        ]); } }, t(FX_TYPES[x.type]?.name || x.type)),
+      h('input', { type: 'checkbox', checked: x.on !== false, title: t('켜기 / 끄기'), onchange: () => { S.edit(() => { x.on = x.on === false; }); S.syncAudio(); this.render(); } })));
     this.chainEl.replaceChildren(
-      h('div', { class: 'ms-cap' }, '마스터 체인'),
-      ...(slots.length ? slots : [h('p', { class: 'ms-empty' }, '비어 있어요. 자동 마스터링이나 프리셋으로 시작하거나, 아래에서 하나씩 넣어 보세요.')]),
-      h('button', { class: 'btn sm ghost ms-add', onclick: (e) => popup(e.clientX, e.clientY, [{ group: '마스터링' }, ...MASTER_FX.map((t) => ({ label: FX_TYPES[t].name, hint: FX_TYPES[t].hint, act: () => this.add(t) })), { group: '그 밖의 이펙트' }, ...['eq', 'comp', 'width', 'limiter', 'reverb'].map((t) => ({ label: FX_TYPES[t].name, hint: FX_TYPES[t].hint, act: () => this.add(t) }))]).classList.add('tall') }, '+ 넣기'),
+      h('div', { class: 'ms-cap' }, t('마스터 체인')),
+      ...(slots.length ? slots : [h('p', { class: 'ms-empty' }, t('비어 있어요. 자동 마스터링이나 프리셋으로 시작하거나, 아래에서 하나씩 넣어 보세요.'))]),
+      h('button', { class: 'btn sm ghost ms-add', onclick: (e) => popup(e.clientX, e.clientY, [{ group: t('마스터링') }, ...MASTER_FX.map((k) => ({ label: t(FX_TYPES[k].name), hint: t(FX_TYPES[k].hint), act: () => this.add(k) })), { group: t('그 밖의 이펙트') }, ...['eq', 'comp', 'width', 'limiter', 'reverb'].map((k) => ({ label: t(FX_TYPES[k].name), hint: t(FX_TYPES[k].hint), act: () => this.add(k) }))]).classList.add('tall') }, t('+ 넣기')),
       this.editor());
     this.renderFoot();
   }
@@ -214,23 +215,23 @@ export class MasteringWindow {
     const x = this.fx.find((q) => q.id === this.sel);
     if (!x) return h('div', { class: 'ms-ed' });
     const S = this.S, def = FX_TYPES[x.type];
-    return h('div', { class: 'ms-ed' }, h('b', {}, def.name),
+    return h('div', { class: 'ms-ed' }, h('b', {}, t(def.name)),
       h('div', { class: 'ms-ed-body' }, ...def.params.map((p) => {
         const val = x.params[p.key] ?? p.def;
-        if (p.choices) return h('label', { class: 'fx-p' }, h('span', {}, p.label), h('select', { onchange: (ev) => { S.edit(() => { x.params[p.key] = +ev.target.value; }, false); S.applyFx('master'); } }, ...p.choices.map((c, i) => h('option', { value: i, selected: Math.round(val) === i }, c))));
+        if (p.choices) return h('label', { class: 'fx-p' }, h('span', {}, t(p.label)), h('select', { onchange: (ev) => { S.edit(() => { x.params[p.key] = +ev.target.value; }, false); S.applyFx('master'); } }, ...p.choices.map((c, i) => h('option', { value: i, selected: Math.round(val) === i }, t(c)))));
         const out = h('b', {}, fmtParam(p, val));
-        const k = knob({ value: val, min: p.min, max: p.max, def: p.def, size: 26, title: p.label, fmt: (v) => fmtParam(p, v), target: `fx:master:${x.id}:${p.key}`,
+        const k = knob({ value: val, min: p.min, max: p.max, def: p.def, size: 26, title: t(p.label), fmt: (v) => fmtParam(p, v), target: `fx:master:${x.id}:${p.key}`,
           onInput: (v) => { x.params[p.key] = p.step ? Math.round(v / p.step) * p.step : v; out.textContent = fmtParam(p, x.params[p.key]); S.applyFx('master'); },
           onChange: () => S.changed() });
-        return h('label', { class: 'fx-p k' }, k, h('span', {}, p.label), out);
+        return h('label', { class: 'fx-p k' }, k, h('span', {}, t(p.label)), out);
       })));
   }
 
   renderFoot() {
     const parts = [];
     if (this.note) parts.push(h('span', {}, this.note));
-    if (this.ref) parts.push(h('span', {}, `레퍼런스: ${this.ref.name} · ${f(this.ref.I)} LUFS · 피크 ${f(this.ref.tp)} dBTP · LRA ${this.ref.LRA.toFixed(1)}`));
-    if (!parts.length) parts.push(h('span', {}, '곡을 재생하면 미터가 움직여요. 전체(통합) 라우드니스는 재생한 구간 전체로 재요. 미터를 비우려면 초기화를 누르세요.'));
+    if (this.ref) parts.push(h('span', {}, t('레퍼런스: {name} · {i} LUFS · 피크 {tp} dBTP · LRA {lra}', { name: this.ref.name, i: f(this.ref.I), tp: f(this.ref.tp), lra: this.ref.LRA.toFixed(1) })));
+    if (!parts.length) parts.push(h('span', {}, t('곡을 재생하면 미터가 움직여요. 전체(통합) 라우드니스는 재생한 구간 전체로 재요. 미터를 비우려면 초기화를 누르세요.')));
     this.foot.replaceChildren(...parts);
   }
 
@@ -251,14 +252,14 @@ export class MasteringWindow {
     inp.onchange = async () => {
       const file = inp.files[0];
       if (!file) return;
-      this.note = '레퍼런스를 읽는 중…'; this.renderFoot();
+      this.note = t('레퍼런스를 읽는 중…'); this.renderFoot();
       try {
         const buf = await this.E.ctx.decodeAudioData(await file.arrayBuffer());
         const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
         const m = measure(L, R, buf.sampleRate);
         this.ref = { name: file.name, buf, I: m.I, tp: m.tp, LRA: m.LRA, bands: bandSpectrum(L, R, buf.sampleRate) };
         this.note = '';
-      } catch (err) { this.note = `레퍼런스를 열지 못했어요: ${err.message}`; }
+      } catch (err) { this.note = t('레퍼런스를 열지 못했어요: {err}', { err: err.message }); }
       this.render();
     };
     inp.click();
@@ -302,12 +303,12 @@ export class MasteringWindow {
     this.busy = true; this.render();
     const say = (t) => { this.note = t; this.renderFoot(); };
     try {
-      say('믹스를 렌더링하는 중… (마스터 체인 없이)');
-      const raw = await renderMix(this.proj, { noMaster: true, tail: 0.5, onProgress: (ph, x) => say(ph === 'load' ? `악기 불러오는 중 ${Math.round(x * 100)}%` : '믹스를 렌더링하는 중… (마스터 체인 없이)') });
-      say('믹스를 분석하는 중…');
+      say(t('믹스를 렌더링하는 중… (마스터 체인 없이)'));
+      const raw = await renderMix(this.proj, { noMaster: true, tail: 0.5, onProgress: (ph, x) => say(ph === 'load' ? t('악기 불러오는 중 {pct}%', { pct: Math.round(x * 100) }) : t('믹스를 렌더링하는 중… (마스터 체인 없이)')) });
+      say(t('믹스를 분석하는 중…'));
       await new Promise((r) => setTimeout(r, 20));
       const m0 = measure(raw.left, raw.right, raw.rate);
-      if (m0.I <= -60) throw new Error('소리가 거의 없어요. 곡을 먼저 만들어 주세요.');
+      if (m0.I <= -60) throw new Error(t('소리가 거의 없어요. 곡을 먼저 만들어 주세요.'));
       const bands = bandSpectrum(raw.left, raw.right, raw.rate);
       this.mixBands = bands;
       // tonal balance against the target curve, measured relative to the 1 kHz region
@@ -328,12 +329,12 @@ export class MasteringWindow {
         ['maximizer', { gain: 0, ceiling, release: 0.15 }],
       ];
       // loudness after EQ / multiband: render once more with the chain, the maximizer at 0 dB
-      this.setChain(chain, '자동 마스터링');
-      say('설정한 체인으로 다시 렌더링하는 중…');
+      this.setChain(chain, t('자동 마스터링'));
+      say(t('설정한 체인으로 다시 렌더링하는 중…'));
       const pre = await renderMix(this.proj, { tail: 0.5, onProgress: () => {} });
       const m1 = measure(pre.left, pre.right, pre.rate);
       // the maximizer gain that lands on the target: search on the loudest 30 s with the same limiter
-      say('목표 음량에 맞는 맥시마이저 게인을 찾는 중…');
+      say(t('목표 음량에 맞는 맥시마이저 게인을 찾는 중…'));
       await new Promise((r) => setTimeout(r, 20));
       const seg = loudest(pre, 30);
       const segI = measure(seg.left, seg.right, seg.rate).I;
@@ -351,7 +352,7 @@ export class MasteringWindow {
       // check the result with the real chain, and correct the gain (up to twice) until it lands
       let m2;
       for (let pass = 0; pass < 3; pass++) {
-        say(pass ? `목표에 맞추는 중… (${pass + 1}/3)` : '결과를 확인하는 중…');
+        say(pass ? t('목표에 맞추는 중… ({n}/3)', { n: pass + 1 }) : t('결과를 확인하는 중…'));
         const fin = await renderMix(this.proj, { tail: 0.5, onProgress: () => {} });
         m2 = measure(fin.left, fin.right, fin.rate);
         const miss = target - m2.I;
@@ -366,11 +367,11 @@ export class MasteringWindow {
       }
       this.offI = m0.I; this.onI = m2.I;
       const eq = chain[0][1];
-      this.note = `자동 마스터링 (${name}): ${f(m0.I)} → ${f(m2.I)} LUFS · 피크 ${f(m2.tp)} dBTP · LRA ${m2.LRA.toFixed(1)} LU · `
-        + `EQ 저음 ${eq.lsG.toFixed(1)} / 300Hz ${eq.p2G.toFixed(1)} / 3.2kHz ${eq.p3G.toFixed(1)} / 고음 ${eq.hsG.toFixed(1)} dB · 맥시마이저 +${g} dB`
-        + (m2.I < target - 1.5 ? ' · 목표까지 올리면 소리가 찌그러질 수 있어 여기서 멈췄어요' : '');
+      this.note = t('자동 마스터링 ({name}): {from} → {to} LUFS · 피크 {tp} dBTP · LRA {lra} LU', { name: t(name), from: f(m0.I), to: f(m2.I), tp: f(m2.tp), lra: m2.LRA.toFixed(1) })
+        + ' · ' + t('EQ 저음 {low} / 300Hz {mid} / 3.2kHz {pres} / 고음 {high} dB · 맥시마이저 +{gain} dB', { low: eq.lsG.toFixed(1), mid: eq.p2G.toFixed(1), pres: eq.p3G.toFixed(1), high: eq.hsG.toFixed(1), gain: g })
+        + (m2.I < target - 1.5 ? ' · ' + t('목표까지 올리면 소리가 찌그러질 수 있어 여기서 멈췄어요') : '');
     } catch (err) {
-      this.note = `자동 마스터링을 하지 못했어요: ${err.message}`;
+      this.note = t('자동 마스터링을 하지 못했어요: {err}', { err: err.message });
     }
     this.busy = false;
     this.render();
@@ -385,25 +386,25 @@ export class MasteringWindow {
     if (!this.lastNums || now - this.lastNums > 150) {
       this.lastNums = now;
       this.nums.replaceChildren(
-        cell('순간', f(m.M), 'LUFS'), cell('3초', f(m.S), 'LUFS'),
-        cell('전체 (통합)', f(I), 'LUFS', I > -70 ? (Math.abs(I - target) <= 1 ? 'ok' : I > target + 1 ? 'hot' : '') : ''),
-        cell('라우드니스 범위', m.LRA.toFixed(1), 'LU'),
-        cell('실제 피크', f(tp), 'dBTP', tp > ceiling + 0.05 ? 'hot' : ''),
+        cell(t('순간'), f(m.M), 'LUFS'), cell(t('3초'), f(m.S), 'LUFS'),
+        cell(t('전체 (통합)'), f(I), 'LUFS', I > -70 ? (Math.abs(I - target) <= 1 ? 'ok' : I > target + 1 ? 'hot' : '') : ''),
+        cell(t('라우드니스 범위'), m.LRA.toFixed(1), 'LU'),
+        cell(t('실제 피크'), f(tp), 'dBTP', tp > ceiling + 0.05 ? 'hot' : ''),
         cell('PLR', I > -70 ? (tp - I).toFixed(1) : '—', 'dB'),
-        h('button', { class: 'btn sm ghost', onclick: () => { this.meter.reset(); this.history = []; } }, '초기화'));
+        h('button', { class: 'btn sm ghost', onclick: () => { this.meter.reset(); this.history = []; } }, t('초기화')));
       // gain reduction: maximizer and each multiband band
       const bars = [];
       for (const x of this.fx) {
         const u = this.E.masterStrip.unit(x.id);
         if (!u) continue;
-        if (x.type === 'maximizer') bars.push(['맥시마이저', u.gr || 0]);
-        if (x.type === 'mbcomp' && u.reduction) u.reduction().forEach((r, i) => bars.push([['서브', '저음', '중음', '중고음', '고음'][i], r]));
-        if (x.type === 'dyneq' && u.gains) u.gains.forEach((gdb, i) => bars.push([`다이내믹 ${i + 1}`, -gdb]));
+        if (x.type === 'maximizer') bars.push([t('맥시마이저'), u.gr || 0]);
+        if (x.type === 'mbcomp' && u.reduction) u.reduction().forEach((r, i) => bars.push([[t('서브'), tc('band', '저음'), t('중음'), t('중고음'), tc('band', '고음')][i], r]));
+        if (x.type === 'dyneq' && u.gains) u.gains.forEach((gdb, i) => bars.push([t('다이내믹 {n}', { n: i + 1 }), -gdb]));
       }
-      this.grEl.replaceChildren(...(bars.length ? bars.map(([n, r]) => h('div', { class: 'ms-grrow' }, h('span', {}, n), h('div', { class: 'ms-grbar' }, h('i', { style: `width:${Math.min(100, (r / 12) * 100)}%` })), h('b', {}, r > 0.05 ? `-${r.toFixed(1)}` : '0'))) : [h('span', { class: 'ms-empty' }, '맥시마이저나 멀티밴드를 넣으면 여기서 보여요')]));
+      this.grEl.replaceChildren(...(bars.length ? bars.map(([n, r]) => h('div', { class: 'ms-grrow' }, h('span', {}, n), h('div', { class: 'ms-grbar' }, h('i', { style: `width:${Math.min(100, (r / 12) * 100)}%` })), h('b', {}, r > 0.05 ? `-${r.toFixed(1)}` : '0'))) : [h('span', { class: 'ms-empty' }, t('맥시마이저나 멀티밴드를 넣으면 여기서 보여요'))]));
       const cv = Math.max(-1, Math.min(1, m.corr));
       this.corrEl.firstChild.style.left = `${((cv + 1) / 2) * 100}%`;
-      this.corrEl.title = `위상 상관도 ${cv.toFixed(2)} (+1 모노 · 0 넓음 · 음수면 모노에서 소리가 빠짐)`;
+      this.corrEl.title = t('위상 상관도 {v} (+1 모노 · 0 넓음 · 음수면 모노에서 소리가 상쇄됨)', { v: cv.toFixed(2) });
       this.corrEl.classList.toggle('bad', cv < 0);
     }
     this.drawScope();
@@ -488,7 +489,7 @@ export class MasteringWindow {
     g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, W, H);
     const Y = (l) => H - ((l + 40) / 40) * H; // -40 .. 0 LUFS
     g.fillStyle = '#2f4a36'; g.fillRect(0, Y(target + 1), W, Y(target - 1) - Y(target + 1));
-    g.fillStyle = '#4a4b52'; g.font = '9px "Segoe UI", sans-serif'; g.fillText(`목표 ${target}`, 4, Y(target) - 3);
+    g.fillStyle = '#4a4b52'; g.font = '9px "Segoe UI", sans-serif'; g.fillText(t('목표 {v}', { v: target }), 4, Y(target) - 3);
     if (v.length < 2) return;
     g.beginPath();
     const n = Math.min(v.length, Math.floor(W));

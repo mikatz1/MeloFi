@@ -11,6 +11,7 @@ export class MidiInput {
     this.access = null;
     this.enabled = true;
     this.devices = [];
+    this.tap = null; // latency test: told of every note-on
   }
 
   async init() {
@@ -29,18 +30,20 @@ export class MidiInput {
     for (const input of this.access.inputs.values()) {
       if (input.state !== 'connected') continue;
       this.devices.push(input.name || 'MIDI');
-      input.onmidimessage = (e) => this.handle(e.data);
+      const name = input.name || 'MIDI';
+      input.onmidimessage = (e) => this.handle(e.data, name);
     }
     this.onDevices(this.devices);
   }
 
-  handle(d) {
+  // dev: the input's name (latency is measured and taken off per device)
+  handle(d, dev = 'MIDI') {
     if (!this.enabled || !d || d.length < 2) return;
     const type = d[0] & 0xf0;
-    if (type === 0x90 && d[2] > 0) this.onNote(d[1], d[2], true);
-    else if (type === 0x80 || (type === 0x90 && d[2] === 0)) this.onNote(d[1], 0, false);
+    if (type === 0x90 && d[2] > 0) { this.tap?.(dev); this.onNote(d[1], d[2], true, dev); }
+    else if (type === 0x80 || (type === 0x90 && d[2] === 0)) this.onNote(d[1], 0, false, dev);
     else if (type === 0xb0 && this.onCC?.(d[1], d[2], d[0] & 15)) return; // taken by the composer (MIDI learn)
-    else if (type === 0xb0 && d[1] === 64) this.onSustain(d[2] >= 64);
+    else if (type === 0xb0 && d[1] === 64) this.onSustain(d[2] >= 64, dev);
     else if (type === 0xb0 && d[1] === 66) this.onSostenuto?.(d[2] >= 64);
     else if (type === 0xb0 && d[1] === 67) this.onSoft?.(d[2] >= 64);
   }

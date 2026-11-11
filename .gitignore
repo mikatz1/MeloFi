@@ -12,3 +12,4 @@ native/build/
 docs/*.wav
 __pycache__/
 dist-release/
+tools/e2e/fixtures/private/

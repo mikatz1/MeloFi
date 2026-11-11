@@ -1,3 +1,4 @@
+// i18n: source table — every Korean string here is UI text and a translation key; the screen that shows it calls t() (docs/i18n.md)
 // MeloFi Studio — mastering processors (they join FX_TYPES in fx.js): eight-band parametric EQ
 // (per-band mid/side, linear phase), five-band compressor, four-band stereo imager, four-band
 // dynamic EQ, saturation, de-esser, soft clipper
@@ -217,7 +218,7 @@ export const MASTER_TYPES = {
       P('x1', '경계 1', 30, 300, 90, { unit: 'Hz', log: true }), P('x2', '경계 2', 120, 1000, 300, { unit: 'Hz', log: true }),
       P('x3', '경계 3', 500, 5000, 1500, { unit: 'Hz', log: true }), P('x4', '경계 4', 2000, 14000, 6000, { unit: 'Hz', log: true }),
       ...[['서브', -18], ['저음', -18], ['중음', -18], ['중고음', -20], ['고음', -20]].flatMap(([n, t], i) => [
-        P(`t${i + 1}`, `${n} 스레숄드`, -40, 0, t, { unit: 'dB' }), P(`r${i + 1}`, `${n} 비율`, 1, 10, 2, { step: 0.1 }), P(`g${i + 1}`, `${n} 게인`, -12, 12, 0, { unit: 'dB', step: 0.1 })]),
+        P(`t${i + 1}`, `${n} 스레숄드`, -40, 0, t, { unit: 'dB' }), P(`r${i + 1}`, `${n} 비율`, 1, 10, 2, { step: 0.1 }), P(`g${i + 1}`, `${n} 게인`, -12, 12, 0, { unit: 'dB', step: 0.1 })]), // i18n-ignore ("서브 스레숄드" … are entries of their own)
       P('attack', '어택', 0.001, 0.2, 0.02, { unit: 's', log: true }), P('release', '릴리스', 0.02, 1, 0.2, { unit: 's', log: true }),
     ],
     build(c) {
@@ -321,11 +322,11 @@ export const MASTER_TYPES = {
     },
   },
   dyneq: {
-    name: '다이내믹 EQ', hint: '4밴드: 그 대역이 커질 때만 깎거나 올림 (울리는 저음, 튀는 고음 잡기)',
+    name: '다이내믹 EQ', hint: '4밴드: 해당 대역이 커질 때만 깎거나 올림 (울리는 저음, 튀는 고음 잡기)',
     params: [
       ...[[120, 1.5], [400, 1.5], [2500, 2], [7000, 2]].flatMap(([f, q], i) => [
-        P(`f${i + 1}`, `밴드 ${i + 1}`, 20, 18000, f, { unit: 'Hz', log: true }), P(`q${i + 1}`, `밴드 ${i + 1} 폭`, 0.3, 8, q, { step: 0.05 }),
-        P(`t${i + 1}`, `밴드 ${i + 1} 스레숄드`, -60, 0, -24, { unit: 'dB' }), P(`r${i + 1}`, `밴드 ${i + 1} 범위`, -18, 18, i === 1 ? -3 : 0, { unit: 'dB', step: 0.1 })]),
+        P(`f${i + 1}`, `밴드 ${i + 1}`, 20, 18000, f, { unit: 'Hz', log: true }), P(`q${i + 1}`, `밴드 ${i + 1} 폭`, 0.3, 8, q, { step: 0.05 }), // i18n-ignore ("밴드 1 폭" … are entries)
+        P(`t${i + 1}`, `밴드 ${i + 1} 스레숄드`, -60, 0, -24, { unit: 'dB' }), P(`r${i + 1}`, `밴드 ${i + 1} 범위`, -18, 18, i === 1 ? -3 : 0, { unit: 'dB', step: 0.1 })]), // i18n-ignore
       P('attack', '어택', 0.001, 0.2, 0.005, { unit: 's', log: true }), P('release', '릴리스', 0.01, 2, 0.12, { unit: 's', log: true }),
     ],
     build(c) {

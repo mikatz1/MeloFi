@@ -87,3 +87,48 @@ body.studio-open #stageWrap, body.studio-open #transport { visibility: hidden; }
 .st-pop .grp { padding: 7px 10px 3px; font-size: 10.5px; color: var(--faint); }
 .st-pop .sep { height: 1px; margin: 4px 6px; background: var(--line); }
 .mx-arm.on { background: #6b2f31; color: #ff6b6b; border-color: var(--rec); }
+
+/* top toolbar, FL layout: menu + hint | transport | recording | pattern + snap | … | windows | master */
+#studio .st-tool { gap: 0; padding: 3px 6px; align-items: stretch; flex-wrap: wrap; row-gap: 3px; min-height: 48px; }
+.st-tool .tb-grp { display: flex; align-items: center; gap: 4px; padding: 0 8px; flex: none; white-space: nowrap; border-left: 1px solid #000; box-shadow: inset 1px 0 0 rgba(255,255,255,.04); }
+.st-tool .tb-grp:first-child { border-left: 0; box-shadow: none; padding-left: 0; }
+.st-tool .sp { flex: 1 1 0; min-width: 0; }
+.st-tool .tb-menu { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; width: 318px; flex: 0 1 318px; min-width: 0; }
+.tb-menubar { display: flex; }
+.tb-menubar .mb { padding: 2px 7px; background: none; border: 0; border-radius: 2px; color: var(--text); font: 600 11.5px var(--ui); cursor: pointer; }
+.tb-menubar .mb:hover, .tb-menubar .mb.open { background: #2a2c34; }
+.tb-menubar .mb.open { color: var(--accent); }
+.tb-title { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 2px; }
+.st-tool .tb-title .st-name { flex: 0 0 112px; width: 112px; padding: 1px 6px; font-size: 11.5px; }
+.st-hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11px; }
+.tb-mode { display: grid; grid-template-columns: auto auto; gap: 2px; }
+.tb-mode button { padding: 1px 6px; background: #121318; border: 1px solid var(--line-2); border-radius: 2px; color: var(--dim); font: 600 10.5px var(--ui); line-height: 1.3; cursor: pointer; }
+.tb-mode button.on { color: var(--accent); border-color: var(--accent); }
+.tb-mode button.live { grid-column: span 2; }
+.st-tool .tb-grp .btn.tb-big { width: 30px; height: 30px; min-width: 0; padding: 0; font-size: 13px; }
+.tb-lcd { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 34px; padding: 0 6px; background: #0b0c0f; border: 1px solid var(--line); border-radius: 3px; }
+.tb-lcd small { margin-top: -1px; color: var(--faint); font: 9.5px var(--ui); }
+.tb-tempo input { width: 46px; padding: 0; background: none; border: 0; color: var(--accent); font: 600 15px var(--mono); text-align: center; }
+.tb-tempo input::-webkit-inner-spin-button { display: none; }
+.tb-pos span { min-width: 62px; color: var(--accent); font: 600 15px var(--mono); text-align: center; }
+.st-tool .tb-grp .btn.tb-tap { padding: 2px 6px; font-size: 11px; }
+.st-tool .tb-rec .btn.sm { padding: 3px 7px; font-size: 11.5px; }
+.st-tool .tb-pat select.st-patpick { width: 120px; min-width: 0; max-width: 120px; padding: 3px 4px; background: #121318; border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); font: 12px var(--ui); }
+.tb-ico { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; background: #1a1b21; border: 1px solid var(--line-2); border-radius: 3px; color: var(--dim); cursor: pointer; }
+.tb-ico:hover { color: var(--text); }
+.tb-ico.on { color: var(--accent); border-color: var(--accent); }
+.st-tool .tb-master { flex-direction: column; justify-content: center; gap: 5px; padding-right: 2px; }
+.tb-vol { width: 84px; height: 12px; margin: 0; accent-color: var(--accent); }
+.tb-out { position: relative; width: 84px; height: 8px; overflow: hidden; background: #0b0c0f; border: 1px solid var(--line); border-radius: 2px; }
+.tb-out i { position: absolute; inset: 0 auto 0 0; width: calc(var(--f, 0) * 100%); background: linear-gradient(90deg, #4f9a5a 0 72px, #c9a640 72px 80px, #c0504d 80px) 0 0 / 84px 100% no-repeat; }
+.tb-out::after { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--p, 0) * 100%); width: 1px; background: #d8d4cc; }
+.tb-out.clip { border-color: var(--rec); }
+.st-patbar .st-swing input[type=range] { width: 56px; accent-color: var(--accent); }
+/* recording switches and pattern / snap are two short rows each, like FL's small panels */
+.st-tool .tb-rec { display: grid; grid-template-columns: auto auto; gap: 2px; align-content: center; }
+.st-tool .tb-rec .btn.sm { padding: 0 6px; height: 18px; font-size: 10.5px; line-height: 16px; }
+.st-tool .tb-pat { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; }
+.st-tool .tb-pat select.st-patpick, .st-tool .tb-snap select { height: 18px; padding: 0 3px; font-size: 11px; }
+.st-tool .tb-snap { justify-content: space-between; font-size: 10.5px; }
+.st-tool .tb-snap select { width: 84px; }
+.st-tool .tb-wins { margin-left: auto; }

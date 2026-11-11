@@ -60,6 +60,9 @@ class Sampler extends AudioWorkletProcessor {
       case 'drop':
         for (const id of m.ids) this.samples.delete(id);
         break;
+      case 'clear': // an offline render is done: let go of every sample (each render got its own copies)
+        this.samples.clear(); this.voices = []; this.pendingOffs = []; this.queue = []; this.qi = 0;
+        break;
       case 'ping': // everything sent before this has been handled (offline renders wait for it)
         this.port.postMessage({ type: 'pong', n: m.n });
         break;

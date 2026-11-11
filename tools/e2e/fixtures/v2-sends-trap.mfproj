@@ -1,0 +1,538 @@
+{
+ "version": 2,
+ "name": "트랩 비트",
+ "bpm": 140,
+ "sig": [
+  4,
+  4
+ ],
+ "swing": 0,
+ "channels": [
+  {
+   "id": "cmwchjvcm7",
+   "name": "Kick",
+   "inst": "drumstrap",
+   "color": "#e8a15d",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "sends": [
+    {
+     "to": "bmwchjvcnl",
+     "level": 0.3
+    }
+   ]
+  },
+  {
+   "id": "cmwchjvcm8",
+   "name": "Snare",
+   "inst": "drumstrap",
+   "color": "#7fb0ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 38,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "sends": [
+    {
+     "to": "bmwchjvcnl",
+     "level": 0.4
+    }
+   ]
+  },
+  {
+   "id": "cmwchjvcm9",
+   "name": "Hat",
+   "inst": "drumstrap",
+   "color": "#9fd67a",
+   "vol": 0.5,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 42,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0,
+   "sends": [
+    {
+     "to": "bmwchjvcnl",
+     "level": 0.5
+    }
+   ]
+  },
+  {
+   "id": "cmwchjvcma",
+   "name": "808",
+   "inst": "sub808",
+   "color": "#e77fb3",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.15,
+   "mute": false,
+   "solo": false,
+   "stepNote": 36,
+   "kind": "inst",
+   "fx": [],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  },
+  {
+   "id": "cmwchjvcmb",
+   "name": "Piano",
+   "inst": "splendid",
+   "color": "#c8a2ff",
+   "vol": 0.8,
+   "pan": 0,
+   "send": 0.3,
+   "mute": false,
+   "solo": false,
+   "stepNote": 60,
+   "kind": "inst",
+   "fx": [
+    {
+     "id": "fmwchjvcmc",
+     "type": "filter",
+     "on": true,
+     "params": {
+      "type": 0,
+      "freq": 3500,
+      "res": 0.7
+     }
+    },
+    {
+     "id": "fmwchjvcmd",
+     "type": "reverb",
+     "on": true,
+     "params": {
+      "room": 1,
+      "mix": 0.3
+     }
+    }
+   ],
+   "out": "master",
+   "swing": null,
+   "groove": null,
+   "loopSteps": 0
+  }
+ ],
+ "patterns": [
+  {
+   "id": "pmwchjvcnf",
+   "name": "비트",
+   "color": "#5a7bd6",
+   "bars": 2,
+   "notes": {
+    "cmwchjvcm7": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 528,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     },
+     {
+      "t": 624,
+      "d": 24,
+      "n": 36,
+      "v": 100
+     }
+    ],
+    "cmwchjvcm8": [
+     {
+      "t": 192,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 38,
+      "v": 100
+     }
+    ],
+    "cmwchjvcm9": [
+     {
+      "t": 0,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 48,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 96,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 144,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 192,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 216,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 240,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 264,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 288,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 336,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 384,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 432,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 480,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 528,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 576,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 600,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 624,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 648,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 672,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     },
+     {
+      "t": 720,
+      "d": 24,
+      "n": 42,
+      "v": 85
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjvcng",
+   "name": "808",
+   "color": "#d68a5a",
+   "bars": 2,
+   "notes": {
+    "cmwchjvcma": [
+     {
+      "t": 0,
+      "d": 240,
+      "n": 37,
+      "v": 115
+     },
+     {
+      "t": 240,
+      "d": 144,
+      "n": 37,
+      "v": 115
+     },
+     {
+      "t": 384,
+      "d": 192,
+      "n": 40,
+      "v": 115
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 32,
+      "v": 115
+     }
+    ]
+   }
+  },
+  {
+   "id": "pmwchjvcnh",
+   "name": "피아노",
+   "color": "#5ab98a",
+   "bars": 2,
+   "notes": {
+    "cmwchjvcmb": [
+     {
+      "t": 0,
+      "d": 96,
+      "n": 61,
+      "v": 80
+     },
+     {
+      "t": 96,
+      "d": 96,
+      "n": 64,
+      "v": 80
+     },
+     {
+      "t": 192,
+      "d": 96,
+      "n": 68,
+      "v": 80
+     },
+     {
+      "t": 288,
+      "d": 96,
+      "n": 66,
+      "v": 80
+     },
+     {
+      "t": 384,
+      "d": 192,
+      "n": 64,
+      "v": 80
+     },
+     {
+      "t": 576,
+      "d": 192,
+      "n": 61,
+      "v": 80
+     }
+    ]
+   }
+  }
+ ],
+ "current": "pmwchjvcnf",
+ "selected": "cmwchjvcm7",
+ "playlist": {
+  "tracks": [
+   {
+    "name": "트랙 1",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 2",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 3",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 4",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 5",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 6",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 7",
+    "color": null,
+    "mute": false,
+    "solo": false
+   },
+   {
+    "name": "트랙 8",
+    "color": null,
+    "mute": false,
+    "solo": false
+   }
+  ],
+  "clips": [
+   {
+    "id": "kmwchjvcni",
+    "pattern": "pmwchjvcnf",
+    "track": 0,
+    "start": 0,
+    "len": 16
+   },
+   {
+    "id": "kmwchjvcnj",
+    "pattern": "pmwchjvcng",
+    "track": 1,
+    "start": 4,
+    "len": 12
+   },
+   {
+    "id": "kmwchjvcnk",
+    "pattern": "pmwchjvcnh",
+    "track": 2,
+    "start": 0,
+    "len": 16
+   }
+  ]
+ },
+ "mode": "pattern",
+ "master": {
+  "vol": 0.85,
+  "reverb": "hall",
+  "fx": [
+   {
+    "id": "fmwchjvcne",
+    "type": "limiter",
+    "on": true,
+    "params": {
+     "gain": 3,
+     "ceiling": -0.3
+    }
+   }
+  ]
+ },
+ "buses": [
+  {
+   "id": "bmwchjvcnl",
+   "name": "Verb bus",
+   "color": "#5fd8d0",
+   "vol": 0.8,
+   "pan": 0,
+   "mute": false,
+   "fx": [
+    {
+     "id": "fmwchjvcnm",
+     "type": "reverb",
+     "on": true,
+     "params": {
+      "room": 1,
+      "mix": 1
+     }
+    },
+    {
+     "id": "fmwchjvcnn",
+     "type": "eq",
+     "on": true,
+     "params": {
+      "cut": 200,
+      "low": 0,
+      "lowF": 110,
+      "mid": 0,
+      "midF": 1000,
+      "q": 1,
+      "high": 0,
+      "highF": 7000
+     }
+    }
+   ]
+  }
+ ],
+ "tempos": [],
+ "markers": [],
+ "loop": null,
+ "autos": [],
+ "media": {},
+ "scale": {
+  "root": 1,
+  "type": "minor"
+ },
+ "midiMap": [],
+ "_fixture": "b0843c3 trap + a bus fed by post-fader sends"
+}
