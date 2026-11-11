@@ -126,7 +126,7 @@ export const FX_TYPES = {
     },
   },
   filter: {
-    name: '필터', hint: '특정 음역만 남기기 (자동화와 함께 쓰면 좋음)',
+    name: '필터', hint: '특정 음역만 남기기 (오토메이션과 함께 쓰면 좋음)',
     params: [
       P('type', '종류', 0, 2, 0, { choices: ['로우패스', '하이패스', '밴드패스'] }),
       P('freq', '주파수', 30, 20000, 20000, { unit: 'Hz', log: true }),
@@ -182,24 +182,71 @@ export const FX_TYPES = {
       });
     },
   },
+  // live pitch correction (FL Studio's Pitcher; Newtone does it offline): snaps a singing voice
+  // or a lead to the nearest note of the chosen key and scale
+  pitchfix: {
+    name: 'Pitcher', hint: '실시간 피치 보정: 보컬 음정을 스케일에 맞춤 (오토튠)',
+    params: [
+      P('root', '키', 0, 11, 0, { choices: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] }),
+      P('scale', '스케일', 0, 5, 0, { choices: ['크로매틱 (모든 반음)', '메이저', '마이너', '메이저 펜타토닉', '마이너 펜타토닉', '블루스'] }),
+      P('speed', '보정 속도', 0, 200, 20, { unit: 'ms' }),
+    ],
+    masks: [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [0, 2, 4, 5, 7, 9, 11], [0, 2, 3, 5, 7, 8, 10], [0, 2, 4, 7, 9], [0, 3, 5, 7, 10], [0, 3, 5, 6, 7, 10]].map((l) => l.reduce((m, p) => m | (1 << p), 0)),
+    build(c) {
+      const node = new AudioWorkletNode(c, 'pitch-fix', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      const pr = (k) => node.parameters.get(k);
+      return unit(node, node, {}, {
+        root: (v, at) => pr('root').setValueAtTime(Math.round(v), at),
+        scale: (v, at) => pr('mask').setValueAtTime(FX_TYPES.pitchfix.masks[Math.round(v)] ?? 4095, at),
+        speed: (v, at) => pr('speed').setValueAtTime(v / 1000, at),
+      });
+    },
+  },
   sidechain: {
-    name: '사이드체인', hint: '킥이 나올 때마다 소리를 잠깐 줄임',
+    name: '사이드체인', hint: '킥이 울릴 때마다 이 소리를 잠깐 줄임',
     params: [
       P('source', '따라갈 채널', 0, 0, 0, { channel: true }),
+      P('mode', '기준', 0, 1, 1, { choices: ['노트', '오디오'] }),
+      P('threshold', '감도', -48, 0, -24, { unit: 'dB' }),
       P('depth', '깊이', 0, 1, 0.7, { step: 0.01 }),
       P('release', '복귀', 0.03, 0.6, 0.18, { unit: 's', log: true }),
     ],
     build(c, ctx) {
       const g = c.createGain();
-      const u = unit(g, g, {});
-      u.duck = { depth: 0.7, release: 0.18, source: null };
+      // audio mode, as in FL Studio: the source's own sound (post-fader) drives the ducking.
+      // |x| -> smoothing low-pass -> curve that turns level into gain reduction on g.gain
+      const scIn = c.createGain(), rect = c.createWaveShaper(), env = c.createBiquadFilter(), map = c.createWaveShaper();
+      rect.curve = Float32Array.from({ length: 2049 }, (_, i) => Math.abs(i / 1024 - 1));
+      env.type = 'lowpass'; env.Q.value = 0.5;
+      scIn.connect(rect).connect(env).connect(map);
+      const u = unit(g, g, {}, {}, () => { u.link(null); scIn.disconnect(); map.disconnect(); });
+      u.duck = { depth: 0.7, release: 0.18, source: null, mode: 1, threshold: -24 };
+      const curve = () => {
+        const thr = 10 ** (u.duck.threshold / 20), d = u.duck.depth;
+        map.curve = Float32Array.from({ length: 2049 }, (_, i) => { const x = i / 1024 - 1; return x <= 0 ? 0 : -d * Math.min(1, x / thr); });
+      };
+      const mode = () => { try { map.disconnect(); } catch { /* not yet */ } if (u.duck.mode === 1) map.connect(g.gain); };
+      curve(); mode();
+      env.frequency.value = 1 / (2 * Math.PI * 0.18 / 3);
       u.setters = {
         source: (v) => { u.duck.source = v; },
-        depth: (v) => { u.duck.depth = v; },
-        release: (v) => { u.duck.release = v; },
+        mode: (v) => { u.duck.mode = Math.round(v); mode(); },
+        threshold: (v) => { u.duck.threshold = v; curve(); },
+        depth: (v) => { u.duck.depth = v; curve(); },
+        release: (v, at) => { u.duck.release = v; env.frequency.setTargetAtTime(1 / (2 * Math.PI * v / 3), at, 0.01); },
       };
-      // the engine calls this for every note on the source channel
+      // the engine feeds the source strip in here (audio mode)
+      u.scIn = scIn;
+      u.linked = null;
+      u.link = (strip) => {
+        if (u.linked === strip) return;
+        if (u.linked) try { u.linked.panner.disconnect(scIn); } catch { /* gone */ }
+        u.linked = strip;
+        if (strip) strip.panner.connect(scIn);
+      };
+      // note mode: the engine calls this for every note on the source channel
       u.trigger = (at) => {
+        if (u.duck.mode === 1) return;
         const lo = 1 - u.duck.depth;
         g.gain.cancelScheduledValues(at);
         g.gain.setTargetAtTime(lo, at, 0.003);
@@ -211,7 +258,7 @@ export const FX_TYPES = {
   },
 };
 
-export const FX_ORDER = ['eq', 'comp', 'filter', 'dist', 'chorus', 'delay', 'reverb', 'width', 'sidechain', 'limiter'];
+export const FX_ORDER = ['pitchfix', 'eq', 'comp', 'filter', 'dist', 'chorus', 'delay', 'reverb', 'width', 'sidechain', 'limiter'];
 
 // ready-made chains for beginners: [name, hint, [[type, params]]]
 export const FX_PRESETS = [

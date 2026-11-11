@@ -627,6 +627,8 @@ class App {
   async openScore(name, bytes) {
     try {
       const song = await readScore(name, bytes);
+      if (this.player.song) this.player.stop();
+      this.stage.clearBars(); // a new score starts on a clean picture
       await this.prepareParts(song);
       // notes past the 88 keys, moved in by octaves (score/range.js); drum parts left alone
       const fit = fitToPiano(song, (l) => !!this.scoreParts.get(l.id)?.kit);

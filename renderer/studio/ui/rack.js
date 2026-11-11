@@ -6,7 +6,7 @@ import { kitNames } from '../../js/drums.js';
 import { synthDefaults, SYNTH_PRESETS } from '../synth.js';
 
 const KIND_LABEL = { synth: '신스', sample: '샘플', slicer: '슬라이서', audio: '오디오', vst: 'VST' };
-const GRAPH = { v: '세기', pan: '팬', fine: '피치' };
+const GRAPH = { v: '벨로시티', pan: '팬', fine: '파인 피치' };
 
 export class Rack {
   constructor(studio, el) {
@@ -41,12 +41,13 @@ export class Rack {
             'data-i': i, style: on ? `--c:${ch.color}` : '',
           }));
         }
-        grid = h('div', { class: 'steps', style: `--n:${steps}` }, ...cells);
+        grid = h('div', { class: 'steps', style: `--n:${steps}`, oncontextmenu: (e) => e.preventDefault() }, ...cells);
         grid.addEventListener('pointerdown', (e) => {
           const b = e.target.closest('.sq');
           if (!b) return;
           e.preventDefault();
-          const i = +b.dataset.i, want = !stepOn(pat, ch, i);
+          // as in FL Studio: left-click turns a step on (or off again), right-click turns it off
+          const i = +b.dataset.i, want = e.button === 2 ? false : !stepOn(pat, ch, i);
           S.edit(() => setStep(pat, ch, i, want), false);
           b.classList.toggle('on', want); b.style.cssText = want ? `--c:${ch.color}` : '';
           if (want) S.preview(ch.id, ch.stepNote);
@@ -137,6 +138,13 @@ export class Rack {
 
   add(inst) {
     const S = this.S;
+    // a MeloFi Synth preset picked in the instrument browser ("synth:<preset>")
+    if (String(inst).startsWith('synth:')) {
+      const name = inst.slice(6);
+      S.edit(() => { const ch = this.makeKind('synth', name, { synth: { ...synthDefaults(), ...(SYNTH_PRESETS[name] || {}) }, synthPreset: name }); S.proj.selected = ch.id; });
+      S.syncAudio();
+      return;
+    }
     S.edit(() => {
       const kit = S.isKit(inst);
       const names = kitNames(S.instInfo(inst));
@@ -192,7 +200,13 @@ export class Rack {
     const kit = S.isKit(ch.inst) && (ch.kind || 'inst') === 'inst';
     popup(x, y, [
       { label: '채널 설정…', act: () => S.channelSheet.show(ch.id) },
-      ...((ch.kind || 'inst') === 'inst' ? [{ label: '악기 바꾸기…', act: () => S.pickInstrument(x, y, (id) => { S.edit(() => { ch.inst = id; }); S.syncAudio(); }, ch.inst) }] : []),
+      ...(ch.kind === 'audio' ? [{ label: 'Newtone으로 음정 편집…', hint: '이 채널의 첫 오디오 클립', disabled: !proj.playlist.clips.some((c) => c.ch === ch.id && c.kind === 'audio'), act: () => S.newtone.open(proj.playlist.clips.filter((c) => c.ch === ch.id && c.kind === 'audio').sort((a, b) => a.start - b.start)[0]) }] : []),
+      ...(['inst', 'synth'].includes(ch.kind || 'inst') ? [{ label: '악기 바꾸기…', act: () => S.pickInstrument(x, y, (id) => {
+        S.edit(() => {
+          if (String(id).startsWith('synth:')) { const n = id.slice(6); ch.kind = 'synth'; ch.inst = 'synth'; ch.synth = { ...synthDefaults(), ...(SYNTH_PRESETS[n] || {}) }; ch.synthPreset = n; } else { ch.kind = 'inst'; ch.inst = id; }
+        });
+        S.syncAudio();
+      }, ch.kind === 'synth' ? `synth:${ch.synthPreset}` : ch.inst) }] : []),
       { label: '이름 바꾸기…', act: () => S.rename(ch) },
       ...(kit ? [{ group: '타격할 드럼 악기' }, ...Object.entries(kitNames(S.instInfo(ch.inst))).map(([n, name]) => ({ label: name, hint: n, check: ch.stepNote === +n, act: () => S.edit(() => { ch.stepNote = +n; }) }))]
         : ch.kind === 'audio' ? [] : [{ label: `스텝 음높이: ${ch.stepNote}`, act: async () => { const v = await ask('스텝 음높이 (MIDI 번호, 60 = 중앙 도)', String(ch.stepNote), { type: 'number' }); if (v && +v >= 0 && +v <= 127) S.edit(() => { ch.stepNote = +v; }); } }]),
@@ -211,7 +225,7 @@ export class Rack {
       { label: '한 칸씩 밀기 →', act: () => S.edit(() => { const pat = pattern(proj), len = pat.bars * 16 * STEP; for (const n of notesOf(pat, ch.id)) n.t = (n.t + STEP) % len; }) },
       { label: '← 한 칸씩 당기기', act: () => S.edit(() => { const pat = pattern(proj), len = pat.bars * 16 * STEP; for (const n of notesOf(pat, ch.id)) n.t = (n.t - STEP + len) % len; }) },
       { sep: true },
-      { label: '오디오로 굳히기', hint: 'CPU 절약', disabled: ch.kind === 'audio', act: () => S.freeze(ch) },
+      { label: 'Consolidate (오디오로)', hint: '채널을 오디오 클립으로 · CPU 절약', disabled: ch.kind === 'audio', act: () => S.freeze(ch) },
       { label: '이 패턴의 노트 지우기', act: () => S.edit(() => { pattern(proj).notes[ch.id] = []; }) },
       { label: '채널 삭제', disabled: proj.channels.length <= 1, act: () => S.edit(() => { proj.channels.splice(proj.channels.indexOf(ch), 1); for (const p of proj.patterns) delete p.notes[ch.id]; proj.playlist.clips = proj.playlist.clips.filter((c) => c.ch !== ch.id); if (proj.selected === ch.id) proj.selected = proj.channels[0].id; }) },
     ]);

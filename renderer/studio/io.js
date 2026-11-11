@@ -97,6 +97,9 @@ export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, on
   await scheduleAll(eng, src, { offset });
   await eng.finalize();
   onProgress('render', 0);
+  // the samplers get their samples and notes by message; an offline render can otherwise run ahead
+  // of them and come out (partly) silent. Hold at the start until every sampler has them.
+  ctx.suspend(0).then(async () => { await eng.settle(); await ctx.resume(); });
   const buf = await ctx.startRendering();
   onProgress('render', 1);
   return { left: buf.getChannelData(0), right: buf.getChannelData(1), rate: SR };

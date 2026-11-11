@@ -144,7 +144,11 @@ export function readSfz(file, opts = {}) {
       .reduce((s, k) => s + (r[k] != null ? parseFloat(r[k]) : 0), 0);
     const tune = (parseFloat(r.tune ?? '0') || 0) + 100 * (parseFloat(r.transpose ?? '0') || 0);
 
+    const looped = /^loop_(continuous|sustain)$/.test(r.loop_mode || '') && r.loop_start != null && r.loop_end != null;
+    const attack = parseFloat(r.ampeg_attack ?? '0') || 0;
     out.push({
+      ...(looped ? { loop: [parseInt(r.loop_start, 10), parseInt(r.loop_end, 10)] } : {}),
+      ...(attack > 0.02 ? { attack } : {}),
       file: path.resolve(rootDir, (defaultPath + r.sample).replace(/\\/g, '/')),
       lo: lo + noteOffset, hi: hi + noteOffset, center: center + noteOffset,
       lv: parseInt(r.lovel ?? '1', 10), hv: parseInt(r.hivel ?? '127', 10),

@@ -25,7 +25,7 @@ export const CHORDS = {
   dim: { name: '디미니시', iv: [0, 3, 6] },
   power: { name: '파워 코드', iv: [0, 7, 12] },
 };
-export const LANES = { v: '세기', pan: '팬', fine: '미세 피치' };
+export const LANES = { v: '벨로시티', pan: '팬', fine: '파인 피치' };
 
 export class Roll {
   constructor(studio, canvas) {
@@ -40,7 +40,8 @@ export class Roll {
     this.lastLen = STEP * 2;
     this.clip = [];
     this.drag = null;
-    this.tool = 'draw';     // draw | chord | slide
+    this.tool = 'draw';     // FL tools: draw (P) | paint (B) | delete (D) | mute (T) | slice (C) | select (E) | zoom (Z) | slide (S) | porta (O) | chord (stamp)
+    this.ghosts = true;     // other channels' notes, faint (Alt+V)
     this.chord = 'auto';
     this.chordSize = 3;     // auto chords: 3 = triad, 4 = seventh
     this.lane = 'v';
@@ -129,7 +130,7 @@ export class Roll {
       g.fillStyle = t % bt === 0 ? '#3a3c46' : t % beat === 0 ? '#2a2c34' : '#1f2027';
       g.fillRect(x, RULER_H, 1, gh);
     }
-    for (const ch of proj.channels) {
+    for (const ch of this.ghosts ? proj.channels : []) {
       if (ch.id === proj.selected) continue;
       g.fillStyle = 'rgba(255,255,255,0.07)';
       for (const nt of pat.notes[ch.id] || []) {
@@ -143,8 +144,8 @@ export class Roll {
       const x = this.tToX(nt.t), y = this.nToY(nt.n), w = Math.max(3, nt.d * this.pxPerTick - 1);
       if (x > W || x + w < KEYS_W) continue;
       const s = this.sel.has(nt);
-      g.globalAlpha = 0.55 + 0.45 * (nt.v / 127);
-      g.fillStyle = s ? '#ffffff' : col;
+      g.globalAlpha = nt.mute ? 0.22 : 0.55 + 0.45 * (nt.v / 127);
+      g.fillStyle = s ? '#ffffff' : nt.mute ? '#8b8983' : col;
       g.fillRect(x, y + 1, w, this.rowH - 2);
       g.globalAlpha = 1;
       g.fillStyle = 'rgba(0,0,0,0.35)';
@@ -152,11 +153,14 @@ export class Roll {
       if (nt.slide) { // slide notes: a ramp marker
         g.fillStyle = s ? '#333' : 'rgba(0,0,0,0.6)';
         g.beginPath(); g.moveTo(x + 2, y + this.rowH - 2); g.lineTo(x + Math.min(w, 12), y + 2); g.lineTo(x + Math.min(w, 12), y + this.rowH - 2); g.fill();
+      } else if (nt.porta) { // portamento notes: a glide line into the note
+        g.strokeStyle = s ? '#333' : 'rgba(0,0,0,0.6)'; g.lineWidth = 1.5;
+        g.beginPath(); g.moveTo(x + 2, y + this.rowH - 3); g.quadraticCurveTo(x + 6, y + 2, x + Math.min(w, 12), y + 3); g.stroke();
       }
       if (w > 26 && this.rowH >= 12) {
         g.fillStyle = s ? '#222' : 'rgba(0,0,0,0.65)';
         g.font = '10px "Segoe UI", sans-serif';
-        g.fillText(noteLabel(nt.n), x + (nt.slide ? 14 : 3), y + this.rowH - 4);
+        g.fillText(noteLabel(nt.n), x + (nt.slide || nt.porta ? 14 : 3), y + this.rowH - 4);
       }
     }
     // chord tool: ghost of the chord under the mouse
@@ -232,9 +236,15 @@ export class Roll {
     if (x < KEYS_W) { const n = this.yToN(y); S.liveOn(n, 100); this.drag = { kind: 'key', n }; return; }
     if (y > RULER_H + this.gridH) { this.drag = { kind: 'lane' }; S.history.push(); this.laneAt(x, y); return; }
     const hit = this.noteAt(x, y);
+    const tool = this.tool;
+    if (tool === 'zoom') { this.zoomAt(x, e.button === 2 ? 1 / 1.5 : 1.5); return; }
     if (e.button === 2) { S.history.push(); this.drag = { kind: 'erase' }; this.eraseAt(x, y); return; }
-    if (e.ctrlKey) { this.drag = { kind: 'box', x0: x, y0: y, x1: x, y1: y, add: e.shiftKey }; return; }
-    if (this.tool === 'slide' && hit) { S.edit(() => { hit.slide = !hit.slide; }); return; }
+    if (e.ctrlKey || tool === 'select') { this.drag = { kind: 'box', x0: x, y0: y, x1: x, y1: y, add: e.shiftKey }; return; }
+    if (tool === 'delete') { S.history.push(); this.drag = { kind: 'erase' }; this.eraseAt(x, y); return; }
+    if (tool === 'mute') { S.history.push(); this.drag = { kind: 'mute', done: new Set() }; this.muteAt(x, y); return; }
+    if (tool === 'slice') { if (hit) this.sliceAt(hit, this.snapT(this.xToT(x))); return; }
+    if (this.tool === 'slide' && hit) { S.edit(() => { hit.slide = !hit.slide; if (hit.slide) delete hit.porta; }); return; }
+    if (this.tool === 'porta' && hit) { S.edit(() => { hit.porta = !hit.porta; if (hit.porta) delete hit.slide; }); return; }
     if (hit) {
       if (e.shiftKey) { if (this.sel.has(hit)) this.sel.delete(hit); else this.sel.add(hit); this.draw(); return; }
       if (!this.sel.has(hit)) { this.sel.clear(); this.sel.add(hit); }
@@ -252,9 +262,10 @@ export class Roll {
     const t = this.snapT(this.xToT(x)), n = this.fitN(this.yToN(y));
     if (n < 0 || n > 127) return;
     const ns = this.tool === 'chord' ? this.chordNotes(n) : [n];
-    const made = ns.map((k) => ({ t, d: this.lastLen, n: k, v: 100, ...(this.tool === 'slide' ? { slide: true } : {}) }));
+    const made = ns.map((k) => ({ t, d: this.lastLen, n: k, v: 100, ...(this.tool === 'slide' ? { slide: true } : this.tool === 'porta' ? { porta: true } : {}) }));
     for (const nt of made) { this.list.push(nt); this.sel.add(nt); S.preview(this.ch.id, nt.n, nt.v); }
-    this.drag = { kind: 'create', notes: made, nt: made[0], x0: x };
+    // paint: dragging keeps laying notes of the last length (FL's B tool)
+    this.drag = tool === 'paint' ? { kind: 'paint', n, last: t } : { kind: 'create', notes: made, nt: made[0], x0: x };
     this.draw();
   }
 
@@ -270,6 +281,17 @@ export class Roll {
     if (d.kind === 'key') { const n = this.yToN(y); if (n !== d.n) { this.S.liveOff(d.n); this.S.liveOn(n, 100); d.n = n; } return; }
     if (d.kind === 'lane') { this.laneAt(x, y); return; }
     if (d.kind === 'erase') { this.eraseAt(x, y); return; }
+    if (d.kind === 'mute') { this.muteAt(x, y); return; }
+    if (d.kind === 'paint') {
+      const t = this.snapT(this.xToT(x));
+      const n = this.fitN(this.yToN(y));
+      if (t >= d.last + this.lastLen || t <= d.last - this.lastLen) {
+        if (!this.list.some((o) => o.t === t && o.n === n)) { const nt = { t, d: this.lastLen, n, v: 100 }; this.list.push(nt); this.S.preview(this.ch.id, n, 100); }
+        d.last = t;
+        this.draw();
+      }
+      return;
+    }
     if (d.kind === 'box') { d.x1 = x; d.y1 = y; this.draw(); return; }
     if (d.kind === 'create') {
       const end = Math.max(d.nt.t + this.snap, this.snapT(this.xToT(x)) + this.snap);
@@ -313,6 +335,29 @@ export class Roll {
     const hit = this.noteAt(x, y);
     if (!hit) return;
     this.S.edit(() => { const l = this.list; l.splice(l.indexOf(hit), 1); this.sel.delete(hit); });
+  }
+
+  // mute tool: a muted note stays on screen, greyed, and does not play
+  muteAt(x, y) {
+    const hit = this.noteAt(x, y);
+    if (!hit || this.drag?.done?.has(hit)) return;
+    this.drag?.done?.add(hit);
+    hit.mute = !hit.mute;
+    this.draw();
+  }
+
+  // slice tool: cut a note in two at a snapped point
+  sliceAt(nt, t) {
+    if (t <= nt.t || t >= nt.t + nt.d) return;
+    this.S.edit(() => { const rest = { ...nt, t, d: nt.t + nt.d - t }; nt.d = t - nt.t; this.list.push(rest); });
+  }
+
+  // zoom tool / Ctrl+wheel: horizontal zoom around a point
+  zoomAt(x, k) {
+    const t = this.xToT(x);
+    this.pxPerTick = Math.max(0.08, Math.min(6, this.pxPerTick * k));
+    this.scrollT = Math.max(0, t - (x - KEYS_W) / this.pxPerTick);
+    this.draw();
   }
 
   eraseAt(x, y) {
@@ -434,7 +479,7 @@ export class Roll {
         for (let t = n.t; t < n.t + n.d; t += size) { const c = { ...n, t, d: Math.min(size, n.t + n.d - t) }; l.push(c); made.push(c); }
       }
       this.sel = new Set(made);
-    }, true, '노트 자르기');
+    }, true, 'Chop');
   }
 
   glue() {
@@ -445,7 +490,52 @@ export class Roll {
         const a = list[i], b = list[i + 1];
         if (a.n === b.n && b.t <= a.t + a.d + 1) { a.d = Math.max(a.d, b.t + b.d - a.t); l.splice(l.indexOf(b), 1); list.splice(i + 1, 1); i--; }
       }
-    }, true, '노트 붙이기');
+    }, true, 'Glue');
+  }
+
+  // FL Studio's Randomizer / Riff Machine: new notes in the project's scale for this channel.
+  // style: melody | bass | chords | arp; density 0..1; low: lowest note; range in semitones
+  riff({ style = 'melody', bars = null, density = 0.55, low = 60, range = 14, replace = true } = {}) {
+    const S = this.S, sc = S.proj.scale || { root: 0, type: 'minor' };
+    const pat = pattern(S.proj), len = (bars || pat.bars) * barTicks(S.proj), steps = Math.round(len / STEP);
+    const pool = []; for (let n = low; n <= low + range; n++) if (inScale(sc, n)) pool.push(n);
+    const roots = pool.filter((n) => ((n - sc.root) % 12 + 12) % 12 === 0);
+    const rnd = (a) => a[Math.floor(Math.random() * a.length)];
+    const out = [];
+    if (style === 'chords' || style === 'arp') {
+      const deg = [0, 5, 3, 4, 0, 3, 5, 4]; // I vi IV V style motion, shuffled per bar
+      const per = style === 'chords' ? 16 : 2;
+      for (let s = 0, b = 0; s < steps; s += 16, b++) {
+        const d = (b === 0 ? 0 : rnd(deg)), base = pool[Math.min(pool.length - 1, d)] ?? low;
+        const i0 = pool.indexOf(base), tri = [pool[i0], pool[i0 + 2], pool[i0 + 4]].filter((n) => n != null);
+        if (style === 'chords') for (const n of tri) out.push({ t: s * STEP, d: per * STEP - 2, n, v: 80 + Math.round(Math.random() * 12) });
+        else for (let k = 0; k < 16 / per; k++) out.push({ t: (s + k * per) * STEP, d: per * STEP - 2, n: tri[k % tri.length] + (Math.floor(k / tri.length) % 2 ? 12 : 0), v: 78 + Math.round(Math.random() * 20) });
+      }
+    } else {
+      let i = Math.floor(pool.length / 3);
+      const onsets = [];
+      for (let s = 0; s < steps; s++) {
+        const strong = s % 4 === 0, p = style === 'bass' ? (strong ? 0.85 : density * 0.35) : (strong ? Math.min(1, density + 0.3) : density * 0.6);
+        if (s === 0 || Math.random() < p) onsets.push(s);
+      }
+      onsets.forEach((s, k) => {
+        const next = onsets[k + 1] ?? steps;
+        const d = Math.max(1, Math.min(style === 'bass' ? 4 : 6, next - s));
+        let n;
+        if (style === 'bass') n = s % 8 === 0 || !roots.length ? (roots[0] ?? pool[0]) : rnd([roots[0] ?? pool[0], pool[Math.min(pool.length - 1, 4)], pool[Math.min(pool.length - 1, 2)]]);
+        else { i = Math.max(0, Math.min(pool.length - 1, i + rnd([-2, -1, -1, 0, 1, 1, 2, 3, -3]))); n = pool[i]; }
+        out.push({ t: s * STEP, d: d * STEP - 2, n, v: (s % 4 === 0 ? 96 : 82) + Math.round(Math.random() * 14) });
+      });
+      // end on the root, like a riff that resolves
+      if (out.length && roots.length && style === 'melody') out[out.length - 1].n = roots.reduce((a, r) => (Math.abs(r - out[out.length - 1].n) < Math.abs(a - out[out.length - 1].n) ? r : a), roots[0]);
+    }
+    S.edit(() => {
+      const l = this.list;
+      if (replace) l.splice(0, l.length);
+      this.sel.clear();
+      for (const n of out) { l.push(n); this.sel.add(n); }
+    }, true, 'Randomize');
+    return out.length;
   }
 
   transform(kind) {
@@ -478,7 +568,19 @@ export class Roll {
       S.edit(() => { this.sel.clear(); for (const n of sel) { const c = { ...n, t: n.t + (t1 - t0) }; l.push(c); this.sel.add(c); } });
       return true;
     }
-    if (!e.ctrlKey && k === 'q') { this.quantizeOpts({}); return true; }
+    if (!e.ctrlKey && !e.altKey && k === 'q') { this.quantizeOpts({}); return true; }
+    // FL Studio piano roll keys
+    if (e.ctrlKey && e.altKey && k === 'q') { this.quantizeOpts({}); return true; }                 // quick quantize
+    if (e.altKey && !e.ctrlKey && k === 'q') { this.S.quantizeDialog(); return true; } // FL: Alt+Q quantize dialog
+    if (e.ctrlKey && k === 'b' && sel.length) { return this.key({ ...e, key: 'd', ctrlKey: true, altKey: false, shiftKey: false }); } // duplicate
+    if (e.ctrlKey && sel.length && (k === 'arrowup' || k === 'arrowdown')) { return this.key({ ...e, ctrlKey: false, shiftKey: true }); } // octave
+    if (e.altKey && k === 'a') { this.arpeggiate({}); return true; }
+    if (e.altKey && k === 's') { this.strum({}); return true; }
+    if (e.altKey && k === 'r') { this.S.randomizeDialog(); return true; } // FL: Alt+R Randomize
+    if (e.ctrlKey && k === 'u') { this.chop(); return true; }
+    if (e.ctrlKey && k === 'g') { this.glue(); return true; }
+    if (e.ctrlKey && k === 'l') { this.legato(); return true; }
+    if (e.altKey && k === 'v') { this.ghosts = !this.ghosts; this.draw(); return true; }
     if (sel.length && ['arrowup', 'arrowdown'].includes(k)) {
       const up = k === 'arrowup';
       S.edit(() => {

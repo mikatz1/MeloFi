@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('melofi', {
   listInstruments: () => ipcRenderer.invoke('instruments:list'),
@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('melofi', {
   onBootProgress: (cb) => ipcRenderer.on('boot:progress', (_e, m) => cb(m)),
   openStudioWindow: (cmd) => ipcRenderer.invoke('studio:openWindow', cmd),
   openInstrumentPicker: (opts) => ipcRenderer.invoke('picker:open', opts),
+  openKeysWindow: () => ipcRenderer.invoke('keys:open'),
+  setZoom: (f) => webFrame.setZoomFactor(Math.max(0.5, Math.min(2, +f || 1))),
+  closeKeysWindow: () => ipcRenderer.invoke('keys:close'),
+  keysNote: (m) => ipcRenderer.send('keys:note', m),
+  onKeysNote: (cb) => ipcRenderer.on('keys:note', (_e, m) => cb(m)),
+  onKeysClosed: (cb) => ipcRenderer.on('keys:closed', () => cb()),
   onPickerChosen: (cb) => ipcRenderer.on('picker:chosen', (_e, m) => cb(m)),
   onPickerStore: (cb) => ipcRenderer.on('picker:store', () => cb()),
   pickerOptions: () => ipcRenderer.invoke('picker:options'),

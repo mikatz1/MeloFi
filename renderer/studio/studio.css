@@ -86,3 +86,4 @@ body.studio-open #stageWrap, body.studio-open #transport { visibility: hidden; }
 .st-pop small { color: var(--faint); }
 .st-pop .grp { padding: 7px 10px 3px; font-size: 10.5px; color: var(--faint); }
 .st-pop .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.mx-arm.on { background: #6b2f31; color: #ff6b6b; border-color: var(--rec); }

@@ -867,6 +867,14 @@ export class Stage {
     for (const n of this.active.keys()) this.noteOff(n);
   }
 
+  // a clean picture: no bars left floating up from what played before (stop, a new score)
+  clearBars() {
+    this.clearAll();
+    this.bars.length = 0;
+    this.ringing.clear();
+    this.heat.clear();
+  }
+
   noteAt(cssX, cssY) {
     const x = cssX * this.dpr, y = cssY * this.dpr;
     if (y < this.top || y > this.top + this.kbH) return null;

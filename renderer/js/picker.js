@@ -17,7 +17,8 @@ const h = (tag, attrs = {}, ...kids) => {
   return el;
 };
 const mb = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
-const FAMILY_ORDER = ['piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'drums', 'fx'];
+const FAMILY_ORDER = ['piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'drums', 'fx', 'mfsynth'];
+const FAMILY_NAMES = { mfsynth: 'MeloFi 신스 프리셋' };
 const api = window.melofi;
 
 const state = { opts: {}, list: [], hay: new Map(), q: '', family: 'all', installedOnly: false, sel: null, dl: new Map() };
@@ -28,10 +29,20 @@ async function load() {
   for (const i of state.list) if (i.downloading && !state.dl.has(i.id)) state.dl.set(i.id, 0);
 }
 
+// MeloFi Synth presets (sent by the studio) appear as their own family, grouped by category
+function withSynths() {
+  state.list = state.list.filter((i) => i.family !== 'mfsynth');
+  (state.opts.synths || []).forEach((p, k) => state.list.push({ id: p.id, name: p.name, model: `신스 · ${p.cat}`, use: '편집 가능한 신시사이저', family: 'mfsynth', installed: true, order: k, cat: p.cat }));
+  for (const i of state.list) if (i.family === 'mfsynth') state.hay.set(i.id, haystack({ ...i, name: `${i.name} ${i.cat} 신스 synth` }, T));
+}
+
 function setup(opts) {
   state.opts = opts || {};
+  withSynths();
   $('#pkFor').textContent = state.opts.title ? `· ${state.opts.title}` : '';
-  document.title = state.opts.title ? `악기 선택 · ${state.opts.title}` : '악기 선택';
+  const head = state.opts.heading || '악기 선택'; // the studio calls it the plugin picker, as FL Studio does
+  document.querySelector('.pk-title').textContent = head;
+  document.title = state.opts.title ? `${head} · ${state.opts.title}` : head;
   state.sel = state.opts.current || state.sel;
   $('#pkHint').textContent = state.opts.closeOnPick ? '클릭하거나 Enter로 선택 · Esc 닫기' : '클릭하면 바로 바뀝니다 · Esc 닫기';
   render(true);
@@ -50,7 +61,7 @@ function render(scrollToSel = false) {
   const fams = FAMILY_ORDER.filter((f) => state.list.some((i) => (i.family || 'piano') === f));
   $('#pkFam').replaceChildren(
     h('button', { class: state.family === 'all' ? 'on' : '', onclick: () => { state.family = 'all'; render(); } }, '전체', h('small', {}, base.length)),
-    ...fams.map((f) => h('button', { class: state.family === f ? 'on' : '', onclick: () => { state.family = f; render(); } }, T.families[f] || f, h('small', {}, count(f)))));
+    ...fams.map((f) => h('button', { class: state.family === f ? 'on' : '', onclick: () => { state.family = f; render(); } }, FAMILY_NAMES[f] || T.families[f] || f, h('small', {}, count(f)))));
 
   const items = visible();
   const list = $('#pkList');
@@ -59,7 +70,8 @@ function render(scrollToSel = false) {
   let lastFam = null;
   for (const i of [...items].sort((a, b) => FAMILY_ORDER.indexOf(a.family || 'piano') - FAMILY_ORDER.indexOf(b.family || 'piano') || a.order - b.order)) {
     const fam = i.family || 'piano';
-    if (state.family === 'all' && fam !== lastFam) { rows.push(h('li', { class: 'pk-group' }, T.families[fam] || fam)); lastFam = fam; }
+    const grp = fam === 'mfsynth' ? `${FAMILY_NAMES.mfsynth} · ${i.cat}` : fam;
+    if ((state.family === 'all' || fam === 'mfsynth') && grp !== lastFam) { rows.push(h('li', { class: 'pk-group' }, fam === 'mfsynth' ? grp : T.families[fam] || fam)); lastFam = grp; }
     const cur = i.id === state.opts.current;
     const dl = state.dl.get(i.id);
     const st = cur ? h('span', { class: 'st cur' }, '사용 중')
@@ -120,7 +132,7 @@ document.addEventListener('keydown', (e) => {
 $('#pkSearch').addEventListener('input', (e) => { state.q = e.target.value; render(); });
 $('#pkInstalled').addEventListener('change', (e) => { state.installedOnly = e.target.checked; render(); });
 $('#pkStore').addEventListener('click', () => api.pickerOpenStore());
-window.addEventListener('focus', async () => { await load(); render(); });
+window.addEventListener('focus', async () => { await load(); withSynths(); render(); });
 api.onPickerSetup((opts) => setup(opts));
 
 await load();

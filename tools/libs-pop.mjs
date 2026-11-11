@@ -140,6 +140,13 @@ export const POP_LIBS = {
   },
 
   // ---------------- added for General MIDI scores: parts MeloFi had no instrument for ----------------
+  chorus: {
+    order: 89, family: 'vocal', name: 'Mixed Chorus', model: '혼성 합창 (아)',
+    maker: 'Sonatina Symphonic Orchestra (Mattias Westlund), loops by Signal Experiments', license: 'CC Sampling Plus 1.0',
+    url: 'https://github.com/peastman/sso', strings: false,
+    tags: ['kpop', 'jpop', 'pop'], use: '후렴 뒤에 깔리는 웅장한 합창 패드 (여성·남성 혼성 \'아\')',
+    sfz: 'sso-master/Sonatina Symphonic Orchestra/Chorus - Performance/Mixed Chorus.sfz',
+  },
   contrabass: {
     ...VSCO, order: 39, family: 'strings', name: 'Solo Contrabass', model: '콘트라베이스 (활)',
     tags: ['jpop', 'kpop'], use: '오케스트라 편곡과 OST의 깊은 저음을 받치는 콘트라베이스 아르코',

@@ -296,6 +296,7 @@ async function build(id) {
       .map((r) => ({
         s: `s/${info.get(r.file).name}`, lo: r.lo, hi: r.hi, c: r.center, t: Math.round(r.tune * 10) / 10,
         lv: r.lv, hv: r.hv, g: +r.gain.toFixed(5), r: +r.release.toFixed(3), off: r.offsetSamples || 0,
+        ...(r.loop ? { ls: r.loop[0], le: r.loop[1] } : {}), ...(r.attack ? { a: +r.attack.toFixed(3) } : {}),
       })),
   };
   fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest));

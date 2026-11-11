@@ -2,7 +2,7 @@
 // wires the panels together: channel rack / browser on the left; piano roll, playlist, mixer
 // and live grid on the right; an on-screen keyboard at the bottom; the guided tour on top.
 import { h, popup, ask, form, setControlMenu } from './dom.js';
-import { PPQ, STEP, barTicks, patternTicks, pattern, notesOf, newProject, newPattern, History, uid, migrate, SCALES, ROOTS, newTrack, songBars, tickToSec } from '../model.js';
+import { PPQ, STEP, barTicks, patternTicks, pattern, notesOf, newProject, newPattern, History, uid, migrate, SCALES, ROOTS, newTrack, songBars, tickToSec, barAt, newBus } from '../model.js';
 import { StudioEngine } from '../engine.js';
 import { Transport, eventsFor } from '../transport.js';
 import { saveProject, openProject, autosave, autoload, projectToMidi, midiToProject, renderMix } from '../io.js';
@@ -17,12 +17,16 @@ import { Keys } from './keys.js';
 import { Live } from './live.js';
 import { Tour, CHAPTERS } from './tour.js';
 import { ChannelSheet } from './channelsheet.js';
+import { RiffWizard } from './riffwizard.js';
+import { NewtoneWindow } from './newtone.js';
 import { MidiOut } from '../midiout.js';
 import { DawSheet } from './daw.js';
 import { CloudSheet } from './cloud.js';
 import { AiSheet } from './ai.js';
 import { openPicker } from '../../js/picker-client.js';
 import { TEMPLATES } from '../templates.js';
+import { SYNTH_CATEGORIES } from '../synth.js';
+import { LOOP_GENRES, ROLES, renderLoop } from '../loops.js';
 import { encodeWav, mp3 } from '../../js/recorder.js';
 import { T } from '../../js/strings.js';
 
@@ -30,13 +34,21 @@ const SNAPS = [['bar', '마디'], [PPQ, '1/4'], [PPQ / 2, '1/8'], [STEP, '1/16']
 const FAMILY_ORDER = ['drums', 'piano', 'keys', 'organ', 'synth', 'strings', 'brass', 'winds', 'vocal', 'guitar', 'bass', 'mallets', 'world', 'fx'];
 
 // studio actions that can be bound to keys (Shortcut settings)
+// FL Studio's keys (basics_shortcuts in the FL manual), so its tutorials can be followed key for key
 export const ACTIONS = {
-  play: ['재생 / 정지', 'Space'], record: ['노트 녹음', 'R'], undo: ['실행 취소', 'Ctrl+Z'], redo: ['다시 실행', 'Ctrl+Y'],
-  save: ['저장', 'Ctrl+S'], open: ['열기', 'Ctrl+O'], keys: ['화면 건반 보이기', 'Ctrl+K'], metro: ['메트로놈', 'Ctrl+M'],
-  loop: ['반복 구간 켜기 / 끄기', 'Ctrl+L'], roll: ['피아노 롤', 'F5'], playlist: ['플레이리스트', 'F6'], mixer: ['믹서', 'F7'], live: ['라이브', 'F8'],
-  draw: ['그리기 도구', 'B'], chord: ['코드 도구', 'H'], slide: ['슬라이드 도구', 'G'], tour: ['튜토리얼', 'F1'],
+  play: ['재생 / 정지', 'Space'], record: ['녹음', 'R'], undo: ['실행 취소', 'Ctrl+Z'], redo: ['다시 실행', 'Ctrl+Y'],
+  save: ['저장', 'Ctrl+S'], open: ['열기', 'Ctrl+O'], metro: ['메트로놈', 'Ctrl+M'], countin: ['녹음 전 카운트', 'Ctrl+P'],
+  songmode: ['PAT / SONG 전환', 'L'], newpattern: ['새 패턴', 'F4'], renamepattern: ['패턴 이름 바꾸기', 'F2'], link: ['채널을 믹서 트랙에 연결 (피아노 롤에서는 레가토)', 'Ctrl+L'], timesig: ['박자표 바꾸기 (재생 위치부터)', 'Shift+Alt+T'], clonechannel: ['채널 복제 (설정만)', 'Alt+C'],
+  playlist: ['플레이리스트', 'F5'], rack: ['채널 랙', 'F6'], roll: ['피아노 롤', 'F7'], picker: ['플러그인 피커', 'F8'], mixer: ['믹서', 'F9'],
+  browser: ['브라우저', 'Alt+F8'], live: ['라이브', 'Ctrl+F8'], keys: ['화면 건반', 'Ctrl+Shift+K'], loop: ['반복 구간 켜기 / 끄기', 'Ctrl+Shift+L'],
+  exportWav: ['WAV로 내보내기', 'Ctrl+R'], exportMp3: ['MP3로 내보내기', 'Ctrl+Shift+R'], exportMidi: ['MIDI로 내보내기', 'Ctrl+Shift+M'],
+  graph: ['Graph editor (벨로시티)', 'Ctrl+K'],
+  draw: ['그리기 도구', 'P'], paint: ['페인트 도구', 'B'], erase: ['지우기 도구', 'D'], mutetool: ['뮤트 도구', 'T'], slicetool: ['자르기 도구', 'C'],
+  select: ['선택 도구', 'E'], zoom: ['확대 도구', 'Z'], slide: ['슬라이드 도구', 'S'], porta: ['포르타멘토 (슬라이드)', 'O'], chord: ['코드 스탬프', 'H'],
+  tour: ['튜토리얼', 'F1'],
 };
-const comboOf = (e) => `${e.ctrlKey ? 'Ctrl+' : ''}${e.shiftKey && e.key.length > 1 ? 'Shift+' : ''}${e.altKey ? 'Alt+' : ''}${e.code === 'Space' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key}`;
+// Shift counts for named keys and with Ctrl / Alt (Ctrl+Shift+R); a shifted letter alone is just a capital
+const comboOf = (e) => `${e.ctrlKey ? 'Ctrl+' : ''}${e.shiftKey && (e.key.length > 1 || e.ctrlKey || e.altKey) ? 'Shift+' : ''}${e.altKey ? 'Alt+' : ''}${e.code === 'Space' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key}`;
 
 export class Studio {
   constructor(app) {
@@ -63,6 +75,8 @@ export class Studio {
   get dawSheet() { return (this._daw ||= new DawSheet(this)); }
   get cloudSheet() { return (this._cloud ||= new CloudSheet(this)); }
   get channelSheet() { return (this._chs ||= new ChannelSheet(this)); }
+  get riffWizard() { return (this._rw ||= new RiffWizard(this)); }
+  get newtone() { return (this._nt ||= new NewtoneWindow(this)); }
   get tour() { return (this._tour ||= new Tour(this)); }
   get aiSheet() { return (this._ai ||= new AiSheet(this)); }
 
@@ -134,11 +148,11 @@ export class Studio {
   welcome() {
     const box = h('div', { class: 'st-welcome' },
       h('b', {}, '작곡이 처음이신가요?'),
-      h('p', {}, '화면을 하나씩 짚어 가며 첫 비트부터 곡 완성까지 안내해 드려요. 5분이면 됩니다.'),
+      h('p', {}, 'FL Studio 공식 강좌 순서로 화면을 따라가며 첫 비트부터 내보내기까지 13개 강의로 안내해 드려요. 단축키도 FL Studio와 같아요.'),
       h('div', { class: 'row' },
         h('button', { class: 'btn sm ghost', onclick: () => { box.remove(); this.app.settings.set({ studioTourSeen: true }); } }, '괜찮아요'),
         h('button', { class: 'btn sm ghost', onclick: () => { box.remove(); this.newFromTemplate(); } }, '템플릿 보기'),
-        h('button', { class: 'btn sm primary', onclick: () => { box.remove(); this.tour.start('beat'); } }, '투어 시작')));
+        h('button', { class: 'btn sm primary', onclick: () => { box.remove(); this.tour.start('workspace'); } }, '투어 시작')));
     this.el.append(box);
   }
 
@@ -239,17 +253,119 @@ export class Studio {
 
   setTab(t) {
     this.tab = t;
-    for (const [k, el] of Object.entries(this.panes)) el.hidden = k !== t;
+    if (this.floating?.[t]) this.raise(t); else this.dockTab = t;
+    for (const [k, el] of Object.entries(this.panes)) el.hidden = !this.floating?.[k] && k !== this.dockTab;
     for (const b of this.el.querySelectorAll('.st-tabs button')) b.classList.toggle('on', b.dataset.tab === t);
     requestAnimationFrame(() => { if (t === 'roll') this.roll.resize(); if (t === 'playlist') this.playlist.resize(); if (t === 'mixer') this.mixer.render(); if (t === 'live') this.live.render(); });
   }
 
+  // ---------- FL-style floating windows ----------
+  // The piano roll, playlist and mixer can be torn off into windows that float over the studio
+  // (as in FL Studio), moved by their title bar, resized from the corner and docked back.
+  // The arrangement is remembered (settings.studioLayout).
+  visible(k) { return !!this.floating?.[k] || this.dockTab === k; }
+
+  raise(k) {
+    const el = this.panes[k];
+    this.zTop = (this.zTop || 30) + 1;
+    el.style.zIndex = String(this.zTop);
+  }
+
+  detach(k, box = null) {
+    const el = this.panes[k];
+    if (!el || this.floating[k] || !['roll', 'playlist', 'mixer'].includes(k)) return;
+    const host = this.el.getBoundingClientRect();
+    const r = box || { x: 120 + Object.keys(this.floating).length * 40, y: 90 + Object.keys(this.floating).length * 30, w: Math.min(900, host.width * 0.6), h: Math.min(560, host.height * 0.6) };
+    this.floating[k] = r;
+    el.classList.add('st-float');
+    this.el.append(el);
+    Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    el.hidden = false;
+    this.raise(k);
+    // the docked area moves on to another docked pane
+    if (this.dockTab === k) this.dockTab = ['playlist', 'roll', 'mixer', 'live'].find((x) => !this.floating[x]) || 'live';
+    this.setTab(k);
+    this.saveLayout();
+  }
+
+  dock(k) {
+    const el = this.panes[k];
+    if (!el || !this.floating[k]) return;
+    delete this.floating[k];
+    el.classList.remove('st-float');
+    el.style.cssText = '';
+    const order = ['roll', 'playlist', 'mixer', 'live'];
+    const next = order.slice(order.indexOf(k) + 1).map((x) => this.panes[x]).find((p) => p && p.parentElement === this.rightEl);
+    this.rightEl.insertBefore(el, next || null);
+    this.setTab(k);
+    this.saveLayout();
+  }
+
+  saveLayout() { this.app.settings.set({ studioLayout: { ...this.floating } }); }
+
+  windowMenu(e) {
+    const names = { roll: '피아노 롤', playlist: '플레이리스트', mixer: '믹서' };
+    popup(e.clientX, e.clientY + 12, [
+      { group: '창 배치' },
+      ...Object.entries(names).map(([k, n]) => ({ label: this.floating[k] ? `${n} 붙이기` : `${n} 떼어내기`, hint: '탭 더블클릭', act: () => (this.floating[k] ? this.dock(k) : this.detach(k)) })),
+      { sep: true },
+      { label: '모두 떼어내기 (FL 기본 배치)', act: () => this.arrange('fl') },
+      { label: '모두 붙이기', act: () => this.arrange('docked') },
+    ]);
+  }
+
+  // ready-made arrangements: 'fl' puts the playlist big in the back with the roll and the mixer
+  // floating over it, the way FL Studio opens; 'docked' is MeloFi's tabbed layout
+  arrange(kind) {
+    for (const k of Object.keys(this.floating)) this.dock(k);
+    if (kind === 'fl') {
+      const r = this.rightEl.getBoundingClientRect(), host = this.el.getBoundingClientRect();
+      const x0 = r.left - host.left, y0 = r.top - host.top;
+      this.setTab('playlist');
+      this.detach('roll', { x: x0 + 30, y: y0 + 60, w: Math.max(420, r.width * 0.62), h: Math.max(260, r.height * 0.5) });
+      this.detach('mixer', { x: x0 + r.width * 0.25, y: y0 + r.height * 0.45, w: Math.max(420, r.width * 0.7), h: Math.max(240, r.height * 0.5) });
+      this.setTab('playlist');
+    }
+    this.saveLayout();
+  }
+
+  // title bar drag + corner resize for a floating pane
+  wireFloat(k) {
+    const el = this.panes[k];
+    const head = el.querySelector(':scope > .st-fhead');
+    head.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      try { head.setPointerCapture(e.pointerId); } catch { /* synthetic or lost pointer */ }
+      const r0 = this.floating[k], x0 = e.clientX, y0 = e.clientY;
+      const move = (ev) => { const host = this.el.getBoundingClientRect(); r0.x = Math.max(0, Math.min(host.width - 80, r0.x + ev.clientX - (move.x ?? x0))); r0.y = Math.max(0, Math.min(host.height - 30, r0.y + ev.clientY - (move.y ?? y0))); move.x = ev.clientX; move.y = ev.clientY; el.style.left = `${r0.x}px`; el.style.top = `${r0.y}px`; };
+      const up = () => { head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); this.saveLayout(); };
+      head.addEventListener('pointermove', move); head.addEventListener('pointerup', up);
+    });
+    head.addEventListener('dblclick', () => this.dock(k));
+    el.addEventListener('pointerdown', () => { if (this.floating[k]) { this.raise(k); if (this.tab !== k) { this.tab = k; for (const b of this.el.querySelectorAll('.st-tabs button')) b.classList.toggle('on', b.dataset.tab === k); } } }, true);
+    new ResizeObserver(() => {
+      if (!this.isOpen || el.hidden) return;
+      if (this.floating[k]) { const b = el.getBoundingClientRect(); this.floating[k].w = Math.round(b.width); this.floating[k].h = Math.round(b.height); clearTimeout(this._lay); this._lay = setTimeout(() => this.saveLayout(), 300); }
+      if (k === 'roll') this.roll.resize(); else if (k === 'playlist') this.playlist.resize();
+    }).observe(el);
+  }
+
+  // as in FL Studio, the browser docks on the far left beside the channel rack; Alt+F8 shows / hides
+  // it, F6 brings the rack forward. leftTab mirrors it ('browser' while the browser is open).
   setLeft(t) {
-    this.leftTab = t;
-    this.rackEl.hidden = t !== 'rack';
-    this.browserEl.hidden = t !== 'browser';
-    if (t === 'browser') this.browser.render();
-    for (const b of this.el.querySelectorAll('.st-ltabs button')) b.classList.toggle('on', b.dataset.l === t);
+    if (t === 'browser') this.browserOpen = !this.browserOpen;
+    this.leftTab = this.browserOpen ? 'browser' : 'rack';
+    this.browserCol.hidden = !this.browserOpen;
+    if (this.browserOpen) this.browser.render();
+    if (t === 'rack') this.rackEl.scrollIntoView?.({ block: 'nearest' });
+    this.layoutCols();
+    for (const b of this.el.querySelectorAll('.st-ltabs button')) b.classList.toggle('on', b.dataset.l === 'browser' && this.browserOpen);
+    requestAnimationFrame(() => { this.roll.resize(); this.playlist.resize(); });
+  }
+
+  layoutCols(w = this.leftW) {
+    this.leftW = w;
+    this.mainEl.style.gridTemplateColumns = `${this.browserOpen ? '250px ' : ''}${w}px 5px 1fr`;
   }
 
   async rename(ch) {
@@ -308,7 +424,9 @@ export class Studio {
   // ---------- instruments, samples, audio ----------
   // the instrument picker window; it closes once a channel's instrument is chosen
   pickInstrument(x, y, cb, current = null) {
-    openPicker({ title: current ? '채널 악기 바꾸기' : '채널 추가', current, closeOnPick: true },
+    // the picker also lists MeloFi Synth presets by category (like FL Studio's FLEX browser)
+    const synths = Object.entries(SYNTH_CATEGORIES).flatMap(([cat, names]) => names.map((n) => ({ id: `synth:${n}`, name: n, cat })));
+    openPicker({ title: current ? '채널 악기 바꾸기' : '채널 추가', heading: '플러그인 피커', current, closeOnPick: true, synths },
       async (id) => { await this.app.refreshInstruments(); cb(id); },
       () => this.app.store.show());
   }
@@ -351,11 +469,15 @@ export class Studio {
     return this.addAudioClipFromHash(hash, track, bar);
   }
 
-  addAudioClipFromHash(hash, track = null, bar = null) {
+  addAudioClipFromHash(hash, track = null, bar = null, chId = null) {
     const p = this._proj, m = p.media[hash];
     const secPerBar = (60 / p.bpm) * p.sig[0] * (4 / p.sig[1]);
     this.edit(() => {
-      let ch = p.channels.find((c) => c.kind === 'audio' && c.name === m.name.replace(/\.[^.]+$/, ''));
+      // a take recorded on an armed track goes to that track (an audio channel of the same name
+      // and output when the armed one plays an instrument)
+      const armed = chId && p.channels.find((c) => c.id === chId);
+      let ch = armed?.kind === 'audio' ? armed : armed ? p.channels.find((c) => c.kind === 'audio' && c.name === `${armed.name} 녹음`) : p.channels.find((c) => c.kind === 'audio' && c.name === m.name.replace(/\.[^.]+$/, ''));
+      if (!ch && armed) { ch = this.rack.makeKind('audio', `${armed.name} 녹음`); ch.out = armed.out; }
       if (!ch) ch = this.rack.makeKind('audio', m.name.replace(/\.[^.]+$/, ''));
       const t = track ?? p.playlist.tracks.findIndex((_, i) => !p.playlist.clips.some((c) => c.track === i));
       const tr = t < 0 ? p.playlist.tracks.length : t;
@@ -429,10 +551,12 @@ export class Studio {
   }
 
   // ---------- audio recording (microphone / line in) ----------
-  async toggleAudioRec() {
+  // armed: the mixer track (channel) armed for recording, as in FL Studio; its input is used and
+  // the take lands on that channel
+  async toggleAudioRec(armed = null) {
     if (this.arec) return this.stopAudioRec();
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); } catch { this.status('마이크를 쓸 수 없습니다. 윈도우 설정에서 마이크 권한을 확인하세요.'); return; }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, ...(armed?.input ? { deviceId: { exact: armed.input } } : {}) } }); } catch { this.status('마이크를 쓸 수 없습니다. 윈도우 설정에서 마이크 권한을 확인하세요.'); return; }
     const ctx = this.engine.ctx;
     await ctx.audioWorklet.addModule('melofi://app/renderer/js/pcm-tap.js').catch(() => {});
     const src = ctx.createMediaStreamSource(stream), tap = new AudioWorkletNode(ctx, 'pcm-tap', { numberOfOutputs: 0 });
@@ -444,7 +568,7 @@ export class Studio {
     const startTick = this.transport.playing ? this.transport.songPos() : this.transport.base + this.transport.pos;
     tap.port.postMessage('start');
     if (!this.transport.playing) this.transport.play();
-    this.arec = { stream, src, tap, chunks, startTick, latency: (ctx.baseLatency || 0) + (ctx.outputLatency || 0) };
+    this.arec = { armed: armed?.id || null, stream, src, tap, chunks, startTick, latency: (ctx.baseLatency || 0) + (ctx.outputLatency || 0) };
     this.renderToolbar();
     this.status('오디오 녹음 중… 다시 누르면 멈춥니다');
   }
@@ -466,7 +590,7 @@ export class Studio {
     const bt = barTicks(this._proj);
     const hash = await addMedia(this._proj, `녹음 ${new Date().toLocaleTimeString('ko-KR', { hour12: false })}.wav`, wav);
     this._proj.media[hash].bpm = null;
-    this.addAudioClipFromHash(hash, null, Math.round((r.startTick / bt) * 16) / 16);
+    this.addAudioClipFromHash(hash, null, Math.round((r.startTick / bt) * 16) / 16, r.armed);
     this.renderToolbar();
     this.status('녹음을 오디오 클립으로 넣었습니다');
   }
@@ -547,7 +671,7 @@ export class Studio {
   controlMenu(e, target, label) {
     const map = this._proj.midiMap.filter((m) => m.target === target);
     popup(e.clientX, e.clientY, [
-      { label: '자동화 클립 만들기', hint: '시간에 따라 값 바꾸기', act: () => this.makeAutomation(target, label) },
+      { label: 'Create automation clip', hint: '오토메이션 클립: 시간에 따라 값 바꾸기', act: () => this.makeAutomation(target, label) },
       { label: this.learn === target ? 'MIDI 연결 대기 중… (취소)' : 'MIDI 컨트롤러 연결', hint: '다음에 움직인 노브', act: () => { this.learn = this.learn === target ? null : target; this.status(this.learn ? 'MIDI 컨트롤러의 노브나 슬라이더를 움직이세요' : ''); } },
       ...(map.length ? [{ label: `MIDI 연결 해제 (CC ${map[0].cc})`, act: () => this.edit(() => { this._proj.midiMap = this._proj.midiMap.filter((m) => m.target !== target); }) }] : []),
     ]);
@@ -561,13 +685,13 @@ export class Studio {
       const a = { id: uid('a'), name, color: '#9a8cd6', target, len, points: [{ t: 0, v }, { t: 1, v }] };
       p.autos.push(a);
       const tr = p.playlist.tracks.length;
-      p.playlist.tracks.push({ ...newTrack(tr), name: `자동화: ${name}` });
+      p.playlist.tracks.push({ ...newTrack(tr), name: `오토메이션: ${name}` });
       p.playlist.clips.push({ id: uid('k'), kind: 'auto', auto: a.id, track: tr, start: 0, len });
       p.mode = 'song';
-    }, true, '자동화 클립 만들기');
+    }, true, '오토메이션 클립 만들기');
     this.setTab('playlist');
     this.playlist.scrollTrack = Math.max(0, p.playlist.tracks.length - 4);
-    this.status('자동화 클립 안을 클릭해 점을 찍고 끌어서 값을 바꾸세요');
+    this.status('오토메이션 클립 안을 클릭해 점을 찍고 끌어서 값을 바꾸세요');
   }
 
   targetName(target, label) {
@@ -589,7 +713,7 @@ export class Studio {
     }
     let hit = false;
     for (const m of this._proj.midiMap) if (m.cc === cc && m.ch === ch) { this.setValue(m.target, val / 127); hit = true; }
-    if (hit && !this.ccRender) this.ccRender = setTimeout(() => { this.ccRender = null; if (this.tab === 'mixer') this.mixer.render(); this.rack.render(); }, 120);
+    if (hit && !this.ccRender) this.ccRender = setTimeout(() => { this.ccRender = null; if (this.visible('mixer')) this.mixer.render(); this.rack.render(); }, 120);
   }
 
   // ---------- files ----------
@@ -652,6 +776,126 @@ export class Studio {
     ]).classList.add('tall');
   }
 
+  // FL Studio's Loop Starter: a genre in, a ready loop out — in a random key and tempo each time,
+  // so pressing it again gives a different starting idea
+  loopStarter(x = innerWidth / 2 - 120, y = 120) {
+    popup(x, y, [
+      { group: 'Loop Starter · 장르 선택' },
+      ...Object.entries(LOOP_GENRES).map(([k, g]) => ({ label: g.name, hint: `${g.bpm[0]}–${g.bpm[1]} BPM`, act: () => {
+        if (this.dirty && !confirm('새 루프로 시작할까요? 저장하지 않은 변경 사항은 자동 저장본에만 남습니다.')) return;
+        this.startLoops(k);
+      } })),
+      { sep: true },
+      ...Object.entries(TEMPLATES).filter(([k]) => k !== 'empty').map(([k, t]) => ({ label: `${t.name} (패턴으로)`, hint: '편집 가능한 노트로 시작', act: () => {
+        if (this.dirty && !confirm('새 루프로 시작할까요? 저장하지 않은 변경 사항은 자동 저장본에만 남습니다.')) return;
+        this.setProject(this.makeLoopStart(k)); this.setMode('song');
+      } })),
+    ]).classList.add('tall');
+  }
+
+  // FL Studio's Loop Starter: a new project made of drum, bass, chord and melody loops (audio)
+  // in a random key and tempo of the genre, laid out over 8 bars; each loop can be shuffled
+  async startLoops(genre, seed = Math.floor(Math.random() * 1e6)) {
+    const g = LOOP_GENRES[genre];
+    const p = newProject();
+    p.name = `Loop Starter · ${g.name}`;
+    p.bpm = g.bpm[0] + Math.floor(Math.random() * (g.bpm[1] - g.bpm[0] + 1));
+    p.scale = { root: Math.floor(Math.random() * 12), type: g.scale };
+    p.playlist.clips = [];
+    // keep one instrument channel to write on; the loops bring their own audio channels
+    const keep = p.channels.find((c) => /piano/i.test(c.name)) || p.channels[0];
+    p.channels = [keep]; p.selected = keep.id;
+    for (const pat of p.patterns) pat.notes = {};
+    this.setProject(p);
+    const start = { drums: 0, chords: 0, bass: 4, lead: 8 }; // a build-up on loop boundaries (loops are 4 bars)
+    let track = 0;
+    for (const role of Object.keys(ROLES)) {
+      this.status(`Loop Starter: ${ROLES[role]} 만드는 중… (${track + 1}/4)`);
+      await this.addLoop(genre, role, { track, bar: start[role], seed: seed + track, until: 12 });
+      track++;
+    }
+    this.setMode('song');
+    this.setTab('playlist');
+    this.status('Loop Starter: 클립 제목 줄을 우클릭해 ‘루프 바꾸기’로 파트마다 다른 루프를 고를 수 있어요.');
+  }
+
+  // a loop from the library on the playlist: rendered in the project's key and tempo, placed at
+  // `bar` on `track`, repeated up to bar `until` (if given)
+  async addLoop(genre, role, { track = null, bar = 0, seed = 1, until = null } = {}) {
+    const p = this._proj;
+    const root = p.scale?.root ?? 0;
+    const L = await renderLoop(genre, role, { root, bpm: p.bpm, seed });
+    const hash = await addMedia(p, `${L.name}.wav`, encodeWav(L));
+    p.media[hash].bpm = p.bpm;
+    p.media[hash].loop = { genre, role, seed, root };
+    this.edit(() => {
+      const name = `루프 ${ROLES[role]}`;
+      let ch = p.channels.find((c) => c.kind === 'audio' && c.name === name);
+      if (!ch) ch = this.rack.makeKind('audio', name);
+      const t = track ?? p.playlist.tracks.findIndex((_, i) => !p.playlist.clips.some((c) => c.track === i));
+      const tr = t < 0 ? p.playlist.tracks.length : t;
+      while (p.playlist.tracks.length <= tr + 1) p.playlist.tracks.push(newTrack(p.playlist.tracks.length));
+      p.playlist.tracks[tr].name = name;
+      for (let b = bar; b < (until ?? bar + L.bars); b += L.bars) p.playlist.clips.push({ id: uid('k'), kind: 'audio', media: hash, ch: ch.id, track: tr, start: b, len: L.bars, offset: 0, gain: 1, sync: true });
+      p.mode = 'song';
+    }, true, '루프 넣기');
+    this.syncAudio();
+    return hash;
+  }
+
+  // FL's per-loop shuffle: a new variation of the same part replaces it everywhere it is used
+  async shuffleLoop(clip) {
+    const p = this._proj, m = p.media[clip.media];
+    if (!m?.loop) return;
+    const { genre, role } = m.loop, seed = m.loop.seed + 1 + Math.floor(Math.random() * 1000);
+    this.status(`${ROLES[role]} 루프를 바꾸는 중…`);
+    const L = await renderLoop(genre, role, { root: p.scale?.root ?? m.loop.root, bpm: p.bpm, seed });
+    const hash = await addMedia(p, `${L.name}.wav`, encodeWav(L));
+    p.media[hash].bpm = p.bpm;
+    p.media[hash].loop = { genre, role, seed, root: p.scale?.root ?? m.loop.root };
+    const old = clip.media;
+    this.edit(() => { for (const c of p.playlist.clips) if (c.media === old) c.media = hash; }, true, '루프 바꾸기');
+    this.syncAudio();
+    this.status(`${ROLES[role]} 루프를 바꿨어요.`);
+  }
+
+  makeLoopStart(k) {
+    const t = TEMPLATES[k], p = t.make();
+    const shift = Math.floor(Math.random() * 12) - 5; // -5..+6 semitones
+    const drum = (c) => this.isKit(c.inst) || /kick|snare|hat|clap|perc|drum|킥|스네어|햇|클랩/i.test(c.name) || ['sample', 'slicer', 'audio'].includes(c.kind);
+    const pitched = new Set(p.channels.filter((c) => !drum(c)).map((c) => c.id));
+    for (const pat of p.patterns) for (const [id, list] of Object.entries(pat.notes)) if (pitched.has(id)) for (const n of list) n.n = Math.max(0, Math.min(127, n.n + shift));
+    if (p.scale) p.scale = { ...p.scale, root: ((p.scale.root + shift) % 12 + 12) % 12 };
+    p.bpm = Math.round(p.bpm * (0.94 + Math.random() * 0.12));
+    p.name = `Loop Starter · ${t.name}`;
+    return p;
+  }
+
+  // FL Studio's "customize" lesson: size, accent colour, how tall tracks and rows are, panel width
+  applyLook() {
+    const L = { zoom: 100, accent: '', trackH: 0, rowH: 0, ...(this.app.settings.get('studioLook') || {}) };
+    if (this.app.studioWindow) window.melofi.setZoom?.(L.zoom / 100); // the studio's own window scales as a whole
+    if (L.accent) document.documentElement.style.setProperty('--accent', L.accent); else document.documentElement.style.removeProperty('--accent');
+    if (L.trackH && this.playlist) this.playlist.trackH = L.trackH;
+    if (L.rowH && this.roll) this.roll.rowH = L.rowH;
+    requestAnimationFrame(() => { this.roll?.resize(); this.playlist?.resize(); });
+  }
+
+  async lookSheet() {
+    const L = { zoom: 100, accent: '', trackH: this.playlist.trackH, rowH: this.roll.rowH, ...(this.app.settings.get('studioLook') || {}) };
+    const v = await form('화면 꾸미기', [
+      { key: 'zoom', label: '화면 크기 (%)', type: 'select', value: L.zoom, options: [80, 90, 100, 110, 125, 140].map((z) => [z, `${z}%`]) },
+      { key: 'accent', label: '강조 색', type: 'color', value: L.accent || getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8a15d' },
+      { key: 'trackH', label: '플레이리스트 트랙 높이', type: 'number', value: L.trackH, min: 28, max: 120 },
+      { key: 'rowH', label: '피아노 롤 줄 높이', type: 'number', value: L.rowH, min: 7, max: 28 },
+      { key: 'reset', label: '기본값으로 되돌리기', type: 'check', value: false },
+    ], { note: '색상은 작곡 스튜디오에만 적용됩니다. 패널 너비는 채널 랙 오른쪽 경계를 드래그해 조절합니다.' });
+    if (!v) return;
+    this.app.settings.set({ studioLook: v.reset ? null : { zoom: v.zoom, accent: v.accent, trackH: v.trackH, rowH: v.rowH } });
+    if (v.reset) { this.playlist.trackH = 46; this.roll.rowH = 14; }
+    this.applyLook();
+  }
+
   async recentMenu(e) {
     const list = await window.melofi.studioRecent();
     const vers = await window.melofi.studioVersions();
@@ -670,10 +914,10 @@ export class Studio {
   }
 
   // WAV / MP3, the whole song or the loop region
-  async exportAudio() {
+  async exportAudio(fmt = 'wav24') {
     const p = this._proj;
     const v = await form('오디오로 내보내기', [
-      { key: 'format', label: '형식', type: 'select', value: 'wav24', options: [['wav24', 'WAV 24비트 (원본 품질)'], ['wav16', 'WAV 16비트 (CD)'], ['mp3', 'MP3 320kbps']] },
+      { key: 'format', label: '형식', type: 'select', value: fmt, options: [['wav24', 'WAV 24비트 (원본 품질)'], ['wav16', 'WAV 16비트 (CD)'], ['mp3', 'MP3 320kbps']] },
       { key: 'range', label: '범위', type: 'select', value: 'all', options: [['all', p.playlist.clips.length ? '곡 전체' : '현재 패턴'], ...(p.loop ? [['loop', `반복 구간 (${p.loop.start + 1}~${p.loop.end}마디)`]] : [])] },
       { key: 'tail', label: '끝 여운 (초)', type: 'number', value: 3, min: 0, max: 10, step: 0.5 },
     ], { ok: '내보내기' });
@@ -764,7 +1008,7 @@ export class Studio {
     const T2 = this.transport;
     switch (a) {
       case 'play': T2.toggle(); this.renderToolbar(); break;
-      case 'record': T2.recording = !T2.recording; if (T2.recording && !T2.playing) this.playWithCountIn(); this.renderToolbar(); break;
+      case 'record': if (this.arec || this._proj.channels.some((c) => c.arm)) { this.toggleAudioRec(this._proj.channels.find((c) => c.arm)); break; } T2.recording = !T2.recording; if (T2.recording && !T2.playing) this.playWithCountIn(); this.renderToolbar(); break;
       case 'undo': if (this.history.undo()) this.app.ui.toast('실행 취소', { ms: 900 }); break;
       case 'redo': this.history.redo(); break;
       case 'save': this.save(); break;
@@ -773,8 +1017,35 @@ export class Studio {
       case 'metro': T2.metro = !T2.metro; this.renderToolbar(); break;
       case 'loop': if (this._proj.loop) this.edit(() => { this._proj.loopOn = !this._proj.loopOn; }); break;
       case 'roll': case 'playlist': case 'mixer': case 'live': this.setTab(a); break;
-      case 'draw': case 'chord': case 'slide': this.roll.tool = a; this.renderPaneBars(); this.roll.draw(); break;
-      case 'tour': this.tour.start('beat'); break;
+      case 'rack': this.setLeft('rack'); break;
+      case 'graph': this.setLeft('rack'); this.rack.graph = this.rack.graph ? null : 'v'; this.rack.render(); break;
+      case 'browser': this.setLeft('browser'); break;
+      case 'picker': this.pickInstrument(0, 0, (id) => this.rack.add(id)); break;
+      case 'songmode': this.setMode(this._proj.mode === 'song' ? 'pattern' : 'song'); break;
+      case 'timesig': this.setTab('playlist'); this.playlist.sigDialog(this._proj.mode === 'song' ? this.transport.songPos() : 0); break;
+      case 'link': { // FL: Ctrl+L links the selected channel to a free mixer track; in the piano roll it is legato
+        if (this.tab === 'roll' && document.activeElement === this.roll.c) { this.roll.legato(); break; }
+        this.linkToMixer(this._proj.selected);
+        break;
+      }
+      case 'renamepattern': { const pat = pattern(this._proj); ask('패턴 이름', pat.name).then((v) => { if (v && v.trim()) this.edit(() => { pat.name = v.trim(); }); }); break; }
+      case 'clonechannel': { // FL's Alt+C: a copy of the selected channel's sound and settings, without its notes
+        const proj = this._proj, ch = proj.channels.find((c) => c.id === proj.selected);
+        if (ch) { this.edit(() => { const nc = { ...JSON.parse(JSON.stringify(ch)), id: uid('c'), name: `${ch.name} 2`, arm: false }; proj.channels.splice(proj.channels.indexOf(ch) + 1, 0, nc); proj.selected = nc.id; }, true, '채널 복제'); this.syncAudio(); }
+        break;
+      }
+      case 'newpattern': { const proj = this._proj, pat = pattern(proj); this.edit(() => { const p = newPattern(proj.patterns.length, pat.bars); proj.patterns.push(p); proj.current = p.id; }, true, '새 패턴'); break; }
+      case 'countin': this.countIn = !this.countIn; this.status(this.countIn ? '녹음 전 1마디 카운트 켬' : '녹음 전 카운트 끔'); break;
+      case 'exportWav': this.exportWav?.(); break;
+      case 'exportMp3': this.exportAudio('mp3'); break;
+      case 'exportMidi': this.exportMidi?.(); break;
+      case 'draw': case 'paint': case 'erase': case 'mutetool': case 'slicetool': case 'select': case 'zoom': case 'chord': case 'slide': case 'porta': {
+        const t = { erase: 'delete', mutetool: 'mute', slicetool: 'slice' }[a] || a;
+        if (this.tab === 'playlist') this.playlist.setTool?.(t); else this.roll.tool = t;
+        this.renderPaneBars(); this.roll.draw(); this.playlist.draw?.();
+        break;
+      }
+      case 'tour': this.tour.start('workspace'); break;
       default: return false;
     }
     return true;
@@ -788,8 +1059,8 @@ export class Studio {
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(true); return true; }
     const a = this.shortcut(e);
     // single letters (draw / chord / slide / record) only when the roll is focused, so they still play notes elsewhere
-    const letter = !e.ctrlKey && !e.altKey && e.key.length === 1;
-    if (a && (!letter || (this.tab === 'roll' && document.activeElement === this.roll.c))) { e.preventDefault(); if (!e.repeat) this.runAction(a); return true; }
+    const letter = !e.ctrlKey && !e.altKey && e.key.length === 1 && e.code !== 'Space';
+    if (a && (!letter || a === 'songmode' || a === 'record' || ((this.tab === 'roll' || this.tab === 'playlist') && [this.roll.c, this.playlist.c].includes(document.activeElement)))) { e.preventDefault(); if (!e.repeat) this.runAction(a); return true; }
     if (e.key === 'Escape') { e.preventDefault(); if (this.tour.active) this.tour.stop(); else if (!this.app.studioWindow) this.close(); return true; }
     const inRoll = this.tab === 'roll' && (document.activeElement === this.roll.c || this.el.contains(document.activeElement) || document.activeElement === document.body);
     if (inRoll && this.roll.key(e)) { e.preventDefault(); return true; }
@@ -802,12 +1073,16 @@ export class Studio {
     return e.code === 'Space';
   }
 
+  // the on-screen keyboard is a window of its own (keys.html); its notes play the selected channel
   toggleKeys() {
+    if (!this._keysWired) {
+      this._keysWired = true;
+      window.melofi.onKeysNote(({ n, v, on }) => { if (on) this.liveOn(n, v); else this.liveOff(n); });
+      window.melofi.onKeysClosed(() => { this.keysOpen = false; this.renderToolbar(); });
+    }
     this.keysOpen = !this.keysOpen;
-    this.keysEl.hidden = !this.keysOpen;
-    if (this.keysOpen) this.keys.render();
+    if (this.keysOpen) window.melofi.openKeysWindow(); else window.melofi.closeKeysWindow();
     this.renderToolbar();
-    requestAnimationFrame(() => { this.roll.resize(); this.playlist.resize(); });
   }
 
   // ---------- sheets: undo history, shortcuts ----------
@@ -839,36 +1114,45 @@ export class Studio {
     this.browserEl = h('div', { class: 'st-browser', hidden: true });
     this.rollBar = h('div', { class: 'pane-bar' });
     this.plBar = h('div', { class: 'pane-bar' });
-    const rollWrap = h('div', { class: 'st-pane roll' }, this.rollBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
-    const plWrap = h('div', { class: 'st-pane playlist', hidden: true }, this.plBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
-    const mxWrap = h('div', { class: 'st-pane mixer', hidden: true });
+    const fhead = (k, name) => h('div', { class: 'st-fhead', title: '끌어서 옮기기 · 더블클릭: 붙이기' }, h('b', {}, name), h('span', { class: 'sp' }),
+      h('button', { class: 'btn sm ghost', title: '원래 자리에 붙이기', onclick: () => this.dock(k) }, '붙이기'));
+    const rollWrap = h('div', { class: 'st-pane roll' }, fhead('roll', '피아노 롤'), this.rollBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
+    const plWrap = h('div', { class: 'st-pane playlist', hidden: true }, fhead('playlist', '플레이리스트'), this.plBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
+    const mxInner = h('div', { class: 'mx-in' });
+    const mxWrap = h('div', { class: 'st-pane mixer', hidden: true }, fhead('mixer', '믹서'), mxInner);
     const lvWrap = h('div', { class: 'st-pane live', hidden: true });
     this.keysEl = h('div', { class: 'st-keys', hidden: true });
     this.statusEl = h('span', { class: 'st-status' });
     const split = h('div', { class: 'st-split', title: '끌어서 너비 조절' });
+    this.browserEl.hidden = false;
+    this.browserCol = h('div', { class: 'st-bcol', hidden: true },
+      h('div', { class: 'st-head' }, h('b', {}, '브라우저'), h('button', { class: 'x', title: '브라우저 닫기 (Alt+F8)', onclick: () => this.setLeft('browser') })),
+      this.browserEl);
     this.mainEl = h('div', { class: 'st-main' },
+      this.browserCol,
       h('div', { class: 'st-left' },
         h('div', { class: 'st-head' },
-          h('div', { class: 'st-ltabs' }, h('button', { 'data-l': 'rack', class: 'on', onclick: () => this.setLeft('rack') }, '채널 랙'), h('button', { 'data-l': 'browser', onclick: () => this.setLeft('browser') }, '브라우저')),
+          h('div', { class: 'st-ltabs' }, h('button', { 'data-l': 'browser', title: '브라우저 보이기 / 숨기기 (Alt+F8)', onclick: () => this.setLeft('browser') }, '브라우저'), h('span', { 'data-l': 'rack', class: 'st-ltitle', title: '채널 랙 (F6)' }, '채널 랙')),
           this.patternBar = h('div', { class: 'st-patbar' })),
-        this.rackEl, this.browserEl),
+        this.rackEl),
       split,
-      h('div', { class: 'st-right' }, tabs, rollWrap, plWrap, mxWrap, lvWrap));
+      this.rightEl = h('div', { class: 'st-right' }, tabs, rollWrap, plWrap, mxWrap, lvWrap));
     this.el = h('div', { id: 'studio', hidden: true },
       tb, this.mainEl, this.keysEl,
-      h('div', { class: 'st-foot' }, this.statusEl, h('span', { class: 'hint' }, `Space 재생/정지 · Ctrl+Z 실행 취소 · Ctrl+S 저장 · Ctrl+K 화면 건반${this.app.studioWindow ? '' : ' · Esc 피아노로'}`)));
+      h('div', { class: 'st-foot' }, this.statusEl, h('span', { class: 'hint' }, `Space 재생/정지 · Ctrl+Z 실행 취소 · Ctrl+S 저장 · F5 플레이리스트 · F6 채널 랙 · F7 피아노 롤 · F9 믹서 · L PAT/SONG · Alt+R Randomize${this.app.studioWindow ? '' : ' · Esc 피아노로'}`)));
     document.body.append(this.el);
     // hint bar (like FL's): what the control under the mouse does
     this.hintEl = this.el.querySelector('.st-foot .hint');
     const baseHint = this.hintEl.textContent;
     this.el.addEventListener('mouseover', (e) => { const t = e.target.closest('[title]'); this.hintEl.textContent = t && this.el.contains(t) ? t.title : baseHint; });
     // the left / right split can be dragged; the width is remembered
-    const setW = (w) => { this.mainEl.style.gridTemplateColumns = `${w}px 5px 1fr`; };
+    const setW = (w) => this.layoutCols(w);
     setW(this.app.settings.get('studioLeftW') || 520);
     split.addEventListener('pointerdown', (e) => {
       split.setPointerCapture(e.pointerId);
-      const move = (ev) => setW(Math.max(300, Math.min(innerWidth - 400, ev.clientX)));
-      const up = (ev) => { split.removeEventListener('pointermove', move); split.removeEventListener('pointerup', up); this.app.settings.set({ studioLeftW: Math.max(300, Math.min(innerWidth - 400, ev.clientX)) }); this.roll.resize(); this.playlist.resize(); };
+      const left = (ev) => Math.max(300, Math.min(innerWidth - 400, ev.clientX - (this.browserOpen ? 250 : 0)));
+      const move = (ev) => setW(left(ev));
+      const up = (ev) => { split.removeEventListener('pointermove', move); split.removeEventListener('pointerup', up); this.app.settings.set({ studioLeftW: left(ev) }); this.roll.resize(); this.playlist.resize(); };
       split.addEventListener('pointermove', move); split.addEventListener('pointerup', up);
     });
     // a file dropped on the rack becomes a sample channel
@@ -885,12 +1169,23 @@ export class Studio {
     this.browser = new Browser(this, this.browserEl);
     this.roll = new Roll(this, rollWrap.querySelector('canvas'));
     this.playlist = new Playlist(this, plWrap.querySelector('canvas'));
-    this.mixer = new Mixer(this, mxWrap);
+    this.mixer = new Mixer(this, mxInner);
     this.live = new Live(this, lvWrap);
     this.keys = new Keys(this, this.keysEl);
     this.panes = { roll: rollWrap, playlist: plWrap, mixer: mxWrap, live: lvWrap };
-    new ResizeObserver(() => { if (!this.isOpen) return; if (this.tab === 'roll') this.roll.resize(); if (this.tab === 'playlist') this.playlist.resize(); }).observe(rollWrap.parentElement);
+    new ResizeObserver(() => { if (!this.isOpen) return; if (this.visible('roll')) this.roll.resize(); if (this.visible('playlist')) this.playlist.resize(); }).observe(rollWrap.parentElement);
+    this.floating = {};
+    this.dockTab = 'roll';
+    for (const k of ['roll', 'playlist', 'mixer']) this.wireFloat(k);
+    // tabs: double-click tears a pane off (or docks it back), right-click opens the window menu
+    for (const b of tabs.querySelectorAll('button')) {
+      b.addEventListener('dblclick', () => { const k = b.dataset.tab; if (this.floating[k]) this.dock(k); else this.detach(k); });
+      b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.windowMenu(e); });
+    }
     this.setTab('roll');
+    const lay = this.app.settings.get('studioLayout');
+    if (lay) requestAnimationFrame(() => { for (const [k, r] of Object.entries(lay)) if (r) this.detach(k, { ...r }); this.setTab(this.dockTab); });
+    this.applyLook();
   }
 
   renderAll() {
@@ -901,8 +1196,8 @@ export class Studio {
     this.rack.render();
     this.roll.draw();
     this.playlist.draw();
-    if (this.tab === 'mixer') this.mixer.render();
-    if (this.tab === 'live') this.live.render();
+    if (this.visible('mixer')) this.mixer.render();
+    if (this.visible('live')) this.live.render();
     if (this.leftTab === 'browser') this.browser.render();
     if (this._chs && !this._chs.el.hidden) this._chs.render();
   }
@@ -910,17 +1205,18 @@ export class Studio {
   renderToolbar() {
     const proj = this._proj, Tr = this.transport;
     const btn = (label, title, act, cls = '', tour) => h('button', { class: `btn ${cls}`, title, onclick: act, 'data-tour': tour }, label);
-    this.toolEl.replaceChildren(
-      this.app.studioWindow ? btn('피아노 창', '피아노 창으로 이동', () => window.melofi.focusMainWindow(), 'ghost') : btn('← 피아노', '피아노 화면으로 (Esc)', () => this.close(), 'ghost'),
+    this.toolEl.replaceChildren(...[
       h('input', { class: 'st-name', value: proj.name, title: '프로젝트 이름', onchange: (e) => { proj.name = e.target.value || '새 프로젝트'; this.dirty = true; } }),
       h('div', { class: 'seg st-mode', 'data-tour': 'mode' },
-        h('button', { class: proj.mode === 'pattern' ? 'on' : '', title: '지금 패턴만 반복', onclick: () => this.setMode('pattern') }, '패턴'),
-        h('button', { class: proj.mode === 'song' ? 'on' : '', title: '플레이리스트 전체', onclick: () => this.setMode('song') }, '곡'),
+        h('button', { class: proj.mode === 'pattern' ? 'on' : '', title: 'PAT: 지금 패턴만 반복 (L)', onclick: () => this.setMode('pattern') }, 'PAT'),
+        h('button', { class: proj.mode === 'song' ? 'on' : '', title: 'SONG: 플레이리스트 전체 (L)', onclick: () => this.setMode('song') }, 'SONG'),
         h('button', { class: proj.mode === 'live' ? 'on' : '', title: '라이브: 트랙마다 패턴을 골라 실시간으로', onclick: () => { this.setMode('live'); this.setTab('live'); } }, '라이브')),
+      h('select', { class: 'st-patpick', title: '패턴 고르기 (F4: 새 패턴 · F2: 이름 바꾸기)', 'data-tour': 'patpick', onchange: (e) => this.setPattern(e.target.value) },
+        ...proj.patterns.map((p) => h('option', { value: p.id, selected: p.id === proj.current }, p.name))),
       btn(Tr.playing ? '❚❚' : '▶', '재생 / 일시정지 (Space)', () => { Tr.toggle(); this.renderToolbar(); }, 'play', 'play'),
       btn('■', '정지', () => { Tr.stop(); this.renderToolbar(); }),
       btn('●', '노트 녹음: 재생 중 건반으로 친 음을 패턴에 기록', () => this.runAction('record'), `rec${Tr.recording ? ' on' : ''}`, 'rec'),
-      btn(this.arec ? '마이크 녹음 중' : '마이크', '마이크나 오디오 입력을 녹음해 플레이리스트에 넣기', () => this.toggleAudioRec(), this.arec ? 'rec on' : ''),
+      btn(this.arec ? '마이크 녹음 중' : '마이크', '마이크나 오디오 입력을 녹음해 플레이리스트에 넣기', () => this.toggleAudioRec(), this.arec ? 'rec on' : '', 'mic'),
       this.posEl = h('span', { class: 'st-pos' }, '1:1:1'),
       h('label', { class: 'st-field', 'data-tour': 'bpm' }, 'BPM', h('input', { type: 'number', min: 30, max: 300, step: 1, value: proj.bpm, onchange: (e) => { this.edit(() => { proj.bpm = Math.max(30, Math.min(300, +e.target.value || 120)); }); this.engine.info.bpm = proj.bpm; this.syncAudio(); } })),
       btn('탭', '박자에 맞춰 여러 번 누르면 그 빠르기로 템포가 맞춰집니다', () => this.tap(), 'sm'),
@@ -929,14 +1225,16 @@ export class Studio {
       h('label', { class: 'st-field' }, '스윙', h('input', { type: 'range', min: 0, max: 0.6, step: 0.05, value: proj.swing, oninput: (e) => { proj.swing = +e.target.value; this.transport.refresh(); this.dirty = true; } })),
       h('label', { class: 'st-field' }, '스냅', h('select', { onchange: (e) => { this.snapKey = e.target.value === 'bar' ? 'bar' : +e.target.value; this.roll.draw(); } },
         ...SNAPS.map(([v, l]) => h('option', { value: v, selected: String(this.snapKey) === String(v) }, l)))),
-      btn(Tr.metro ? '메트로놈 ●' : '메트로놈', '메트로놈 (Ctrl+M)', () => this.runAction('metro'), Tr.metro ? 'on' : ''),
-      btn('건반', '화면 건반 (Ctrl+K)', () => this.toggleKeys(), this.keysOpen ? 'on' : '', 'keys'),
+      btn(Tr.metro ? '메트로놈 ●' : '메트로놈', '메트로놈 (Ctrl+M)', () => this.runAction('metro'), Tr.metro ? 'on' : '', 'metro'),
+      btn('건반', '화면 건반 (Ctrl+Shift+K)', () => this.toggleKeys(), this.keysOpen ? 'on' : '', 'keys'),
       h('span', { class: 'sp' }),
       h('button', { class: 'btn', title: '실행 취소 (Ctrl+Z) · 우클릭: 실행 기록', onclick: () => this.history.undo(), oncontextmenu: (e) => { e.preventDefault(); this.historySheet(e); } }, '↶'),
       btn('↷', '다시 실행 (Ctrl+Y)', () => this.history.redo()),
-      btn('튜토리얼', '처음부터 하나씩 안내', (e) => popup(e.clientX, e.clientY + 12, CHAPTERS.map((c, i) => ({ label: `${i + 1}. ${c.name}`, act: () => this.tour.start(c.id) })))),
+      btn('창 ▾', '창 배치: 피아노 롤·플레이리스트·믹서를 떼어내 띄우거나 붙이기 (탭 더블클릭)', (e) => this.windowMenu(e), '', 'windows'),
+      btn('튜토리얼', 'FL Studio 공식 강좌 순서로 하나씩 안내 (F1)', (e) => popup(e.clientX, e.clientY + 12, CHAPTERS.map((c, i) => ({ label: `${i + 1}. ${c.name}`, act: () => this.tour.start(c.id) })))),
       btn('파일 ▾', '새로 / 열기 / 저장 / 내보내기', (e) => popup(e.clientX, e.clientY + 12, [
         { label: '새 프로젝트 (템플릿)…', act: () => this.newFromTemplate(e.clientX - 200, e.clientY + 12) },
+        { label: 'Loop Starter…', hint: '장르를 고르면 바로 루프', act: () => this.loopStarter(e.clientX - 200, e.clientY + 12) },
         { label: '열기…', hint: 'Ctrl+O', act: () => this.openFile() },
         { label: '최근 프로젝트 · 자동 저장 기록…', act: () => this.recentMenu(e) },
         { label: '저장', hint: 'Ctrl+S', act: () => this.save() },
@@ -954,8 +1252,9 @@ export class Studio {
         { label: T.cloud.menuAccount, act: () => this.cloudSheet.show('account') },
         { sep: true },
         { label: '단축키 설정…', act: () => this.shortcutsSheet() },
+        { label: '화면 꾸미기…', hint: '크기 · 색 · 트랙 높이', act: () => this.lookSheet() },
       ]), '', 'file'),
-    );
+    ].filter(Boolean));
   }
 
   // tool bars above the piano roll and the playlist
@@ -964,8 +1263,8 @@ export class Studio {
     const proj = this._proj, R = this.roll, P = this.playlist;
     const sc = proj.scale;
     const tool = (k, label, title, tour) => h('button', { class: R.tool === k ? 'on' : '', title, 'data-tour': tour, onclick: () => { R.tool = k; this.renderPaneBars(); R.draw(); } }, label);
-    this.rollBar.replaceChildren(
-      h('div', { class: 'seg sm' }, tool('draw', '그리기', '음 찍기 (B)'), tool('chord', '코드', '클릭 한 번에 화음 (H)', 'tool-chord'), tool('slide', '슬라이드', '음높이를 미끄러지듯 잇는 노트 (G)')),
+    this.rollBar.replaceChildren(...[
+      h('div', { class: 'seg sm', 'data-tour': 'roll-tools' }, tool('draw', 'Draw', 'Draw: 노트 그리기 (P)'), tool('paint', 'Paint', 'Paint: 끌면서 여러 음 칠하기 (B)'), tool('delete', 'Delete', 'Delete: 지우기 (D)'), tool('mute', 'Mute', 'Mute: 음 음소거 (T)'), tool('slice', 'Slice', 'Slice: 음 자르기 (C)'), tool('select', 'Select', 'Select: 선택 (E)'), tool('zoom', 'Zoom', 'Zoom: 확대, 오른클릭 축소 (Z)'), tool('slide', 'Slide', 'Slide 노트 (S)'), tool('porta', 'Porta', 'Portamento: 앞 음에서 미끄러져 들어오는 노트 (O)'), tool('chord', 'Stamp', 'Stamp: 클릭 한 번에 코드 (H)', 'tool-chord')),
       R.tool === 'chord' ? h('select', { title: '화음 종류', onchange: (e) => { R.chord = e.target.value; R.draw(); } }, ...Object.entries(CHORDS).map(([k, c]) => h('option', { value: k, selected: R.chord === k }, c.name))) : null,
       R.tool === 'chord' && R.chord === 'auto' ? h('select', { title: '음 개수', onchange: (e) => { R.chordSize = +e.target.value; } }, h('option', { value: 3, selected: R.chordSize === 3 }, '3화음'), h('option', { value: 4, selected: R.chordSize === 4 }, '7화음')) : null,
       h('span', { class: 'bar-gap' }),
@@ -978,22 +1277,63 @@ export class Studio {
       h('label', { class: 'st-field' }, '아래 칸', h('select', { onchange: (e) => { R.lane = e.target.value; R.draw(); } }, ...Object.entries(LANES).map(([k, l]) => h('option', { value: k, selected: R.lane === k }, l)))),
       h('button', { class: 'btn sm', 'data-tour': 'tools', onclick: (e) => this.rollTools(e) }, '도구 ▾'),
       h('span', { class: 'sp' }),
-      h('span', { class: 'hint' }, R.tool === 'chord' ? '클릭: 코드 찍기' : R.tool === 'slide' ? '노트를 누르면 슬라이드로 바뀜' : '클릭: 음 · 끌기: 길이 · 우클릭: 지우기'));
+      h('span', { class: 'hint' }, R.tool === 'chord' ? '클릭: 코드 찍기' : R.tool === 'slide' ? '노트를 누르면 슬라이드로 바뀜' : '클릭: 음 · 끌기: 길이 · 우클릭: 지우기')].filter(Boolean));
     const ptool = (k, label, title) => h('button', { class: P.tool === k ? 'on' : '', title, onclick: () => { P.tool = k; this.renderPaneBars(); P.draw(); } }, label);
-    this.plBar.replaceChildren(
-      h('div', { class: 'seg sm' }, ptool('draw', '그리기', '빈 곳 클릭: 지금 패턴 놓기'), ptool('slice', '자르기', '클립을 눌러 둘로 자르기 (C)')),
+    this.plBar.replaceChildren(...[
+      h('div', { class: 'seg sm', 'data-tour': 'pl-tools' }, ptool('draw', 'Draw', 'Draw: 클립 놓기 (P)'), ptool('paint', 'Paint', 'Paint: 끌면서 패턴 칠하기 (B)'), ptool('delete', 'Delete', 'Delete: 지우기 (D)'), ptool('mute', 'Mute', 'Mute: 클립 음소거 (T)'), ptool('slice', 'Slice', 'Slice: 클립 자르기 (C)'), ptool('select', 'Select', 'Select: 드래그해서 여러 클립 선택 (E) · Draw에서는 Ctrl+드래그')),
       h('div', { class: 'seg sm' }, h('button', { class: P.grid === 'bar' ? 'on' : '', onclick: () => { P.grid = 'bar'; this.renderPaneBars(); P.draw(); } }, '마디'), h('button', { class: P.grid === 'beat' ? 'on' : '', onclick: () => { P.grid = 'beat'; this.renderPaneBars(); P.draw(); } }, '박')),
-      h('button', { class: `btn sm${proj.loopOn ? ' on' : ''}`, disabled: !proj.loop, title: '눈금자를 끌어서 반복 구간을 정합니다 (Ctrl+L)', onclick: () => this.edit(() => { proj.loopOn = !proj.loopOn; }) }, proj.loop ? `반복 ${proj.loop.start + 1}~${proj.loop.end}마디` : '반복 구간 없음'),
+      h('button', { class: `btn sm${proj.loopOn ? ' on' : ''}`, disabled: !proj.loop, title: '눈금자를 끌어서 반복 구간을 정합니다 (Ctrl+Shift+L)', onclick: () => this.edit(() => { proj.loopOn = !proj.loopOn; }) }, proj.loop ? `반복 ${proj.loop.start + 1}~${proj.loop.end}마디` : '반복 구간 없음'),
       h('button', { class: 'btn sm', title: '오디오 파일을 클립으로', onclick: async () => { const fs2 = await window.melofi.mediaPickFiles(); for (const f of fs2) await this.addAudioClip(f.name, f.data); } }, '+ 오디오'),
-      h('button', { class: 'btn sm', title: '노브를 우클릭해도 만들 수 있습니다', onclick: (e) => this.autoTargetMenu(e) }, '+ 자동화'),
+      h('button', { class: 'btn sm', title: '노브를 우클릭해도 만들 수 있습니다', 'data-tour': 'add-auto', onclick: (e) => this.autoTargetMenu(e) }, '+ 오토메이션'),
       h('button', { class: 'btn sm', onclick: () => this.edit(() => proj.playlist.tracks.push(newTrack(proj.playlist.tracks.length))) }, '+ 트랙'),
       h('span', { class: 'sp' }),
-      h('span', { class: 'hint' }, '눈금자 끌기: 반복 구간 · 위 띠 더블클릭: 마커 · 우클릭: 템포 변화 · Ctrl+끌기: 복제'));
+      h('span', { class: 'hint' }, '눈금자 끌기: 반복 구간 · 위 띠 더블클릭: 마커 · 우클릭: 템포 변화 · Ctrl+끌기: 복제')].filter(Boolean));
+  }
+
+  // FL's "link channel to mixer track": the channel gets a mixer track of its own (a bus) it plays into
+  linkToMixer(chId) {
+    const proj = this._proj, ch = proj.channels.find((c) => c.id === chId);
+    if (!ch) return;
+    const cur = proj.buses.find((b) => b.id === ch.out);
+    if (cur) { this.status(`${ch.name}은(는) 이미 믹서 트랙 ‘${cur.name}’에 연결되어 있어요.`); this.setTab('mixer'); return; }
+    this.edit(() => { const b = newBus(proj.buses.length, ch.name); proj.buses.push(b); ch.out = b.id; }, true, '믹서 트랙 연결');
+    this.syncAudio();
+    this.setTab('mixer');
+    this.status(`${ch.name}을(를) 새 믹서 트랙에 연결했어요.`);
+  }
+
+  // FL Studio's quantize dialog (Alt+Q); Ctrl+Alt+Q quantizes at once
+  async quantizeDialog() {
+    const v = await form('퀀타이즈', [
+      { key: 'grid', label: '격자', type: 'select', value: this.snap, options: SNAPS.filter(([g]) => g !== 'bar').map(([g, l]) => [g, l]) },
+      { key: 'strength', label: '강도 (%)', type: 'number', value: 100, min: 0, max: 100 }, { key: 'lengths', label: '길이도 맞추기', type: 'check', value: false }]);
+    if (v) this.roll.quantizeOpts({ ...v, strength: v.strength / 100 });
+  }
+
+  // FL Studio's Riff Machine (piano roll tools menu): a step-by-step window
+  riffDialog() { this.riffWizard.open(); }
+
+  // FL Studio's Randomize (Alt+R): random notes in the scale
+  async randomizeDialog() {
+    const sc = this._proj.scale;
+    const v = await form('Randomize', [
+      { key: 'style', label: '종류', type: 'select', value: 'melody', options: [['melody', '멜로디'], ['bass', '베이스 라인'], ['chords', '코드'], ['arp', '아르페지오 코드']] },
+      { key: 'bars', label: '길이 (마디)', type: 'number', value: pattern(this._proj).bars, min: 1, max: 16 },
+      { key: 'density', label: '음 밀도 (%)', type: 'number', value: 55, min: 5, max: 100 },
+      { key: 'low', label: '가장 낮은 음 (MIDI 번호, 60 = 가운데 도)', type: 'number', value: 60, min: 24, max: 96 },
+      { key: 'range', label: '음역 (반음)', type: 'number', value: 14, min: 5, max: 36 },
+      { key: 'replace', label: '기존 노트 지우고 새로', type: 'check', value: true },
+    ]);
+    if (!v) return;
+    const n = this.roll.riff({ ...v, density: v.density / 100 });
+    this.status(`Randomize: ${sc ? '스케일에 맞춰 ' : '스케일이 없어 C 마이너로 '}${n}개 노트를 만들었어요. 다시 하려면 Alt+R.`);
   }
 
   rollTools(e) {
     const R = this.roll;
     popup(e.clientX, e.clientY + 12, [
+      { label: 'Riff Machine…', hint: '코드 진행 → 아르페지오 → 리듬 → 변형', act: () => this.riffDialog() },
+      { label: 'Randomize…', hint: 'Alt+R', act: () => this.randomizeDialog() },
       { label: '아르페지오…', hint: '화음을 한 음씩 펼치기', act: async () => { const v = await form('아르페지오', [
         { key: 'pattern', label: '순서', type: 'select', value: 'up', options: [['up', '아래에서 위로'], ['down', '위에서 아래로'], ['updown', '올라갔다 내려오기'], ['random', '무작위']] },
         { key: 'rate', label: '빠르기', type: 'select', value: STEP, options: [[PPQ / 2, '8분음표'], [STEP, '16분음표'], [STEP / 2, '32분음표'], [PPQ / 6, '16분 셋잇단']] },
@@ -1002,21 +1342,19 @@ export class Studio {
       { label: '스트럼…', hint: '기타처럼 살짝 엇갈리게', act: async () => { const v = await form('스트럼', [
         { key: 'spread', label: '엇갈림 정도', type: 'number', value: 3, min: 1, max: 24 },
         { key: 'direction', label: '방향', type: 'select', value: 'down', options: [['down', '다운 (높은 음부터)'], ['up', '업 (낮은 음부터)']] }]); if (v) R.strum(v); } },
-      { label: '휴머나이즈…', hint: '사람이 친 것처럼', act: async () => { const v = await form('휴머나이즈', [
-        { key: 'timing', label: '타이밍 흔들기 (틱)', type: 'number', value: 6, min: 0, max: 24 }, { key: 'velocity', label: '세기 흔들기', type: 'number', value: 12, min: 0, max: 40 }]); if (v) R.humanize(v); } },
-      { label: '퀀타이즈…', hint: '박자에 맞추기', act: async () => { const v = await form('퀀타이즈', [
-        { key: 'grid', label: '격자', type: 'select', value: this.snap, options: SNAPS.filter(([g]) => g !== 'bar').map(([g, l]) => [g, l]) },
-        { key: 'strength', label: '강도 (%)', type: 'number', value: 100, min: 0, max: 100 }, { key: 'lengths', label: '길이도 맞추기', type: 'check', value: false }]); if (v) R.quantizeOpts({ ...v, strength: v.strength / 100 }); } },
+      { label: 'Humanize…', hint: '사람이 친 것처럼', act: async () => { const v = await form('Humanize', [
+        { key: 'timing', label: '타이밍 흔들기 (틱)', type: 'number', value: 6, min: 0, max: 24 }, { key: 'velocity', label: '벨로시티 흔들기', type: 'number', value: 12, min: 0, max: 40 }]); if (v) R.humanize(v); } },
+      { label: '퀀타이즈…', hint: 'Alt+Q', act: () => this.quantizeDialog() },
       { label: '레가토', hint: '다음 음까지 길이 늘리기', act: () => R.legato() },
-      { label: '노트 자르기 (스냅 길이로)', hint: '하이햇 롤, 트랩 연타', act: () => R.chop(this.snap) },
-      { label: '노트 붙이기', hint: '같은 높이로 이어진 음 합치기', act: () => R.glue() },
+      { label: 'Chop (스냅 길이로)', hint: 'Ctrl+U · 하이햇 롤, 트랩 연타', act: () => R.chop(this.snap) },
+      { label: 'Glue', hint: 'Ctrl+G · 같은 높이로 이어진 음 합치기', act: () => R.glue() },
       { sep: true },
       { label: '좌우 뒤집기', act: () => R.transform('reverse') },
       { label: '위아래 뒤집기', act: () => R.transform('flip') },
       { label: '한 옥타브 위로 겹치기', act: () => R.transform('octUp') },
       { label: '한 옥타브 아래로 겹치기', act: () => R.transform('octDown') },
       { label: '스케일에 맞추기', disabled: !this._proj.scale, act: () => R.transform('toScale') },
-      { label: '세기 무작위', act: () => R.transform('randVel') },
+      { label: '벨로시티 무작위', act: () => R.transform('randVel') },
       { sep: true },
       { label: '채널별로 패턴 나누기', hint: '가져온 MIDI 정리에', act: () => this.splitByChannel() },
       { label: '방금 연주한 것 패턴에 넣기', hint: '녹음 안 켜고 친 것도', act: () => this.dumpScoreLog(1) },
@@ -1038,7 +1376,7 @@ export class Studio {
 
   renderPatternBar() {
     const proj = this._proj, pat = pattern(proj);
-    this.patternBar.replaceChildren(
+    this.patternBar.replaceChildren(...[
       h('select', { title: '패턴', onchange: (e) => this.setPattern(e.target.value) },
         ...proj.patterns.map((p) => h('option', { value: p.id, selected: p.id === proj.current }, p.name))),
       h('button', { class: 'btn sm', title: '새 패턴', onclick: () => this.edit(() => { const p = newPattern(proj.patterns.length, pat.bars); proj.patterns.push(p); proj.current = p.id; }, true, '새 패턴') }, '+'),
@@ -1047,13 +1385,15 @@ export class Studio {
       h('select', { title: '패턴 길이', onchange: (e) => this.edit(() => { pat.bars = +e.target.value; }) },
         ...[1, 2, 4, 8, 16].map((b) => h('option', { value: b, selected: pat.bars === b }, `${b}마디`))),
       h('button', { class: 'btn sm', title: '패턴 삭제', disabled: proj.patterns.length <= 1, onclick: () => { if (confirm(`'${pat.name}'을(를) 삭제할까요?`)) this.edit(() => { proj.patterns.splice(proj.patterns.indexOf(pat), 1); proj.playlist.clips = proj.playlist.clips.filter((c) => c.pattern !== pat.id); proj.current = proj.patterns[0].id; }, true, '패턴 삭제'); } }, '삭제'),
-    );
+    ].filter(Boolean));
   }
 
   updatePos() {
     if (!this.posEl) return;
-    const proj = this._proj, Tk = this.transport.songPos(), bt = barTicks(proj), beat = (PPQ * 4) / proj.sig[1];
-    const bar = Math.floor(Tk / bt), b = Math.floor((Tk % bt) / beat), s = Math.floor((Tk % beat) / STEP);
+    const proj = this._proj, Tk = this.transport.songPos();
+    // position follows time signature markers in song mode
+    const B = proj.mode === 'song' && proj.sigs?.length ? barAt(proj, Tk) : { num: Math.floor(Tk / barTicks(proj)), start: Math.floor(Tk / barTicks(proj)) * barTicks(proj), beat: (PPQ * 4) / proj.sig[1] };
+    const bar = B.num, b = Math.floor((Tk - B.start) / B.beat), s = Math.floor(((Tk - B.start) % B.beat) / STEP);
     this.posEl.textContent = `${bar + 1}:${b + 1}:${s + 1}`;
   }
 
@@ -1063,10 +1403,10 @@ export class Studio {
     if (!this.isOpen) return;
     if (this.transport.playing) {
       this.updatePos();
-      if (this.tab === 'roll') this.roll.draw();
-      if (this.tab === 'playlist') this.playlist.draw();
+      if (this.visible('roll')) this.roll.draw();
+      if (this.visible('playlist')) this.playlist.draw();
     }
-    if (this.tab === 'mixer') this.mixer.tick();
+    if (this.visible('mixer')) this.mixer.tick();
     requestAnimationFrame(() => this.loop());
   }
 }

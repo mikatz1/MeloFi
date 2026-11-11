@@ -2,6 +2,7 @@
 // drag onto the playlist (an audio clip) or the channel rack (a sample channel), or use the
 // buttons on each file.
 import { h, popup } from './dom.js';
+import { LOOP_GENRES, ROLES, renderLoop } from '../loops.js';
 
 export class Browser {
   constructor(studio, el) {
@@ -69,6 +70,8 @@ export class Browser {
         ...(this.roots.length ? this.roots.map((r) => h('div', { class: 'br-item dir', onclick: () => this.open(r),
           oncontextmenu: (e) => { e.preventDefault(); popup(e.clientX, e.clientY, [{ label: '목록에서 빼기', act: () => { S.app.settings.set({ browserRoots: this.roots.filter((x) => x !== r) }); this.render(); } }]); } },
         h('span', {}, r.split(/[\\/]/).pop() || r), h('small', {}, r))) : [h('p', { class: 'hint' }, '원샷·루프 파일이 든 폴더를 추가하세요. 무료 샘플팩(예: 99Sounds, Freesound)을 받아 두면 좋습니다.')]),
+        h('div', { class: 'br-grp' }, 'MeloFi 루프 (프로젝트 키·템포로 만들어짐)'),
+        ...Object.entries(LOOP_GENRES).map(([g, G]) => this.loopGenre(g, G)),
         h('div', { class: 'br-grp' }, '이 프로젝트의 오디오'),
         ...(media.length ? media.map(([hash, m]) => this.row({ name: m.name, hash }, true)) : [h('p', { class: 'hint' }, '아직 없습니다.')]),
         h('div', { class: 'br-grp' }, 'MeloFi 악기'),
@@ -80,6 +83,36 @@ export class Browser {
         : this.row(it))) : [h('p', { class: 'hint' }, '오디오 파일이 없습니다.')]));
     }
     this.el.replaceChildren(head, body);
+  }
+
+  // the built-in loop library: a genre folds open into its four parts; click to listen, drag to
+  // the playlist or press 넣기
+  loopGenre(g, G) {
+    const open = this.openGenre === g;
+    return h('div', { class: 'br-loops' },
+      h('div', { class: `br-item dir${open ? ' open' : ''}`, onclick: () => { this.openGenre = open ? null : g; this.render(); } }, h('span', {}, G.name), h('small', {}, `${G.bpm[0]}–${G.bpm[1]} BPM`)),
+      ...(open ? Object.entries(ROLES).map(([role, name]) => {
+        const el = h('div', { class: 'br-item file', draggable: true, title: '클릭: 듣기 · 끌어서 플레이리스트에 놓기' },
+          h('span', { onclick: () => this.listenLoop(g, role) }, `${G.name} · ${name}`),
+          h('span', { class: 'acts' }, h('button', { class: 'btn sm ghost', title: '플레이리스트 빈 트랙에 넣기', onclick: () => this.S.addLoop(g, role) }, '넣기')));
+        el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-melofi-loop', JSON.stringify({ genre: g, role })); e.dataTransfer.effectAllowed = 'copy'; });
+        return el;
+      }) : []));
+  }
+
+  async listenLoop(g, role) {
+    this.stopPreview();
+    const S = this.S, p = S.proj, key = `${g}:${role}:${p.scale?.root ?? 0}:${p.bpm}`;
+    this.loopCache ||= new Map();
+    if (!this.loopCache.has(key)) { S.status('루프 만드는 중…'); this.loopCache.set(key, await renderLoop(g, role, { root: p.scale?.root ?? 0, bpm: p.bpm, seed: 1 })); S.status(''); }
+    const L = this.loopCache.get(key), ctx = S.engine.ctx;
+    const buf = ctx.createBuffer(2, L.left.length, L.rate);
+    buf.copyToChannel(L.left, 0); buf.copyToChannel(L.right, 1);
+    const src = ctx.createBufferSource(), gn = ctx.createGain();
+    gn.gain.value = 0.8;
+    src.buffer = buf; src.connect(gn).connect(ctx.destination); src.start();
+    this.preview = src;
+    src.onended = () => { if (this.preview === src) this.preview = null; };
   }
 
   row(it, inProject = false) {

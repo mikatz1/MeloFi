@@ -47,6 +47,31 @@ export const SYNTH_PRESETS = {
   '레트로 리드': { w1: 1, w2: 0, o2: 1, l2: 0.3, cut: 3500, res: 3, fenv: 1, lt: 1, lr: 5.5, ld: 0.1, glide: 0.04 },
   '오르간': { w1: 3, w2: 3, o2: 1, l2: 0.6, s2: 0, f2: 0, sub: 0.4, cut: 12000, fenv: 0, aa: 0.005, as: 1, ar: 0.06, lt: 1, lr: 6, ld: 0.04 },
   '벨': { w1: 3, w2: 2, o2: 2, s2: 7, f2: 0, l2: 0.5, cut: 9000, fenv: 0, ad: 1.5, as: 0, ar: 1.2 },
+  // more presets, browsed by category like FL Studio's FLEX
+  '애시드 베이스': { w1: 0, l2: 0, cut: 500, res: 12, fenv: 3, fd: 0.2, fs: 0, kt: 0.2, as: 0.7, ar: 0.08, glide: 0.05 },
+  '딥 하우스 베이스': { w1: 3, w2: 2, o2: -1, l2: 0.5, f2: 0, cut: 900, res: 1, fenv: 1, ad: 0.4, as: 0.6, ar: 0.1, vol: 0.8 },
+  '펀치 베이스': { w1: 1, w2: 0, o2: -1, l2: 0.6, cut: 600, res: 2, fenv: 3, fd: 0.1, fs: 0.2, ar: 0.08 },
+  '사인 리드': { w1: 3, l2: 0, cut: 18000, fenv: 0, lt: 1, lr: 5, ld: 0.06, glide: 0.05, ar: 0.2 },
+  '스퀘어 리드': { w1: 1, w2: 1, f2: 10, l2: 0.5, cut: 4000, res: 1.5, fenv: 1, ar: 0.2 },
+  '스트링 패드': { w2: 0, f2: 12, uni: 5, det: 20, spread: 0.9, cut: 2500, fenv: 0.5, fa: 0.8, aa: 0.6, as: 0.85, ar: 1.5, lt: 1, lr: 5, ld: 0.03 },
+  '앰비언트 패드': { w1: 2, w2: 3, o2: 1, l2: 0.5, uni: 4, det: 12, cut: 1200, res: 1.5, fenv: 1.5, fa: 3, fd: 3, fs: 0.5, aa: 2.5, as: 1, ar: 4, lt: 2, lr: 0.15, ld: 0.4, noise: 0.03 },
+  '다크 패드': { w2: 0, o2: -1, l2: 0.5, uni: 3, det: 10, cut: 600, res: 2, fenv: 0.8, fa: 1.5, aa: 1.2, as: 0.9, ar: 2.5 },
+  '하프 플럭': { w1: 2, w2: 3, o2: 1, l2: 0.4, f2: 0, cut: 5000, fenv: 2, fd: 0.3, fs: 0, ad: 1.2, as: 0, ar: 0.8 },
+  '하우스 스탭': { w2: 0, uni: 3, det: 15, cut: 2000, res: 3, fenv: 2.5, fd: 0.12, fs: 0.05, ad: 0.25, as: 0, ar: 0.1 },
+  '일렉 피아노': { w1: 3, w2: 2, o2: 1, l2: 0.3, f2: 4, cut: 6000, fenv: 1, fd: 0.6, fs: 0.3, ad: 1.8, as: 0.2, ar: 0.5, lt: 3, lr: 4, ld: 0.12 },
+  '마림바': { w1: 3, w2: 3, o2: 2, l2: 0.25, f2: 0, cut: 8000, fenv: 0, aa: 0.001, ad: 0.35, as: 0, ar: 0.2 },
+  '라이저 노이즈': { l1: 0, l2: 0, noise: 1, cut: 1200, res: 5, fenv: 3, fa: 2, fd: 0.5, fs: 1, aa: 1, as: 1, ar: 1, lt: 2, lr: 0.5, ld: 0.3, vol: 0.9 },
+  '레이저 FX': { w1: 0, l2: 0, cut: 8000, res: 8, fenv: -3, fd: 0.4, fs: 0, ad: 0.5, as: 0, ar: 0.2 },
+  '사이렌 FX': { w1: 3, l2: 0, cut: 18000, fenv: 0, lt: 1, lr: 2, ld: 1, ar: 0.3, vol: 0.6 },
+};
+
+// categories for the preset browser (FL Studio's FLEX browses its presets the same way)
+export const SYNTH_CATEGORIES = {
+  '베이스': ['808 서브', '리스 베이스', '신스 베이스', '애시드 베이스', '딥 하우스 베이스', '펀치 베이스'],
+  '리드': ['기본 쏘', '슈퍼쏘 리드', '칩튠 리드', '레트로 리드', '사인 리드', '스퀘어 리드'],
+  '패드': ['따뜻한 패드', '스트링 패드', '앰비언트 패드', '다크 패드'],
+  '플럭·건반': ['플럭', '퓨처 베이스 코드', '하프 플럭', '하우스 스탭', '일렉 피아노', '오르간', '벨', '마림바'],
+  '브라스·FX': ['브라스', '라이저 노이즈', '레이저 FX', '사이렌 FX'],
 };
 
 const cents = (c) => Math.pow(2, c / 1200);
@@ -63,6 +88,8 @@ function noise(c) {
   const n = c.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
   return n;
 }
+
+const hold = (p, t) => { if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t); };
 
 // ADSR on an AudioParam: from `base` up to `peak`, down to base + (peak-base)*sus
 function adsr(p, at, base, peak, a, d, s) {
@@ -145,9 +172,11 @@ export class SynthChannel {
     const c = this.ctx, p = this.p;
     const t = Math.max(at, c.currentTime);
     if (t >= v.stopAt) return;
-    v.amp.gain.cancelScheduledValues(t);
+    // hold whatever level the envelope reached (a note shorter than the attack must still sound;
+    // cancelScheduledValues would drop the unfinished attack ramp and leave the voice silent)
+    hold(v.amp.gain, t);
     v.amp.gain.setTargetAtTime(0, t, Math.max(0.003, p.ar / 4));
-    v.filt.frequency.cancelScheduledValues(t);
+    hold(v.filt.frequency, t);
     v.filt.frequency.setTargetAtTime(v.base, t, Math.max(0.003, p.fr / 4));
     const end = t + p.ar * 1.6 + 0.05;
     v.stopAt = end;
@@ -162,7 +191,7 @@ export class SynthChannel {
     const t = this.ctx.currentTime;
     for (const v of this.voices) {
       if (v.stopAt <= t) continue;
-      v.amp.gain.cancelScheduledValues(t); v.amp.gain.setTargetAtTime(0, t, 0.01);
+      hold(v.amp.gain, t); v.amp.gain.setTargetAtTime(0, t, 0.01);
       for (const o of v.oscs) try { o.stop(t + 0.08); } catch { /* already */ }
       v.stopAt = t + 0.08;
     }

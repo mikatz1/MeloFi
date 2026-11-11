@@ -157,8 +157,9 @@ function runShotScript(w, file, prefix = 'shot') {
       }
     } catch (err) { console.error('shot script failed', err); }
     // the piano's script ends the run, unless the studio window is still running its own
-    if (prefix === 'shot' && !(process.env.MELOFI_STUDIO_SCRIPT && studioWin) && !process.env.MELOFI_PICKER_SCRIPT) app.quit();
-    if (prefix === 'studio' || prefix === 'picker') app.quit();
+    if (prefix === 'shot' && !(process.env.MELOFI_STUDIO_SCRIPT && studioWin) && !process.env.MELOFI_PICKER_SCRIPT && !process.env.MELOFI_KEYS_SCRIPT) app.quit();
+    if (prefix === 'studio' && process.env.MELOFI_KEYS_SCRIPT) return; // the keys window's script ends the run
+    if (prefix === 'studio' || prefix === 'picker' || prefix === 'keys') app.quit();
   });
 }
 
@@ -364,6 +365,21 @@ app.whenReady().then(() => {
     return true;
   });
   ipcMain.handle('picker:options', () => picker?.opts || {});
+
+  // ---------- on-screen keyboard window (plays the window that opened it) ----------
+  let keysWin = null, keysOwner = null;
+  ipcMain.handle('keys:open', (e) => {
+    const parent = BrowserWindow.fromWebContents(e.sender);
+    keysOwner = e.sender;
+    if (keysWin && keysWin.getParentWindow() !== parent) { keysWin.destroy(); keysWin = null; }
+    if (keysWin) { if (keysWin.isMinimized()) keysWin.restore(); keysWin.show(); keysWin.focus(); return true; }
+    keysWin = makeWindow({ width: 900, height: 230, minWidth: 420, minHeight: 150, title: '화면 건반', parent }, '', 'keys.html');
+    keysWin.on('closed', () => { keysWin = null; if (keysOwner && !keysOwner.isDestroyed()) keysOwner.send('keys:closed'); });
+    if (process.env.MELOFI_SHOT && process.env.MELOFI_KEYS_SCRIPT) runShotScript(keysWin, process.env.MELOFI_KEYS_SCRIPT, 'keys');
+    return true;
+  });
+  ipcMain.handle('keys:close', () => { keysWin?.close(); return true; });
+  ipcMain.on('keys:note', (_e, m) => { if (keysOwner && !keysOwner.isDestroyed()) keysOwner.send('keys:note', m); });
   ipcMain.handle('picker:choose', (_e, id) => {
     if (picker && !picker.sender.isDestroyed()) picker.sender.send('picker:chosen', { token: picker.opts.token, id });
     if (picker?.opts.closeOnPick) pickerWin?.close();
