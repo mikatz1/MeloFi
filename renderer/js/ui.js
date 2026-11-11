@@ -149,7 +149,7 @@ export class UI {
         { label: M.midiImport, act: inStudio(() => St.importMidi()) },
         { label: M.midiExport, act: () => St.exportMidi(), disabled: !St.isOpen },
         { label: M.wavExport, act: () => St.exportWav(), disabled: !St.isOpen },
-        { label: 'AI로 곡 분석 · 재구성…', act: inStudio(() => St.aiSheet.show()) },
+        { label: 'AI로 음원 분리 · MIDI 변환…', act: inStudio(() => St.aiSheet.show()) },
         { label: T.daw.open, act: inStudio(() => St.dawSheet.show()) },
         { sep: true },
         { label: T.cloud.menuSave, act: inStudio(() => St.cloudSheet.show('projects')) },

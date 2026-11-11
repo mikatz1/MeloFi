@@ -7,7 +7,6 @@ const { spawn } = require('node:child_process');
 const daw = require('./daw.js');
 const account = require('./account.js');
 const studioFiles = require('./studio-files.js');
-const claude = require('./claude.js');
 
 app.setName('MeloFi');
 if (process.platform === 'win32') app.setAppUserModelId('com.melofi.app'); // taskbar groups under our icon
@@ -501,7 +500,6 @@ app.whenReady().then(() => {
   daw.register(ipcMain, { defaultDir: () => path.join(defaultRecordDir(), 'DAW'), iconPath: path.join(ROOT, 'renderer', 'assets', 'icon.png'), shell });
   account.register(ipcMain, { app });
   studioFiles.register(ipcMain, { app, dialog, getWin: ownerWin, defaultDir: defaultRecordDir });
-  claude.register(ipcMain, { app });
   require('./vocal').register(ipcMain, { app });
   require('./stems').register(ipcMain, { app, findFfmpeg });
   require('./vsthost').register(ipcMain, { app });

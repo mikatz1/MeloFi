@@ -1265,7 +1265,7 @@ export class Studio {
         { label: 'MIDI로 내보내기', act: () => this.exportMidi() },
         { label: '영상으로 내보내기…', act: () => this.exportVideo() },
         { label: 'MIDI 가져오기…', act: () => this.importMidi() },
-        { label: 'AI로 곡 분석 · 재구성…', hint: 'MP4 · WAV · MP3', act: () => this.aiSheet.show() },
+        { label: 'AI로 음원 분리 · MIDI 변환…', hint: 'MP4 · WAV · MP3', act: () => this.aiSheet.show() },
         { sep: true },
         { label: T.daw.open, act: () => this.dawSheet.show() },
         { label: T.cloud.menuSave, act: () => this.cloudSheet.show('projects') },
