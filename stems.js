@@ -19,7 +19,13 @@ function run(cmd, args, opts = {}, onLine = () => {}) {
       const s = b.toString(); out += s; buf += s;
       let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l) onLine(l, false); }
     });
-    p.stderr.on('data', (b) => { const s = b.toString(); err += s; for (const l of s.split(/\r?\n/)) if (l.trim()) onLine(l.trim(), true); });
+    // stderr carries the models' own logs and progress bars, which redraw with \r
+    let ebuf = '';
+    p.stderr.on('data', (b) => {
+      const s = b.toString(); err += s; ebuf += s;
+      const parts = ebuf.split(/\r\n|\r|\n/); ebuf = parts.pop();
+      for (const l of parts) if (l.trim()) onLine(l.trim(), true);
+    });
     p.on('error', (e) => resolve({ code: -1, out, err: String(e.message) }));
     p.on('close', (code) => resolve({ code, out, err, proc: p }));
     if (opts.onSpawn) opts.onSpawn(p);
@@ -116,34 +122,74 @@ function register(ipcMain, { app, findFfmpeg }) {
     const py = python();
     if (!py) return { ok: false, error: 'no_engine', message: '분석 엔진을 먼저 설치해 주세요.' };
     const data = payload.data ? Buffer.from(payload.data) : await fsp.readFile(payload.path);
-    const hash = crypto.createHash('sha1').update(data).update(payload.quick ? 'q' : 'f').update(`m:${payload.muscriptor || 'off'}`).digest('hex').slice(0, 16);
-    if (running.has(hash)) return running.get(hash);
+    const hash = crypto.createHash('sha1').update(data).update(payload.quick ? 'q' : 'f').digest('hex').slice(0, 16);
+    const model = ['small', 'medium', 'large'].includes(payload.muscriptor) ? payload.muscriptor : 'off';
+    const key = `${hash}:${model}`;
+    if (running.has(key)) return running.get(key);
     if (busy) return { ok: false, error: 'busy', message: '다른 곡을 분석하고 있습니다. 끝날 때까지 기다려 주세요.' };
-    const job = analyse(e, payload, py, data, hash);
-    running.set(hash, job);
-    try { return await job; } finally { running.delete(hash); }
+    const job = analyse(e, payload, py, data, hash, model);
+    running.set(key, job);
+    try { return await job; } finally { running.delete(key); }
   });
 
-  async function analyse(e, payload, py, data, hash) {
+  // the separation, beats and Basic Pitch notes are done once per song; a MuScriptor model asked
+  // for later only adds its own run to that result
+  async function analyse(e, payload, py, data, hash, model) {
     const send = (m) => { if (!e.sender.isDestroyed()) e.sender.send('stems:progress', m); };
     busy = 'run';
     try {
       const out = path.join(CACHE(), hash);
       const done = path.join(out, 'result.json');
+      // results kept under the older one-folder-per-MuScriptor-choice names move to the song's folder
+      if (!fs.existsSync(done)) {
+        for (const m of ['off', 'small', 'medium', 'large']) {
+          const old = path.join(CACHE(), crypto.createHash('sha1').update(data).update(payload.quick ? 'q' : 'f').update(`m:${m}`).digest('hex').slice(0, 16));
+          const oldRes = path.join(old, 'result.json');
+          if (!fs.existsSync(oldRes)) continue;
+          try {
+            const res = JSON.parse(await fsp.readFile(oldRes, 'utf8'));
+            await fsp.rename(old, out);
+            const fix = (f) => (typeof f === 'string' ? f.split(old).join(out) : f);
+            for (const k of ['stems', 'drum_parts']) for (const s of Object.keys(res[k] || {})) res[k][s] = fix(res[k][s]);
+            res.harmonic = fix(res.harmonic);
+            res.muscriptor_runs = res.muscriptor_runs || (res.muscriptor?.notes ? { [res.muscriptor.model]: res.muscriptor } : {});
+            await fsp.writeFile(done, JSON.stringify(res));
+            break;
+          } catch { /* leave it; analyse again */ }
+        }
+      }
+      let only = false;
       if (fs.existsSync(done)) {
         const res = JSON.parse(await fsp.readFile(done, 'utf8'));
-        if (Object.values(res.stems).every((f) => fs.existsSync(f))) return { ok: true, result: res, cached: true };
+        if (Object.values(res.stems).every((f) => fs.existsSync(f))) {
+          const runs = res.muscriptor_runs || {};
+          if (model === 'off') return { ok: true, result: { ...res, muscriptor: null }, cached: true };
+          if (runs[model]) return { ok: true, result: { ...res, muscriptor: runs[model] }, cached: true };
+          only = true; // just the MuScriptor run
+        }
       }
       await fsp.mkdir(out, { recursive: true });
       const ext = (payload.name || payload.path || '').match(/\.[a-z0-9]+$/i)?.[0] || '.bin';
       const input = path.join(out, `source${ext}`);
       await fsp.writeFile(input, data);
       let err = null, last = '';
-      const args = [SCRIPT, '--input', input, '--out', out, '--models', MODELS(), '--ffmpeg', findFfmpeg() || 'ffmpeg', ...(payload.quick ? ['--quick'] : []), '--muscriptor', ['small', 'medium', 'large'].includes(payload.muscriptor) ? payload.muscriptor : 'off'];
-      const token = payload.muscriptor && payload.muscriptor !== 'off' ? await readToken() : null;
+      const args = [SCRIPT, '--input', input, '--out', out, '--models', MODELS(), '--ffmpeg', findFfmpeg() || 'ffmpeg', ...(payload.quick ? ['--quick'] : []), '--muscriptor', model, ...(only ? ['--only-muscriptor'] : [])];
+      const token = model !== 'off' ? await readToken() : null;
       const r = await run(py, args, { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', ...(token ? { HF_TOKEN: token } : {}) }, onSpawn: (p) => { child = p; } }, (l, isErr) => {
-        if (isErr) { last = l; return; }
-        try { const m = JSON.parse(l); if (m.error) err = m.error; else send(m); } catch { last = l; }
+        // every line also goes to the window's live log
+        const log = (t) => {
+          if (e.sender.isDestroyed()) return;
+          e.sender.send('stems:log', t);
+          // the current stage's own progress: a progress bar's "42%|" or MuScriptor's "12/40" chunks
+          const pct = /(\d{1,3})%\|/.exec(t), frac = /^\[MuScriptor\].*?\b(\d+)\s*\/\s*(\d+)\b/.exec(t);
+          if (pct) send({ stage: Math.min(1, +pct[1] / 100) });
+          else if (frac && +frac[2] > 0) send({ stage: Math.min(1, +frac[1] / +frac[2]) });
+        };
+        if (isErr) { last = l; log(l); return; }
+        try {
+          const m = JSON.parse(l);
+          if (m.error) { err = m.error; log(`오류: ${m.error}`); } else if (m.log) log(m.log); else { send(m); if (m.label) log(`▶ ${m.label}`); }
+        } catch { last = l; log(l); }
       });
       child = null;
       await fsp.rm(input, { force: true });
@@ -151,6 +197,27 @@ function register(ipcMain, { app, findFfmpeg }) {
       return { ok: true, result: JSON.parse(await fsp.readFile(done, 'utf8')) };
     } finally { busy = null; }
   }
+
+  // GPU check before an analysis: the NVIDIA card (name, memory, load, programs on it) and which GPU
+  // MeloFi's own screen (the piano visualizer) is drawn on
+  ipcMain.handle('stems:gpu', async () => {
+    const q = await run('nvidia-smi', ['--query-gpu=name,memory.total,memory.used,utilization.gpu', '--format=csv,noheader,nounits']);
+    let gpu = null;
+    if (q.code === 0) {
+      const [name, total, used, util] = q.out.trim().split(/\r?\n/)[0].split(',').map((x) => x.trim());
+      gpu = { name, totalMB: +total, usedMB: +used, freeMB: +total - +used, util: +util };
+      const apps = await run('nvidia-smi', ['--query-compute-apps=pid,process_name', '--format=csv,noheader']);
+      gpu.apps = apps.code === 0 ? apps.out.trim().split(/\r?\n/).filter(Boolean).map((l) => path.basename(l.split(',').slice(1).join(',').trim())) : [];
+      gpu.ours = !!child; // our own analysis is on it right now
+    }
+    let screen = null;
+    try {
+      const info = await app.getGPUInfo('basic');
+      const active = (info.gpuDevice || []).find((d) => d.active) || (info.gpuDevice || [])[0];
+      if (active) screen = { vendor: active.vendorId === 0x10de ? 'NVIDIA' : active.vendorId === 0x8086 ? 'Intel' : active.vendorId === 0x1002 ? 'AMD' : 'other' };
+    } catch { /* unknown */ }
+    return { gpu, screen };
+  });
 
   ipcMain.handle('stems:cancel', () => { try { child?.kill(); } catch { /* gone */ } return true; });
   ipcMain.handle('stems:read', async (_e, file) => {

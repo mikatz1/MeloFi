@@ -127,7 +127,7 @@ const D = {
   } },
   layout: { dur: 6, draw(g, p) {
     const parts = [['툴바', 10, 8, 280, 16, 'Space · L'], ['채널 랙', 10, 30, 110, 94, 'F6'], ['피아노 롤', 126, 30, 164, 94, 'F7'], ['플레이리스트', 126, 30, 164, 94, 'F5'], ['믹서', 126, 30, 164, 94, 'F9']];
-    const k = Math.floor(p * parts.length);
+    const k = Math.max(0, Math.min(parts.length - 1, Math.floor(p * parts.length)));
     parts.forEach(([n, x, y, w, h], i) => { if (i >= 2 && i !== Math.max(2, k)) return; panel(g, x, y, w, h, n, i === k); });
     const [, x, y, w, h, key] = parts[Math.min(k, parts.length - 1)];
     keycap(g, x + w - 60, y + h / 2 - 13, key, (p * parts.length) % 1 > 0.35 && (p * parts.length) % 1 < 0.55, 54);
@@ -465,7 +465,8 @@ export class Demo {
     A = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || A;
     const t0 = performance.now();
     const frame = (now) => {
-      const t = (now - t0) / 1000, p = this.still ? (spec.still ?? 0.7) : (t % d.dur) / d.dur;
+      // the first frame's time stamp can be a little before t0: never run a demo at a negative time
+      const t = Math.max(0, (now - t0) / 1000), p = this.still ? (spec.still ?? 0.7) : (t % d.dur) / d.dur;
       const g = this.g;
       g.clearRect(0, 0, W, H); rr(g, 0, 0, W, H, 4, C.bg);
       g.save(); d.draw(g, p, t, spec); g.restore();

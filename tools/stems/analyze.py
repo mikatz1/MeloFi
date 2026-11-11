@@ -23,6 +23,75 @@ def say(p, label, **extra):
     print(json.dumps({"p": round(p, 3), "label": label, **extra}, ensure_ascii=False), flush=True)
 
 
+def run_muscriptor(src, out, model, times):
+    """MuScriptor (Kyutai x Mirelo) on the whole mix -> {model, license, notes: {instrument: [[t, d, pitch, vel]]}}
+    or {error}. Weights are CC BY-NC 4.0 (non-commercial) and gated: HF_TOKEN must be set."""
+    say(0.935, f"악기별로 받아 적는 중 (MuScriptor {model}, 비상업 전용)")
+    t0 = time.time()
+    # run as a module with this Python: a console-script .exe remembers the folder it was installed in
+    js = out / f"muscriptor_{model}.json"
+    # its progress goes to stderr: pass every line on to the app's log as it comes
+    import torch
+    dtype = ["--dtype", "bfloat16"] if torch.cuda.is_available() else []  # float32 large spills out of an 8 GB card
+    p2 = subprocess.Popen([sys.executable, "-m", "muscriptor", "transcribe", str(src), "--format", "json", "-o", str(js), "--model", model, *dtype],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1,
+                          env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    tail_lines = []
+    buf = ""
+    while True:
+        ch = p2.stdout.read(1)
+        if not ch: break
+        if ch in "\r\n":
+            if buf.strip():
+                print(json.dumps({"log": "[MuScriptor] " + buf.strip()[:300]}, ensure_ascii=False), flush=True)
+                tail_lines = (tail_lines + [buf.strip()])[-6:]
+            buf = ""
+        else:
+            buf += ch
+    p2.wait()
+    class _R: pass
+    r2 = _R(); r2.returncode = p2.returncode; r2.stderr = "\n".join(tail_lines); r2.stdout = ""
+    times[f"muscriptor_{model}"] = round(time.time() - t0, 1)
+    if r2.returncode or not js.exists():
+        tail = (r2.stderr or r2.stdout).strip().splitlines()[-3:]
+        msg = " ".join(tail)[-300:]
+        if "401" in msg or "403" in msg or "gated" in msg.lower() or "token" in msg.lower():
+            msg = "HuggingFace 토큰이 없거나, 모델 페이지에서 라이선스 동의가 필요합니다. " + msg
+        elif "out of memory" in msg.lower():
+            msg = "그래픽 메모리가 부족합니다. 더 작은 모델(medium·small)을 골라 주세요. " + msg
+        return {"model": model, "error": msg}
+    ev = json.loads(js.read_text(encoding="utf-8"))
+    starts = {e["index"]: e for e in ev if e.get("type") == "start"}
+    by = {}
+    for e in ev:
+        if e.get("type") != "end": continue
+        s0 = starts.get(e["start_event_index"])
+        if not s0: continue
+        by.setdefault(s0["instrument"], []).append([round(s0["start_time"], 4), round(max(0.02, e["end_time"] - s0["start_time"]), 4), int(s0["pitch"]), 100])
+    for v in by.values(): v.sort()
+    return {"model": model, "license": "CC BY-NC 4.0 (non-commercial)", "notes": by, "seconds": times[f"muscriptor_{model}"]}
+
+
+def only_muscriptor(a):
+    """Add a MuScriptor run to an analysis that is already done (the stems, beats and notes stay)."""
+    out = Path(a.out)
+    res = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    say(0.02, "오디오를 준비하는 중")
+    src = out / "input.wav"
+    r = subprocess.run([a.ffmpeg, "-y", "-v", "error", "-i", a.input, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(src)], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(f"ffmpeg: {r.stderr.strip()[-300:]}")
+    times = res.setdefault("times", {})
+    mus = run_muscriptor(src, out, a.muscriptor, times)
+    runs = res.setdefault("muscriptor_runs", {})
+    if "error" not in mus: runs[a.muscriptor] = mus
+    res["muscriptor"] = mus
+    (out / "result.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+    try: os.remove(src)
+    except OSError: pass
+    say(1.0, "끝", result=str(out / "result.json"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -32,7 +101,10 @@ def main():
     ap.add_argument("--quick", action="store_true", help="skip the drum split and the lead/backing vocal split")
     ap.add_argument("--muscriptor", default="off", choices=["off", "small", "medium", "large"],
                     help="also transcribe the whole mix with MuScriptor (weights: CC BY-NC 4.0, non-commercial; needs HF_TOKEN)")
+    ap.add_argument("--only-muscriptor", action="store_true", help="add a MuScriptor run to the finished analysis in --out")
     a = ap.parse_args()
+    if a.only_muscriptor:
+        return only_muscriptor(a)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     models = Path(a.models); models.mkdir(parents=True, exist_ok=True)
     t_all = time.time(); times = {}
@@ -60,7 +132,7 @@ def main():
         say(p, label)
         t0 = time.time()
         # overlap 4 + fp16: 4x faster than the default overlap 8, output within -42 dB of it (inaudible)
-        s = Separator(output_dir=str(sep_dir), model_file_dir=str(models), output_format="WAV", sample_rate=44100, log_level=40,
+        s = Separator(output_dir=str(sep_dir), model_file_dir=str(models), output_format="WAV", sample_rate=44100, log_level=20,
                       use_autocast=dev == "cuda",
                       mdxc_params={"segment_size": 256, "override_model_segment_size": False, "batch_size": 1, "overlap": 4, "pitch_shift": 0})
         s.load_model(model_filename=model)
@@ -186,30 +258,7 @@ def main():
     # ---------- 5b. MuScriptor: the whole mix -> notes per instrument (35 classes) ----------
     mus = None
     if a.muscriptor != "off":
-        say(0.935, f"악기별로 받아 적는 중 (MuScriptor {a.muscriptor}, 비상업 전용)")
-        t0 = time.time()
-        # run as a module with this Python: a console-script .exe remembers the folder it was installed in
-        js = out / "muscriptor.json"
-        r2 = subprocess.run([sys.executable, "-m", "muscriptor", "transcribe", str(src), "--format", "json", "-o", str(js), "--model", a.muscriptor],
-                            capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if r2.returncode or not js.exists():
-            tail = (r2.stderr or r2.stdout).strip().splitlines()[-3:]
-            msg = " ".join(tail)[-300:]
-            if "401" in msg or "403" in msg or "gated" in msg.lower() or "token" in msg.lower():
-                msg = "HuggingFace 토큰이 없거나, 모델 페이지에서 라이선스 동의가 필요합니다. " + msg
-            mus = {"error": msg}
-        else:
-            ev = json.loads(js.read_text(encoding="utf-8"))
-            starts = {e["index"]: e for e in ev if e.get("type") == "start"}
-            by = {}
-            for e in ev:
-                if e.get("type") != "end": continue
-                s0 = starts.get(e["start_event_index"])
-                if not s0: continue
-                by.setdefault(s0["instrument"], []).append([round(s0["start_time"], 4), round(max(0.02, e["end_time"] - s0["start_time"]), 4), int(s0["pitch"]), 100])
-            for v in by.values(): v.sort()
-            mus = {"model": a.muscriptor, "license": "CC BY-NC 4.0 (non-commercial)", "notes": by}
-        times["muscriptor"] = round(time.time() - t0, 1)
+        mus = run_muscriptor(src, out, a.muscriptor, times)
 
     # ---------- 6. drum hits from the DrumSep stems ----------
     say(0.95, "드럼 타격을 찾는 중")
@@ -242,6 +291,7 @@ def main():
         "drum_parts": {k: str(p) for k, p in drum_parts.items()},
         "harmonic": str(final / "harmonic_22k.wav") if harm is not None else None,
         "notes": notes, "drums": drums, "muscriptor": mus,
+        "muscriptor_runs": {mus["model"]: mus} if mus and "error" not in mus else {},
         "models": {"vocals": "BS-RoFormer (ep 317, SDR 12.98)", "lead_backing": None if a.quick else "Mel-Band RoFormer karaoke",
                    "instruments": "BS-RoFormer SW 6-stem", "drum_parts": None if a.quick else "MDX23C DrumSep", "beats": "Beat This! final0", "notes": "Basic Pitch (ICASSP 2022)"},
         "times": {**times, "total": round(time.time() - t_all, 1)},

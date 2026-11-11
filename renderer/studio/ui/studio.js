@@ -1147,10 +1147,12 @@ export class Studio {
     this.el.addEventListener('mouseover', (e) => { const t = e.target.closest('[title]'); this.hintEl.textContent = t && this.el.contains(t) ? t.title : baseHint; });
     // the left / right split can be dragged; the width is remembered
     const setW = (w) => this.layoutCols(w);
-    setW(this.app.settings.get('studioLeftW') || 520);
+    // narrower than LEFT_MIN and the rack's names, buttons and hints break apart (one letter a line)
+    const LEFT_MIN = 440;
+    setW(Math.max(LEFT_MIN, this.app.settings.get('studioLeftW') || 520));
     split.addEventListener('pointerdown', (e) => {
       split.setPointerCapture(e.pointerId);
-      const left = (ev) => Math.max(300, Math.min(innerWidth - 400, ev.clientX - (this.browserOpen ? 250 : 0)));
+      const left = (ev) => Math.max(LEFT_MIN, Math.min(innerWidth - 400, ev.clientX - (this.browserOpen ? 250 : 0)));
       const move = (ev) => setW(left(ev));
       const up = (ev) => { split.removeEventListener('pointermove', move); split.removeEventListener('pointerup', up); this.app.settings.set({ studioLeftW: left(ev) }); this.roll.resize(); this.playlist.resize(); };
       split.addEventListener('pointermove', move); split.addEventListener('pointerup', up);

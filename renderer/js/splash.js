@@ -20,18 +20,32 @@ const setProgress = ({ p, label, detail }) => {
   }
 };
 api.onBootProgress(setProgress);
-api.envInfo().then((env) => { $('#ver').textContent = env?.version ? `v${env.version}` : ''; }).catch(() => {});
+api.envInfo().then((env) => { const v = env?.version ? `v${env.version}` : ''; $('#ver').textContent = v; document.querySelector('.mini-ver').textContent = v; }).catch(() => {});
 
 // ---------- where to go ----------
 const LAST = 'melofi.startTarget';
 const last = (() => { try { return localStorage.getItem(LAST) || 'piano'; } catch { return 'piano'; } })();
 let choosing = false;
 
-api.onBootDone(() => {
+// what was opened last on each side, under its card
+async function fillRecent() {
+  const when = (t) => (t ? new Date(t).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' }) : '');
+  const put = (k, label, item, none) => {
+    const el2 = document.querySelector(`[data-recent="${k}"]`);
+    el2.replaceChildren(...(item ? [`${label} `, Object.assign(document.createElement('b'), { textContent: item.name }), item.at ? ` · ${when(item.at)}` : ''] : [none]));
+  };
+  try { const s = await api.recentScores(); put('piano', '최근 악보', s?.[0], '최근 열어본 악보가 없어요'); } catch { /* none */ }
+  try { const p = await api.studioRecent(); put('studio', '최근 프로젝트', p?.[0], '저장된 프로젝트가 없어요'); } catch { /* none */ }
+}
+
+api.onBootDone(async () => {
   choosing = true;
+  await api.splashResize?.(900, 580); // the choice gets a screen of its own
   card.dataset.state = 'choose';
   $('#status').hidden = true;
   $('#choose').hidden = false;
+  refreshWho();
+  fillRecent();
   for (const b of document.querySelectorAll('.opt')) { b.classList.toggle('was', b.dataset.go === last); b.classList.toggle('sel', b.dataset.go === last); }
   if ($('#acct').hidden) document.querySelector(`.opt[data-go="${last}"]`)?.focus();
 });
@@ -43,6 +57,8 @@ async function go(target) {
   if (target === 'studio') {
     // the studio loads in its own window; the card shows its progress until it is ready
     card.dataset.state = 'loading';
+    $('#who').hidden = true;
+    $('#acct').hidden = true;
     $('#choose').hidden = true;
     $('#status').hidden = false;
     shown = 0;
@@ -92,15 +108,25 @@ const field = (label, attrs = {}) => { const input = el('input', { class: 'in', 
 const say = (text, err = true) => { msg = { text, err }; render(); };
 const initial = (u) => (u?.nickname || u?.email || '?').trim().charAt(0).toUpperCase();
 
+// a plain head-and-shoulders mark for the signed-out profile
+function personIcon() {
+  const i = document.createElement('i');
+  i.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.2" r="3"/><path d="M2.4 14.5c.5-3 2.8-4.8 5.6-4.8s5.1 1.8 5.6 4.8z"/></svg>';
+  return i;
+}
+
 async function refreshWho() {
   const r = await A('state');
   st = r.ok ? r.data : { server: '', user: null, signedIn: false };
   const who = $('#who');
-  who.hidden = false;
+  // the profile shows on the choice screen only, never while loading
+  who.hidden = !choosing;
   who.classList.toggle('in', !!st.signedIn);
-  who.classList.toggle('out', !st.signedIn);
-  who.replaceChildren(...(st.signedIn ? [el('i', {}, initial(st.user)), st.user?.nickname || st.user?.email || '내 계정'] : ['로그인']));
-  who.title = st.signedIn ? `${st.user?.email || ''} · 계정 관리` : '로그인하면 프로젝트 저장과 공유가 가능해요.';
+  who.classList.remove('out');
+  who.replaceChildren(...(st.signedIn
+    ? [el('i', {}, initial(st.user)), st.user?.nickname || st.user?.email || '내 계정', el('span', { class: 'chev' }, '▾')]
+    : [personIcon(), '로그인 · 계정', el('span', { class: 'chev' }, '▾')]));
+  who.title = st.signedIn ? `${st.user?.email || ''} · 계정 센터 열기` : '계정 센터: 로그인하면 프로젝트를 온라인에 저장하고 공유할 수 있어요';
 }
 
 function openAccount() {

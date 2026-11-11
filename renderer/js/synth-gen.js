@@ -262,6 +262,9 @@ export const PATCHES = {
     render(c, f, bright) {
       const decayT = 0.9 + 1.4 * Math.min(1, 220 / f);
       const pair = (ratio, index, tauI, level) => {
+        // above the Nyquist limit the modulator would be clamped to 24 kHz and ring at the wrong ratio
+        // (the top notes from A#6 up); those notes keep the body pair only
+        if (f * ratio > SR * 0.45) return null;
         const car = osc(c, 'sine', f);
         const mod = osc(c, 'sine', f * ratio);
         const mi = c.createGain();
@@ -275,7 +278,7 @@ export const PATCHES = {
       const body = pair(1, 0.6 + 1.4 * bright, 0.5, 1);
       const tine = pair(14, 0.25 + 0.5 * bright, 0.03, 0.35 + 0.25 * bright);
       const amp = c.createGain();
-      body.connect(amp); tine.connect(amp);
+      body.connect(amp); tine?.connect(amp);
       amp.gain.setValueAtTime(0, 0);
       amp.gain.linearRampToValueAtTime(1, 0.002);
       amp.gain.setTargetAtTime(0, 0.003, decayT);
