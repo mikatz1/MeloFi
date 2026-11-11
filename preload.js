@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('melofi', {
   onBootProgress: (cb) => ipcRenderer.on('boot:progress', (_e, m) => cb(m)),
   openStudioWindow: (cmd) => ipcRenderer.invoke('studio:openWindow', cmd),
   onBootDone: (cb) => ipcRenderer.on('boot:done', () => cb()),
+  startShow: () => ipcRenderer.invoke('start:show'),
   startChoose: (target) => ipcRenderer.invoke('start:choose', target),
   splashResize: (w, h) => ipcRenderer.invoke('splash:resize', w, h),
   quitApp: () => ipcRenderer.invoke('app:quit'),
