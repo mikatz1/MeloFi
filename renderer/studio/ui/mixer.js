@@ -160,7 +160,8 @@ export class Mixer {
     this.spec = h('canvas', { class: 'mx-spec' });
     this.lufsEl = h('div', { class: 'mx-lufs' });
     const analysis = h('div', { class: 'mx-ana' }, h('b', {}, '마스터 분석'), this.lufsEl, this.spec,
-      h('p', { class: 'hint' }, '스트리밍 서비스는 대개 -14 LUFS 근처로 맞춥니다. 마스터에 리미터를 넣고 입력 게인으로 조절해 보세요.'));
+      h('p', { class: 'hint' }, '스트리밍 서비스는 대개 -14 LUFS 근처로 맞춥니다.'),
+      h('button', { class: 'btn sm', title: '마스터 체인, 라우드니스·실제 피크 미터, 자동 마스터링, 레퍼런스 비교 (Ctrl+Shift+B)', onclick: () => S.mastering.show() }, '마스터링 창 열기'));
     this.el.replaceChildren(
       h('div', { class: 'mx-wrap' },
         h('div', { class: 'mx-main' },
