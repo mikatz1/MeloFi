@@ -415,3 +415,15 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 .mc-row .btn.on { border-color: var(--accent); color: var(--accent); }
 .mc-row.thin { opacity: .62; }
 .mc-cat small { color: var(--faint); font-size: 10.5px; }
+/* AI window: one page at a time, with a stepper and 뒤로 */
+.ai-wiz { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.ai-back { flex-shrink: 0; }
+.ai-steps { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--faint); }
+.ai-steps li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ai-steps li i { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-2); font: 10.5px var(--mono); font-style: normal; }
+.ai-steps li.done { color: var(--dim); }
+.ai-steps li.done i { border-color: #5f8f5a; color: #8fc0a9; }
+.ai-steps li.on { color: var(--text); }
+.ai-steps li.on i { border-color: var(--accent); background: var(--accent); color: #111; }
+.ai-log.tall { height: 260px; }
+.ai-engine { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }

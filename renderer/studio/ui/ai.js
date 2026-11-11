@@ -7,6 +7,9 @@ import { newProject, newChannel, newPattern, newTrack, uid, STEP, secToTick, bar
 import { addMedia } from '../media.js';
 import { sections, candidates, rangeText, renderCandidate, buildAssigned, CATS, STEM_NAMES } from './midiconvert.js';
 
+// the window's pages, one at a time: a finished page slides away and is reached again only with 뒤로
+const STEPS = [['file', '파일'], ['options', '분리 방식'], ['run', '분리'], ['result', '결과'], ['midi', 'MIDI 변환']];
+
 const PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export class AiSheet {
@@ -43,6 +46,7 @@ export class AiSheet {
     this.useMidi = true;     // transcribed notes as MIDI channels
     this.sepMode = 'full';   // full | fast (no drum split, no lead / backing split)
     this.log = [];           // the engine's log lines, shown live under the progress bar
+    this.step = 'file';      // the page shown (STEPS)
     window.melofi.onStemsLog((t) => this.addLog(t));
   }
 
@@ -50,6 +54,7 @@ export class AiSheet {
     this.S.app.ui.close();
     this.el.hidden = false;
     this.engine = await window.melofi.stemsStatus();
+    if (!this.busy) this.step = this.stems ? (this.step === 'midi' ? 'midi' : 'result') : this.audio && this.engine.ready ? 'options' : 'file';
     this.render();
     this.checkGpu();
     this.startGpuWatch();
@@ -85,6 +90,7 @@ export class AiSheet {
     this.busy = null;
     if (!r.ok) this.error = r.message;
     this.engine = await window.melofi.stemsStatus();
+    if (this.engine.ready && this.audio) this.step = 'options';
     this.render();
   }
 
@@ -104,6 +110,7 @@ export class AiSheet {
       const n = buf.length, mono = new Float32Array(n);
       for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels; }
       this.audio = { mono, rate: buf.sampleRate, duration: buf.duration };
+      if (this.engine?.ready) this.step = 'options';
     } catch (err) {
       this.file = null;
       this.error = '이 파일에서 오디오를 불러올 수 없습니다. WAV, MP3, MP4(AAC) 파일을 사용해 보세요.';
@@ -124,7 +131,7 @@ export class AiSheet {
       await this.checkGpu();
       const g = this.gpuInfo?.gpu;
       this.addLog(g ? `GPU: ${g.name} · 여유 메모리 ${(g.freeMB / 1024).toFixed(1)} GB · 사용률 ${g.util}%` : 'GPU: 없음 (CPU로 처리)');
-      this.busy = 'stems'; this.progress = 0; this.stemLabel = '분리를 시작하는 중…'; this.stemDetail = ''; this.render();
+      this.busy = 'stems'; this.progress = 0; this.stemLabel = '분리를 시작하는 중…'; this.stemDetail = ''; this.step = 'run'; this.render();
       this.addLog(`분리 시작: ${file.name} · 분리 ${this.sepMode === 'fast' ? '빠르게' : '전체'} · 채보 ${this.mus === 'off' ? 'Basic Pitch' : `MuScriptor ${this.mus}`}`);
       const r = await window.melofi.stemsRun({ name: file.name, data: file.data, quick: this.sepMode === 'fast', muscriptor: this.engine.hfToken ? this.mus : 'off' });
       if (stale()) return;
@@ -132,6 +139,7 @@ export class AiSheet {
       if (r.cached) this.addLog('저장된 결과를 다시 썼어요 (분리·박자는 건너뜀).');
       this.stems = r.result;
       this.addLog(`끝: ${Math.round((Date.now() - this.t0) / 1000)}초`);
+      this.step = 'result';
     } catch (err) {
       if (stale()) return;
       this.error = `분리하지 못했습니다: ${err.message}`;
@@ -268,7 +276,7 @@ export class AiSheet {
 
   midiView() {
     const eng = this.engine || {};
-    const head = h('b', {}, '5. MIDI로 변환 · 악기 자동 지정');
+    const head = h('b', {}, 'MIDI로 변환 · 악기 자동 지정');
     if (!eng.instruments) {
       return h('div', { class: 'ai-step' }, head,
         h('p', {}, '분리한 트랙을 구간별로 듣고 어울리는 악기를 골라 MIDI로 바꿔요. 먼저 악기 인식 구성 요소가 필요해요 (약 10MB, 처음 실행할 때 모델 약 350MB를 내려받아요).'),
@@ -329,40 +337,65 @@ export class AiSheet {
     }
   }
 
+  // the page before this one (the run page is skipped: it is only a progress view)
+  back() {
+    if (this.busy) return;
+    const to = { options: 'file', run: 'options', result: 'options', midi: 'result' }[this.step];
+    if (!to) return;
+    this.stopPreview(); this.error = null; this.step = to; this.render();
+  }
+
   render() {
     if (this.el.hidden) return;
-    const parts = [];
-    parts.push(h('div', { class: 'ai-step' },
-      h('b', {}, '1. 파일'),
-      h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.pick() }, this.file ? '다른 파일…' : '파일 고르기…'),
-        h('span', { class: 'dim' }, this.file ? this.file.name : 'WAV·MP3·FLAC·MP4·MOV 파일을 선택하거나 이 창으로 드래그하세요.'))));
-    // the analysis engine: separation, beats and notes with open-source models on this computer
+    const at = STEPS.findIndex(([k]) => k === this.step);
+    const head = h('div', { class: 'ai-wiz' },
+      h('button', { class: 'btn sm ghost ai-back', disabled: at === 0 || !!this.busy, onclick: () => this.back() }, '← 뒤로'),
+      h('ol', { class: 'ai-steps' }, ...STEPS.map(([k, label], i) => h('li', { class: i === at ? 'on' : i < at ? 'done' : '' }, h('i', {}, i < at ? '✓' : String(i + 1)), label))));
+    const page = this.step === 'file' ? this.fileView() : this.step === 'options' ? this.optionsView() : this.step === 'run' ? this.runView()
+      : this.step === 'result' ? this.stemsView() : this.midiView();
+    const parts = [head, page];
+    // busy on another page than the run page (installing, recognising instruments): progress under it
+    if (this.busy && this.step !== 'run') parts.push(this.busyView());
+    if (this.error) parts.push(h('p', { class: 'cl-msg err' }, this.error));
+    this.body.replaceChildren(...parts);
+    this.renderProgress();
+    this.paintBars();
+  }
+
+  fileView() {
     const eng = this.engine || {};
-    if (!eng.ready) parts.push(h('div', { class: 'ai-step ai-engine' },
-      h('b', {}, '분리 엔진'),
-      h('p', { class: 'dim' }, `악기별 음원 분리(BS-RoFormer · BS-RoFormer SW 6-stem · DrumSep), 박자 분석(Beat This!), 채보(Basic Pitch)를 이 컴퓨터에서 실행합니다. 처음 한 번 약 3 GB를 받습니다${eng.gpu ? '. NVIDIA GPU로 빠르게 처리해요.' : '. GPU가 없으면 한 곡에 몇 분 걸려요.'}`),
-      eng.reason ? h('p', { class: 'cl-msg err' }, `엔진을 쓸 수 없는 이유: ${eng.reason}`) : null,
-      h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.setupEngine() }, '엔진 설치'),
-        h('button', { class: 'btn sm ghost', disabled: !!this.busy, onclick: async () => { this.engine = await window.melofi.stemsStatus(); this.render(); } }, '다시 확인'))));
-    parts.push(this.optionsView());
-    if (this.busy) parts.push(h('div', { class: 'ai-busy' },
+    return h('div', { class: 'ai-step' },
+      h('b', {}, '파일 고르기'),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', disabled: !!this.busy, onclick: () => this.pick() }, this.file ? '다른 파일…' : '파일 고르기…'),
+        h('span', { class: 'dim' }, this.file ? this.file.name : 'WAV·MP3·FLAC·MP4·MOV 파일을 선택하거나 이 창으로 드래그하세요.')),
+      this.file && eng.ready ? h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn', disabled: !!this.busy || !this.audio, onclick: () => { this.step = 'options'; this.render(); } }, '다음 →')) : null,
+      // the separation engine: open-source models on this computer
+      !eng.ready ? h('div', { class: 'ai-engine' },
+        h('b', {}, '분리 엔진 설치'),
+        h('p', { class: 'dim' }, `악기별 음원 분리(BS-RoFormer · BS-RoFormer SW 6-stem · DrumSep), 박자 분석(Beat This!), 채보(Basic Pitch)를 이 컴퓨터에서 실행합니다. 처음 한 번 약 3 GB를 받습니다${eng.gpu ? '. NVIDIA GPU로 빠르게 처리해요.' : '. GPU가 없으면 한 곡에 몇 분 걸려요.'}`),
+        eng.reason ? h('p', { class: 'cl-msg err' }, `엔진을 쓸 수 없는 이유: ${eng.reason}`) : null,
+        h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.setupEngine() }, '엔진 설치'),
+          h('button', { class: 'btn sm ghost', disabled: !!this.busy, onclick: async () => { this.engine = await window.melofi.stemsStatus(); if (this.engine.ready && this.audio) this.step = 'options'; this.render(); } }, '다시 확인'))) : null);
+  }
+
+  busyView() {
+    return h('div', { class: 'ai-busy' },
       h('div', { class: 'row' }, this.progEl = h('span', {}),
         this.busy === 'stems' ? h('button', { class: 'btn sm ghost', onclick: () => { window.melofi.stemsCancel(); this.addLog('취소를 요청했어요.'); } }, '취소') : null),
       ['stems', 'analyse', 'setup'].includes(this.busy) ? h('div', { class: 'ai-bars' },
         h('div', { class: 'ai-barrow' }, h('span', {}, '현재 단계'), h('div', { class: 'ai-bar stage' }, this.stageEl = h('i')), this.stagePct = h('em')),
-        h('div', { class: 'ai-barrow' }, h('span', {}, '전체'), h('div', { class: 'ai-bar' }, this.barEl = h('i')), this.allPct = h('em'))) : null));
-    // the live log stays under the progress while working, and after it for a look back
-    if (this.log.length && (this.busy === 'stems' || this.busy === 'analyse' || this.stems || this.error)) {
-      parts.push(h('details', { class: 'ai-logwrap', open: !!this.busy || !!this.error },
-        h('summary', {}, `작업 로그 (${this.log.length}줄)`),
-        this.logEl = h('pre', { class: 'ai-log' }, this.log.join('\n'))));
-      requestAnimationFrame(() => { if (this.logEl) this.logEl.scrollTop = this.logEl.scrollHeight; });
-    }
-    if (this.error) parts.push(h('p', { class: 'cl-msg err' }, this.error));
-    if (this.stems) parts.push(this.stemsView(), this.midiView());
-    this.body.replaceChildren(...parts);
-    this.renderProgress();
-    this.paintBars();
+        h('div', { class: 'ai-barrow' }, h('span', {}, '전체'), h('div', { class: 'ai-bar' }, this.barEl = h('i')), this.allPct = h('em'))) : null);
+  }
+
+  // the separation running: progress and the engine's live log
+  runView() {
+    const log = h('pre', { class: 'ai-log tall' }, this.log.join('\n'));
+    this.logEl = log;
+    requestAnimationFrame(() => { if (this.logEl) this.logEl.scrollTop = this.logEl.scrollHeight; });
+    return h('div', { class: 'ai-step' },
+      h('b', {}, this.busy ? `분리하는 중 · ${this.file?.name || ''}` : this.error ? '분리하지 못했어요' : '분리'),
+      this.busy ? this.busyView() : null,
+      log);
   }
 
   // MuScriptor (Kyutai · Mirelo): transcribes the whole mix into ~35 instrument classes. Its model
@@ -405,7 +438,7 @@ export class AiSheet {
         h('span', { class: 'ai-live', title: '2초마다 새로 읽어요' }, '실시간'));
     const done = this.stems ? (this.stems.muscriptor?.notes ? this.stems.muscriptor.model : 'off') : null;
     return h('div', { class: 'ai-step' },
-      h('b', {}, '2. 분리 방식'),
+      h('b', {}, '분리 방식'),
       h('div', { class: 'ai-opts' },
         engine ? row('악기 분리', sel(this.sepMode, [['full', '전체 · 보컬·코러스·드럼(킥·스네어 등 세부)·베이스·기타·피아노·나머지'], ['fast', '빠르게 · 코러스와 드럼 세부 분리 생략']], (v) => { this.sepMode = v; this.render(); })) : null,
         engine ? row('채보 방식', h('span', { class: 'ai-opt-ctl' },
@@ -422,8 +455,7 @@ export class AiSheet {
         h('button', { class: 'btn sm ghost', disabled: !!this.busy, onclick: async () => { await window.melofi.stemsSetToken(''); this.engine = await window.melofi.stemsStatus(); this.render(); } }, '토큰 지우기')) : null,
       gpuLine,
       h('div', { class: 'ai-go' },
-        h('b', {}, '3.'),
-        h('button', { class: 'btn primary', disabled: !this.audio || !!this.busy || !engine || needToken || short, onclick: () => this.analyse() }, this.stems ? '이 방식으로 다시 분리' : '분리 시작'),
+        h('button', { class: 'btn primary', disabled: !this.audio || !!this.busy || !engine || needToken || short, onclick: () => this.analyse() }, this.stems ? '이 방식으로 다시 분리 →' : '분리 시작 →'),
         // after an analysis: another transcription only redoes the transcription (separation kept)
         engine && done !== null && done !== this.mus && !needToken ? h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.retranscribe() }, this.mus === 'off' ? 'Basic Pitch 결과로 보기' : `채보만 MuScriptor ${this.mus}로 다시`) : null,
         h('span', { class: 'dim' }, !engine ? '먼저 분리 엔진을 설치해 주세요.' : !this.audio ? '먼저 파일을 골라 주세요.' : `${this.file.name} · ${Math.floor(dur / 60)}분 ${Math.round(dur % 60)}초 · 예상 ${est}`)));
@@ -433,12 +465,12 @@ export class AiSheet {
     if (!this.file || this.busy) return;
     const seq = this.seq;
     this.log = []; this.t0 = Date.now();
-    this.busy = 'stems'; this.progress = 0; this.stemLabel = '채보를 준비하는 중…'; this.error = null; this.render();
+    this.busy = 'stems'; this.progress = 0; this.stemLabel = '채보를 준비하는 중…'; this.error = null; this.step = 'run'; this.render();
     this.addLog(`채보만 다시: ${this.mus === 'off' ? 'Basic Pitch' : `MuScriptor ${this.mus}`} (분리·박자 결과는 그대로)`);
     const r = await window.melofi.stemsRun({ name: this.file.name, data: this.file.data, quick: this.sepMode === 'fast', muscriptor: this.mus });
     if (seq !== this.seq) return;
     this.busy = null;
-    if (!r.ok) this.error = r.message; else this.stems = r.result;
+    if (!r.ok) this.error = r.message; else { this.stems = r.result; this.plan = null; this.choice = null; this.step = 'result'; }
     this.render();
   }
 
@@ -452,7 +484,7 @@ export class AiSheet {
     const order = ['vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other'].filter((k) => r.stems[k]);
     const t = r.times?.total;
     return h('div', { class: 'ai-step' },
-      h('b', {}, '4. 악기별 분리 · 박자 · 채보'),
+      h('b', {}, '악기별 분리 · 박자 · 채보'),
       h('div', { class: 'ai-facts' },
         fact('템포', `${Math.round(r.bpm * 10) / 10} BPM`), fact('박자', `${r.meter}/4`), fact('키', `${PC[r.key.root]} ${r.key.mode === 'minor' ? '마이너' : '메이저'}`),
         fact('첫 마디', `${r.first_downbeat.toFixed(2)}초`), fact('처리', `${r.device === 'cuda' ? 'GPU' : 'CPU'}${t ? ` · ${Math.round(t)}초` : ''}`)),
@@ -464,7 +496,8 @@ export class AiSheet {
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.useAudio, onchange: (e) => { this.useAudio = e.target.checked; this.render(); } }), ' 분리한 오디오 트랙'),
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.useMidi, onchange: (e) => { this.useMidi = e.target.checked; this.render(); } }), ' 채보한 MIDI 채널'),
         h('span', { class: 'sp' }),
-        h('button', { class: 'btn primary', disabled: !!this.busy || (!this.useAudio && !this.useMidi), onclick: () => this.openStems() }, '분리한 트랙으로 프로젝트 만들기')),
+        h('button', { class: 'btn', disabled: !!this.busy || (!this.useAudio && !this.useMidi), onclick: () => this.openStems() }, '분리한 트랙으로 프로젝트 만들기'),
+        h('button', { class: 'btn primary', disabled: !!this.busy, title: '구간마다 악기를 골라 MIDI로 바꾸기', onclick: () => { this.stopPreview(); this.step = 'midi'; this.render(); } }, 'MIDI로 변환 →')),
       h('p', { class: 'dim' }, `오디오와 MIDI를 함께 넣으면 MIDI 채널은 음소거된 상태로 들어가요. 분리: ${r.models.vocals} · ${r.models.instruments}${r.models.drum_parts ? ` · ${r.models.drum_parts}` : ''} / 박자: ${r.models.beats} / 채보: ${r.models.notes}`));
   }
 }
