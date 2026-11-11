@@ -7,25 +7,70 @@
   <link rel="stylesheet" href="splash.css">
 </head>
 <body>
-<div class="card">
-  <svg class="lines" viewBox="0 0 560 330" preserveAspectRatio="none" aria-hidden="true">
-    <path class="l l1" d="M-20 174 C 110 134, 210 206, 330 152 S 520 88, 590 114"/>
-    <path class="l l2" d="M-20 192 C 120 160, 230 224, 350 174 S 530 116, 590 136"/>
-    <path class="l l3" d="M-20 210 C 130 186, 250 238, 370 196 S 540 142, 590 158"/>
-    <path class="l accent" d="M-20 156 C 100 108, 200 190, 310 132 S 510 60, 590 90"/>
-    <line class="g" x1="0" y1="64" x2="560" y2="64"/>
-    <line class="g" x1="0" y1="128" x2="560" y2="128"/>
+<div class="card" id="card" data-state="loading">
+  <svg class="lines" viewBox="0 0 600 400" preserveAspectRatio="none" aria-hidden="true">
+    <path class="l l1" d="M-20 196 C 120 150, 225 230, 352 172 S 556 100, 630 128"/>
+    <path class="l l2" d="M-20 216 C 128 180, 246 252, 374 196 S 566 130, 630 152"/>
+    <path class="l l3" d="M-20 236 C 140 208, 268 266, 396 220 S 576 160, 630 176"/>
+    <path class="l accent" d="M-20 176 C 106 122, 214 214, 332 150 S 546 68, 630 100"/>
+    <line class="g" x1="0" y1="72" x2="600" y2="72"/>
+    <line class="g" x1="0" y1="144" x2="600" y2="144"/>
   </svg>
+
+  <div class="top">
+    <button id="who" class="who" type="button" hidden></button>
+    <button id="quit" class="quit" type="button" title="MeloFi 종료" aria-label="MeloFi 종료"></button>
+  </div>
+
   <div class="head">
     <svg class="mark" viewBox="56 48 144 168" aria-hidden="true"><rect x="74" y="88" width="26" height="104" rx="13"/><rect x="115" y="56" width="26" height="136" rx="13"/><rect x="156" y="110" width="26" height="82" rx="13"/><rect class="line" x="64" y="200" width="128" height="9" rx="4.5"/></svg>
     <div class="name"><b>MeloFi</b><span id="ver"></span></div>
     <div class="tag">Note your idea with MeloFi<sup>™</sup></div>
   </div>
-  <div class="status">
-    <div class="row"><span id="label">시작하는 중…</span><span id="pct">0%</span></div>
-    <div class="bar"><i id="fill"></i></div>
-    <div id="detail" class="detail"></div>
+
+  <div class="foot">
+    <div class="status" id="status">
+      <div class="row"><span id="label">시작하는 중…</span><span id="pct">0%</span></div>
+      <div class="bar"><i id="fill"></i></div>
+      <div id="detail" class="detail"></div>
+    </div>
+
+    <div class="choose" id="choose" hidden>
+      <div class="q">어디로 갈까요?</div>
+      <div class="opts">
+        <button class="opt" type="button" data-go="piano">
+          <svg class="pic" viewBox="0 0 64 40" aria-hidden="true">
+            <rect class="w" x="1" y="1" width="62" height="38" rx="2"/>
+            <path class="k" d="M10 1v38M19 1v38M28 1v38M37 1v38M46 1v38M55 1v38"/>
+            <rect class="b" x="7" y="1" width="6" height="22" rx="1"/><rect class="b" x="16" y="1" width="6" height="22" rx="1"/>
+            <rect class="b" x="34" y="1" width="6" height="22" rx="1"/><rect class="b hi" x="43" y="1" width="6" height="22" rx="1"/><rect class="b" x="52" y="1" width="6" height="22" rx="1"/>
+          </svg>
+          <span class="txt"><b>피아노</b><span>건반 연주 · 악보 재생 · 녹화</span></span>
+          <kbd>1</kbd><em class="last">최근 사용</em>
+        </button>
+        <button class="opt" type="button" data-go="studio">
+          <svg class="pic" viewBox="0 0 64 40" aria-hidden="true">
+            <g class="cells">
+              <rect x="1" y="2" width="6" height="7"/><rect x="9" y="2" width="6" height="7"/><rect x="17" y="2" width="6" height="7"/><rect x="25" y="2" width="6" height="7"/><rect x="33" y="2" width="6" height="7"/><rect x="41" y="2" width="6" height="7"/><rect x="49" y="2" width="6" height="7"/><rect x="57" y="2" width="6" height="7"/>
+              <rect x="1" y="12" width="6" height="7"/><rect x="9" y="12" width="6" height="7"/><rect x="17" y="12" width="6" height="7"/><rect x="25" y="12" width="6" height="7"/><rect x="33" y="12" width="6" height="7"/><rect x="41" y="12" width="6" height="7"/><rect x="49" y="12" width="6" height="7"/><rect x="57" y="12" width="6" height="7"/>
+            </g>
+            <g class="on"><rect x="1" y="2" width="6" height="7"/><rect x="33" y="2" width="6" height="7"/><rect x="17" y="12" width="6" height="7"/><rect x="49" y="12" width="6" height="7"/></g>
+            <path class="clip" d="M1 25h22v12H1zM25 25h14v12H25zM41 25h22v12H41z"/>
+          </svg>
+          <span class="txt"><b>MeloFi Studio</b><span>비트 · 멜로디 · 편곡 · 믹싱</span></span>
+          <kbd>2</kbd><em class="last">최근 사용</em>
+        </button>
+      </div>
+    </div>
   </div>
+
+  <section class="acct" id="acct" hidden aria-label="MeloFi 계정">
+    <div class="acct-head">
+      <button id="back" class="back" type="button">← 뒤로 가기</button>
+      <b id="acctTitle">MeloFi 계정</b>
+    </div>
+    <div class="acct-body" id="acctBody"></div>
+  </section>
 </div>
 <script type="module" src="js/splash.js"></script>
 </body>

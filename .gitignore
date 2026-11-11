@@ -10,3 +10,4 @@ server/data/
 native/JUCE/
 native/build/
 docs/*.wav
+__pycache__/

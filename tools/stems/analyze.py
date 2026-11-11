@@ -1,0 +1,264 @@
+"""MeloFi song analysis engine: open-source models, run locally (GPU if there is one).
+
+  separation   python-audio-separator (MIT) running
+                 - BS-RoFormer (vocals / instrumental)
+                 - Mel-Band RoFormer karaoke (lead / backing vocals)
+                 - BS-RoFormer SW 6-stem (drums, bass, guitar, piano, other); on MUSDB18 it beat
+                   HTDemucs 6-stem by +1.2 dB drums, +1.0 dB bass, +1.8 dB other
+                 - MDX23C DrumSep (kick, snare, toms, hi-hat, ride, crash)
+  beats        Beat This! (CPJKU, MIT): beats and downbeats -> tempo, bar grid
+  notes        Basic Pitch (Spotify, Apache-2.0) on each pitched stem -> MIDI notes
+  drums        onsets of each DrumSep stem -> drum hits
+  key          chroma of the pitched stems against major / minor key profiles
+
+usage: python analyze.py --input song.mp3 --out <dir> --models <dir> [--ffmpeg ffmpeg.exe] [--quick]
+Prints one JSON object per line: {"p": 0..1, "label": "..."} while working, then writes
+<out>/result.json.
+"""
+import argparse, json, os, sys, time, subprocess, shutil, glob, re
+from pathlib import Path
+
+
+def say(p, label, **extra):
+    print(json.dumps({"p": round(p, 3), "label": label, **extra}, ensure_ascii=False), flush=True)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--models", required=True)
+    ap.add_argument("--ffmpeg", default="ffmpeg")
+    ap.add_argument("--quick", action="store_true", help="skip the drum split and the lead/backing vocal split")
+    ap.add_argument("--muscriptor", default="off", choices=["off", "small", "medium", "large"],
+                    help="also transcribe the whole mix with MuScriptor (weights: CC BY-NC 4.0, non-commercial; needs HF_TOKEN)")
+    a = ap.parse_args()
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    models = Path(a.models); models.mkdir(parents=True, exist_ok=True)
+    t_all = time.time(); times = {}
+
+    # ---------- 1. a clean 44.1 kHz stereo WAV to work on ----------
+    say(0.01, "오디오를 준비하는 중")
+    src = out / "input.wav"
+    r = subprocess.run([a.ffmpeg, "-y", "-v", "error", "-i", a.input, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(src)], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(f"ffmpeg: {r.stderr.strip()[-300:]}")
+
+    import numpy as np
+    import soundfile as sf
+    import torch
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    say(0.03, f"장치: {torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU'}")
+    mix, sr = sf.read(str(src), always_2d=True)
+    duration = len(mix) / sr
+
+    # ---------- 2. separation ----------
+    from audio_separator.separator import Separator
+    sep_dir = out / "sep"; sep_dir.mkdir(exist_ok=True)
+
+    def separate(model, path, p, label):
+        say(p, label)
+        t0 = time.time()
+        # overlap 4 + fp16: 4x faster than the default overlap 8, output within -42 dB of it (inaudible)
+        s = Separator(output_dir=str(sep_dir), model_file_dir=str(models), output_format="WAV", sample_rate=44100, log_level=40,
+                      use_autocast=dev == "cuda",
+                      mdxc_params={"segment_size": 256, "override_model_segment_size": False, "batch_size": 1, "overlap": 4, "pitch_shift": 0})
+        s.load_model(model_filename=model)
+        files = s.separate(str(path))
+        times[model] = round(time.time() - t0, 1)
+        got = {}
+        for f in files:
+            f = sep_dir / Path(f).name
+            # the stem is the LAST "(Name)" in the file name: separating a separated file keeps the first
+            m = re.findall(r"_\(([^)]+)\)", f.name)
+            if m: got[m[-1].lower()] = f
+        del s
+        if dev == "cuda": torch.cuda.empty_cache()
+        return got
+
+    stems = {}
+    v = separate("model_bs_roformer_ep_317_sdr_12.9755.ckpt", src, 0.06, "보컬을 분리하는 중 (BS-RoFormer)")
+    vocals, inst = v.get("vocals"), v.get("instrumental")
+    m6 = separate("BS-Roformer-SW.ckpt", inst, 0.30, "악기를 분리하는 중 (BS-RoFormer SW 6-stem)")
+    for k in ("drums", "bass", "guitar", "piano", "other"):
+        if k in m6: stems[k] = m6[k]
+    # whatever the 6-stem model still hears as voice goes back with "other"
+    if "vocals" in m6 and "other" in stems:
+        o, s1 = sf.read(str(stems["other"]), always_2d=True)
+        vv, _ = sf.read(str(m6["vocals"]), always_2d=True)
+        n = min(len(o), len(vv)); sf.write(str(stems["other"]), o[:n] + vv[:n], s1, subtype="FLOAT")
+    if vocals:
+        if not a.quick:
+            lb = separate("mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt", vocals, 0.50, "리드·코러스 보컬을 나누는 중 (Mel-Band RoFormer)")
+            if lb.get("vocals") and lb.get("instrumental"):
+                stems["vocals"], stems["backing"] = lb["vocals"], lb["instrumental"]
+            else:
+                stems["vocals"] = vocals
+        else:
+            stems["vocals"] = vocals
+    drum_parts = {}
+    if "drums" in stems and not a.quick:
+        ds = separate("MDX23C-DrumSep-aufr33-jarredou.ckpt", stems["drums"], 0.62, "드럼을 킥·스네어·하이햇으로 나누는 중 (DrumSep)")
+        for k, f in ds.items():
+            drum_parts[k] = f
+
+    # tidy names: stems/<id>.wav (float WAV, 44.1 kHz stereo)
+    final = out / "stems"; final.mkdir(exist_ok=True)
+    def keep(src_path, name):
+        # 24-bit FLAC: lossless, 144 dB of range (far past any recording), about a third of the float WAV
+        dst = final / f"{name}.flac"
+        x, rate = sf.read(str(src_path), always_2d=True)
+        sf.write(str(dst), np.clip(x, -1.0, 1.0), rate, format="FLAC", subtype="PCM_24")
+        os.remove(src_path)
+        return dst
+    stems = {k: keep(f, k) for k, f in stems.items()}
+    drum_parts = {k: keep(f, f"drum_{k}") for k, f in drum_parts.items()}
+
+    # a small mono mix of the pitched instruments only (no drums, no voice) for the app's chord analysis
+    import librosa
+    harm = None
+    for k in ("bass", "piano", "guitar", "other"):
+        if k in stems:
+            s2, _ = librosa.load(str(stems[k]), sr=22050, mono=True)
+            harm = s2 if harm is None else harm[: len(s2)] + s2[: len(harm)]
+    if harm is not None:
+        sf.write(str(final / "harmonic_22k.wav"), harm.astype("float32"), 22050, subtype="FLOAT")
+
+    # ---------- 3. beats and tempo ----------
+    say(0.74, "박자와 템포를 찾는 중 (Beat This!)")
+    t0 = time.time()
+    from beat_this.inference import File2Beats
+    f2b = File2Beats(checkpoint_path="final0", device=dev, dbn=False)
+    beats, downbeats = f2b(str(src))
+    beats = [float(x) for x in beats]; downbeats = [float(x) for x in downbeats]
+    times["beat_this"] = round(time.time() - t0, 1)
+    ibi = np.diff(beats) if len(beats) > 2 else np.array([0.5])
+    bpm = float(60.0 / np.median(ibi))
+    # beats per bar from the downbeats
+    if len(downbeats) > 2:
+        per = [sum(1 for b in beats if d0 - 1e-3 <= b < d1 - 1e-3) for d0, d1 in zip(downbeats, downbeats[1:])]
+        meter = int(np.bincount(per).argmax()) if per else 4
+    else:
+        meter = 4
+
+    # ---------- 4. key ----------
+    say(0.78, "조성을 찾는 중")
+    import librosa
+    y = None
+    for k in ("bass", "piano", "guitar", "other", "vocals", "backing"):
+        if k in stems:
+            s, _ = librosa.load(str(stems[k]), sr=22050, mono=True)
+            y = s if y is None else y[: len(s)] + s[: len(y)]
+    if y is None:
+        y, _ = librosa.load(str(src), sr=22050, mono=True)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=22050).mean(axis=1)
+    major = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+    minor = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+    best = (-9, 0, "major")
+    for r in range(12):
+        for prof, mode in ((major, "major"), (minor, "minor")):
+            c = float(np.corrcoef(np.roll(prof, r), chroma)[0, 1])
+            if c > best[0]: best = (c, r, mode)
+    key = {"root": best[1], "mode": best[2], "confidence": round(best[0], 3)}
+
+    # ---------- 5. notes of each pitched stem ----------
+    notes = {}
+    from basic_pitch.inference import predict
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    pitched = [k for k in ("bass", "piano", "guitar", "vocals", "backing", "other") if k in stems]
+    ranges = {"bass": (28, 67), "vocals": (40, 88), "backing": (40, 88)}
+    for i, k in enumerate(pitched):
+        say(0.80 + 0.14 * i / max(1, len(pitched)), f"음표를 받아 적는 중: {k} (Basic Pitch)")
+        t0 = time.time()
+        lo, hi = ranges.get(k, (21, 108))
+        try:
+            _, _, ev = predict(str(stems[k]), ICASSP_2022_MODEL_PATH, onset_threshold=0.5, frame_threshold=0.3,
+                               minimum_note_length=80 if k in ("vocals", "backing") else 58,
+                               minimum_frequency=librosa.midi_to_hz(lo), maximum_frequency=librosa.midi_to_hz(hi),
+                               multiple_pitch_bends=False, melodia_trick=True)
+        except Exception as e:  # one stem failing must not lose the rest
+            say(0.80, f"{k}: {e}")
+            continue
+        notes[k] = [[round(float(s), 4), round(float(e - s), 4), int(n), int(max(1, min(127, round(a * 127))))] for s, e, n, a, *_ in ev]
+        notes[k].sort()
+        times[f"basic_pitch_{k}"] = round(time.time() - t0, 1)
+
+    # ---------- 5b. MuScriptor: the whole mix -> notes per instrument (35 classes) ----------
+    mus = None
+    if a.muscriptor != "off":
+        say(0.935, f"악기별로 받아 적는 중 (MuScriptor {a.muscriptor}, 비상업 전용)")
+        t0 = time.time()
+        # run as a module with this Python: a console-script .exe remembers the folder it was installed in
+        js = out / "muscriptor.json"
+        r2 = subprocess.run([sys.executable, "-m", "muscriptor", "transcribe", str(src), "--format", "json", "-o", str(js), "--model", a.muscriptor],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r2.returncode or not js.exists():
+            tail = (r2.stderr or r2.stdout).strip().splitlines()[-3:]
+            msg = " ".join(tail)[-300:]
+            if "401" in msg or "403" in msg or "gated" in msg.lower() or "token" in msg.lower():
+                msg = "HuggingFace 토큰이 없거나, 모델 페이지에서 라이선스 동의가 필요합니다. " + msg
+            mus = {"error": msg}
+        else:
+            ev = json.loads(js.read_text(encoding="utf-8"))
+            starts = {e["index"]: e for e in ev if e.get("type") == "start"}
+            by = {}
+            for e in ev:
+                if e.get("type") != "end": continue
+                s0 = starts.get(e["start_event_index"])
+                if not s0: continue
+                by.setdefault(s0["instrument"], []).append([round(s0["start_time"], 4), round(max(0.02, e["end_time"] - s0["start_time"]), 4), int(s0["pitch"]), 100])
+            for v in by.values(): v.sort()
+            mus = {"model": a.muscriptor, "license": "CC BY-NC 4.0 (non-commercial)", "notes": by}
+        times["muscriptor"] = round(time.time() - t0, 1)
+
+    # ---------- 6. drum hits from the DrumSep stems ----------
+    say(0.95, "드럼 타격을 찾는 중")
+    GM = {"kick": 36, "snare": 38, "toms": 45, "hh": 42, "hihat": 42, "ride": 51, "crash": 49, "cymbals": 49}
+    drums = []
+    for k, f in drum_parts.items():
+        n = GM.get(k.replace(" ", "").replace("-", ""), None)
+        if n is None: continue
+        s, _ = librosa.load(str(f), sr=22050, mono=True)
+        if np.sqrt(np.mean(s ** 2)) < 1e-4: continue
+        env = librosa.onset.onset_strength(y=s, sr=22050, hop_length=256)
+        peak = env.max() or 1
+        env = env / peak  # onset_detect thresholds a 0..1 envelope
+        # a hit must also be loud in absolute terms: bleed from other drums is quiet in a clean stem
+        rms = librosa.feature.rms(y=s, frame_length=1024, hop_length=256)[0]
+        loud = rms / (rms.max() or 1)
+        on = [fr for fr in librosa.onset.onset_detect(onset_envelope=env, sr=22050, hop_length=256, backtrack=False, delta=0.07, wait=3, normalize=False)
+              if loud[min(len(loud) - 1, fr + 2)] > 0.12]
+        peak = 1
+        for fr in on:
+            drums.append([round(float(fr * 256 / 22050), 4), n, int(max(30, min(127, 40 + 87 * env[fr] / peak)))])
+    drums.sort()
+
+    res = {
+        "version": 1, "engine": "melofi-stems", "device": dev, "duration": round(duration, 3),
+        "bpm": round(bpm, 2), "meter": meter, "beats": beats, "downbeats": downbeats,
+        "first_downbeat": downbeats[0] if downbeats else (beats[0] if beats else 0.0),
+        "key": key,
+        "stems": {k: str(p) for k, p in stems.items()},
+        "drum_parts": {k: str(p) for k, p in drum_parts.items()},
+        "harmonic": str(final / "harmonic_22k.wav") if harm is not None else None,
+        "notes": notes, "drums": drums, "muscriptor": mus,
+        "models": {"vocals": "BS-RoFormer (ep 317, SDR 12.98)", "lead_backing": None if a.quick else "Mel-Band RoFormer karaoke",
+                   "instruments": "BS-RoFormer SW 6-stem", "drum_parts": None if a.quick else "MDX23C DrumSep", "beats": "Beat This! final0", "notes": "Basic Pitch (ICASSP 2022)"},
+        "times": {**times, "total": round(time.time() - t_all, 1)},
+    }
+    (out / "result.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+    try: os.remove(src)
+    except OSError: pass
+    shutil.rmtree(sep_dir, ignore_errors=True)
+    say(1.0, "끝", result=str(out / "result.json"))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # report to the app as one line
+        import traceback
+        print(json.dumps({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-1500:]}, ensure_ascii=False), flush=True)
+        sys.exit(1)

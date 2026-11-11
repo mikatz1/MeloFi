@@ -32,7 +32,7 @@ function fft(re, im) {
 const hz2midi = (f) => 69 + 12 * Math.log2(f / 440);
 const midi2hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-function analyze(x, sr, progress, tempoHint) {
+function analyze(x, sr, progress, tempoHint, grid = null) {
   const frames = Math.max(1, Math.floor((x.length - N) / HOP));
   const binHz = sr / N, nb = N / 2;
   const win = new Float32Array(N);
@@ -162,6 +162,8 @@ function analyze(x, sr, progress, tempoHint) {
   const beats = [];
   for (let i = end; i >= 0; i = back[i]) { beats.push(i / fps); if (back[i] < 0) break; }
   beats.reverse();
+  // the analysis engine's beat grid (Beat This!) replaces this estimate when there is one
+  if (grid?.beats?.length > 8) beats.splice(0, beats.length, ...grid.beats.filter((t) => t >= 0 && t < x.length / sr));
   // downbeat: which beat phase (of 4) has the strongest low-end onsets
   const kickEnv = smoothNorm(bands.kick, 1);
   // ...plus where the harmony moves: bass and chords change on the downbeat far more often than on beat 2 or 4
@@ -180,7 +182,7 @@ function analyze(x, sr, progress, tempoHint) {
     phaseScore[i % 4] += kAt[i] / kMax + 1.5 * change;
   });
   const phase = phaseScore.indexOf(Math.max(...phaseScore));
-  const barStarts = beats.filter((_, i) => i % 4 === phase);
+  const barStarts = grid?.downbeats?.length > 2 ? grid.downbeats.filter((t) => t >= 0 && t < x.length / sr) : beats.filter((_, i) => i % 4 === phase);
   progress(0.8);
 
   // ---------- key (Krumhansl–Schmuckler) ----------
@@ -333,9 +335,9 @@ const avg = (list) => list[0].map((_, k) => list.reduce((s, f) => s + f[k], 0) /
 const dist = (a, b) => Math.sqrt(a.reduce((s, v, k) => s + (v - b[k]) ** 2, 0));
 
 self.onmessage = (e) => {
-  const { samples, rate, tempo } = e.data;
+  const { samples, rate, tempo, grid } = e.data;
   try {
-    const result = analyze(samples, rate, (p) => self.postMessage({ type: 'progress', p }), tempo);
+    const result = analyze(samples, rate, (p) => self.postMessage({ type: 'progress', p }), tempo, grid);
     self.postMessage({ type: 'done', result });
   } catch (err) {
     self.postMessage({ type: 'error', message: String(err.message || err) });

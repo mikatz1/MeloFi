@@ -45,8 +45,6 @@ export class UI {
     for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', () => this.close());
     $('#instName').parentElement.title = '악기 선택 창 열기';
     $('#instName').parentElement.addEventListener('click', () => this.pickInstrument());
-    $('#studioBtn').title = T.menu.studioWindowTip;
-    $('#studioBtn').addEventListener('click', () => { this.toast('MeloFi Studio를 여는 중…', { ms: 2500 }); window.melofi.openStudioWindow(); });
     $('#fsBtn').title = T.menu.fsTip;
     $('#fsBtn').addEventListener('click', () => app.action('fullscreen'));
     $('#susFlag').title = T.menu.latchTip;

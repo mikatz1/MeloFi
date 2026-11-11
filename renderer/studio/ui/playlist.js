@@ -467,7 +467,7 @@ export class Playlist {
     const SIGS = ['2/4', '3/4', '4/4', '5/4', '6/8', '7/8', '9/8', '12/8'];
     const cur = `${b.sig[0]}/${b.sig[1]}`;
     const v = await form(`${b.num + 1}마디부터 박자표`, [{ key: 'sig', label: '박자', type: 'select', value: cur, options: SIGS.map((s) => [s, s]) }],
-      { note: 'FL Studio와 같이 이 마디부터 눈금·마디 번호와 메트로놈이 바뀌며, 패턴 길이는 그대로 유지됩니다.' });
+      { note: '이 마디부터 눈금·마디 번호와 메트로놈이 바뀌며, 패턴 길이는 그대로 유지됩니다.' });
     if (!v) return;
     const sig = String(v.sig).split('/').map(Number);
     S.edit(() => {
