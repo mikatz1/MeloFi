@@ -133,9 +133,15 @@ def snap(parts, notes, start, end, cursor):
 def align(syls, notes):
     """monotonic alignment: every syllable starts on one note (in order); notes in between hold;
     a syllable that fits no note joins the one before it. Maximises time overlap."""
-    n, m = len(syls), len(notes)
-    if not m:
+    if not notes:
         return []
+    # only the syllables sung while these notes play: lyrics heard outside them (the rest of the song
+    # when only a part of it is sung, or a phrase the recogniser made up in a quiet stretch) used to
+    # pile up on the last note and break the singing
+    lo = min(x["t"] for x in notes) - 0.5
+    hi = max(x["t"] + x["d"] for x in notes) + 0.5
+    syls = [x for x in syls if x[1] < hi and x[2] > lo]
+    n, m = len(syls), len(notes)
     NEG = -1e9
 
     def score(i, j):
@@ -173,7 +179,8 @@ def align(syls, notes):
         elif how == 2:
             txt = syls[i - 1][0]
             if merged:
-                txt += "".join(reversed(merged))
+                # at most two extra syllables squeezed onto one note; more than that is not singable
+                txt += "".join(reversed(merged))[:2 * max(1, len(syls[i - 1][0]))]
                 merged = []
             out[j - 1] = txt
             i -= 1

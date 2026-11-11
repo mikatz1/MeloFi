@@ -119,7 +119,38 @@ def musicxml(notes, bpm=120):
             f'</score-part></part-list><part id="P1">{body}</part></score-partwise>')
 
 
+SMALL_KANA = set("ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ")
+
+
+def split_morae(notes):
+    """NNSVS (Sinsy) sings one mora per note: a note that carries several (lyrics recognised from a
+    recording often put two or three on one note) is split into equal parts, one mora each, on the
+    same pitch. Small kana stay with the mora before them."""
+    out = []
+    for x in notes:
+        s = str(x.get("syl") or "")
+        morae = []
+        if s and re.fullmatch(r"[぀-ヿー]+", s):
+            for ch in s:
+                if ch in SMALL_KANA and morae:
+                    morae[-1] += ch
+                else:
+                    morae.append(ch)
+        # each part needs room to be sung (the score is written at 1/16-beat steps; a part that rounds
+        # to nothing breaks the synthesis): morae that don't fit are left out
+        morae = morae[:max(1, int(x["d"] / 0.09))]
+        if len(morae) == 1 and s:
+            out.append({**x, "syl": morae[0]})
+        elif len(morae) > 1:
+            k, step = len(morae), x["d"] / len(morae)
+            out += [{**x, "t": x["t"] + i * step, "d": step, "syl": mo} for i, mo in enumerate(morae)]
+        else:
+            out.append(x)
+    return out
+
+
 def run_nnsvs(job):
+    job = {**job, "notes": split_morae(job["notes"])}
     import tempfile, pathlib
     import safe_models
     d = pathlib.Path(job["voice_dir"])
