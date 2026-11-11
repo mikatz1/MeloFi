@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('melofi', {
   stemsRun: (payload) => ipcRenderer.invoke('stems:run', payload),
   stemsCancel: () => ipcRenderer.invoke('stems:cancel'),
   stemsGpu: () => ipcRenderer.invoke('stems:gpu'),
+  stemsCached: (payload) => ipcRenderer.invoke('stems:cached', payload),
   stemsInstruments: (dir) => ipcRenderer.invoke('stems:instruments', dir),
   stemsAddInstruments: () => ipcRenderer.invoke('stems:addInstruments'),
   stemsSetToken: (t) => ipcRenderer.invoke('stems:setToken', t),
