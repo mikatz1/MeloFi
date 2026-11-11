@@ -8,6 +8,7 @@ import { h, popup } from './dom.js';
 import { newProject, newChannel, newPattern, newTrack, uid, STEP, PPQ, SCALES, secToTick, barTicks } from '../model.js';
 import { FX_PRESETS, fxDefaults } from '../fx.js';
 import { addMedia } from '../media.js';
+import { sections, candidates, rangeText, renderCandidate, buildAssigned, CATS, STEM_NAMES } from './midiconvert.js';
 
 const STYLES = ['원곡 느낌 그대로 재구성', '로파이 힙합으로', '케이팝 댄스로', '트랩 비트로', '피아노 발라드로', '시티팝으로', 'EDM으로', '어쿠스틱 밴드로', '오케스트라풍으로'];
 const EFFORT = [['medium', '보통 (빠름)'], ['high', '깊게'], ['max', '최대 (느림)']];
@@ -111,7 +112,7 @@ export class AiSheet {
   // 1) the file: read and decoded (for its length and the quick analysis), nothing is analysed yet
   async load(file) {
     this.seq = (this.seq || 0) + 1;
-    this.file = file; this.features = null; this.result = null; this.error = null; this.stems = null; this.stopPreview();
+    this.file = file; this.features = null; this.result = null; this.error = null; this.stems = null; this.plan = null; this.choice = null; this.stopPreview();
     this.busy = 'decode'; this.render();
     try {
       const ctx = new OfflineAudioContext(1, 1, 22050);
@@ -133,7 +134,7 @@ export class AiSheet {
     const seq = this.seq = (this.seq || 0) + 1;
     const stale = () => seq !== this.seq;
     const file = this.file;
-    this.features = null; this.result = null; this.error = null; this.stems = null; this.stopPreview();
+    this.features = null; this.result = null; this.error = null; this.stems = null; this.plan = null; this.choice = null; this.stopPreview();
     this.log = []; this.t0 = Date.now();
     try {
       if (this.method === 'engine' && this.engine?.ready) {
@@ -246,14 +247,14 @@ export class AiSheet {
   }
 
   // ---------- stems ----------
-  async preview(id, file) {
+  async preview(id, file, at = null) {
     if (this.playing === id) return this.stopPreview();
     this.stopPreview();
     const bytes = await window.melofi.stemsRead(file);
     if (!bytes) return;
     const url = URL.createObjectURL(new Blob([bytes], { type: /\.flac$/i.test(file) ? 'audio/flac' : 'audio/wav' }));
     const a = new Audio(url);
-    a.currentTime = Math.max(0, (this.stems?.first_downbeat || 0));
+    a.currentTime = Math.max(0, at ?? (this.stems?.first_downbeat || 0));
     a.onended = () => this.stopPreview();
     a.play();
     this.audioEl = a; this.audioUrl = url; this.playing = id;
@@ -262,8 +263,124 @@ export class AiSheet {
 
   stopPreview() {
     if (this.audioEl) { this.audioEl.pause(); URL.revokeObjectURL(this.audioUrl); }
+    if (this.srcEl) { try { this.srcEl.stop(); } catch { /* ended */ } this.srcEl = null; }
     this.audioEl = null; this.playing = null;
     if (!this.el.hidden) this.render();
+  }
+
+  // ---------- stems -> MIDI with an instrument per section ----------
+  get cacheDir() { const f = Object.values(this.stems?.stems || {})[0]; return f ? f.replace(/[\\/]stems[\\/][^\\/]+$/, '') : null; }
+
+  async addInstruments() {
+    this.busy = 'stems'; this.progress = 0; this.stemLabel = '악기 인식 구성 요소 설치 중…'; this.render();
+    const r = await window.melofi.stemsAddInstruments();
+    this.busy = null;
+    if (!r.ok) this.error = r.message;
+    this.engine = await window.melofi.stemsStatus();
+    this.render();
+  }
+
+  async recognize() {
+    this.busy = 'analyse'; this.progress = 0; this.stage = null; this.stemLabel = '악기를 알아보는 중…'; this.error = null;
+    this.addLog('악기 인식 시작 (AST · AudioSet)');
+    this.render();
+    const r = await window.melofi.stemsInstruments(this.cacheDir);
+    this.busy = null;
+    if (!r.ok) { this.error = r.message; this.render(); return; }
+    this.inst = r.result;
+    this.plan = sections(this.stems, this.inst);
+    // the recommended instrument for every group, unless the user picked one already
+    this.choice ||= {};
+    for (const [k, groups] of Object.entries(this.plan.stems)) for (const g of groups) {
+      const key = `${k}:${g.cat}`;
+      // a stem with only a handful of notes is bleed from the others: left out unless picked
+      if (!(key in this.choice)) this.choice[key] = g.thin ? null : candidates(this.S, k, g)[0]?.id || null;
+    }
+    this.addLog(`악기 인식 끝: ${Object.entries(this.plan.stems).map(([k, gs]) => `${STEM_NAMES[k]} ${gs.map((g) => CATS[g.label][0]).join('/')}`).join(', ')}`);
+    this.render();
+  }
+
+  // the stem itself from the start of the group's first section
+  async previewOriginal(k, g) {
+    const id = `o-${k}-${g.cat}`;
+    if (this.playing === id) return this.stopPreview();
+    await this.preview(id, this.stems.stems[k], this.plan.bars[g.secs[0].start]);
+  }
+
+  async previewCandidate(k, g) {
+    const instId = this.choice[`${k}:${g.cat}`], id = `c-${k}-${g.cat}`;
+    if (!instId) return;
+    if (this.playing === id) return this.stopPreview();
+    this.stopPreview();
+    this.playing = id; this.render();
+    try {
+      const mix = await renderCandidate(this.S, this.stems, k, g, instId, this.plan.bars);
+      if (this.playing !== id) return;
+      const c = this.S.app.engine.ctx, b = c.createBuffer(2, mix.left.length, mix.rate);
+      b.copyToChannel(mix.left, 0); b.copyToChannel(mix.right, 1);
+      const src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start();
+      src.onended = () => { if (this.playing === id) this.stopPreview(); };
+      this.srcEl = src;
+    } catch (err) { this.error = `들어보지 못했어요: ${err.message}`; this.playing = null; this.render(); }
+  }
+
+  async buildMidi() {
+    const S = this.S;
+    this.busy = 'build'; this.render();
+    try {
+      // chosen instruments that are not downloaded yet come down first
+      const want = [...new Set(Object.values(this.choice).filter(Boolean))].filter((id) => { const m = S.app.instruments.find((i) => i.id === id); return m && !m.installed && m.downloadable; });
+      for (const [i, id] of want.entries()) {
+        this.stemLabel = `악기 받는 중… ${S.instName(id)} (${i + 1}/${want.length})`; this.renderProgress?.();
+        await S.app.downloadInstrument(id, { quiet: true });
+      }
+      const proj = await buildAssigned(this.stems, this.plan, this.choice, this.file.name, S, { audio: this.keepAudio !== false });
+      S.setProject(proj);
+      S.setTab('playlist');
+      this.close();
+      S.app.ui.toast('악기를 지정해 MIDI로 바꾼 프로젝트를 만들었습니다');
+    } catch (err) { this.error = `MIDI 프로젝트를 만들지 못했습니다: ${err.message}`; }
+    this.busy = null; this.render();
+  }
+
+  midiView() {
+    const eng = this.engine || {};
+    const head = h('b', {}, '5. MIDI로 변환 · 악기 자동 지정');
+    if (!eng.instruments) {
+      return h('div', { class: 'ai-step' }, head,
+        h('p', {}, '분리한 트랙을 구간별로 듣고 어울리는 악기를 골라 MIDI로 바꿔요. 먼저 악기 인식 구성 요소가 필요해요 (약 10MB, 처음 실행할 때 모델 약 350MB를 내려받아요).'),
+        h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.addInstruments() }, '악기 인식 설치')));
+    }
+    if (!this.plan) {
+      return h('div', { class: 'ai-step' }, head,
+        h('p', {}, '트랙마다 2초 간격으로 어떤 악기 소리인지 알아본 뒤, 마디 단위 구간으로 나눠 MeloFi 악기 후보를 보여 드려요. GPU로 곡 하나에 1~2분 걸려요.'),
+        h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn primary', disabled: !!this.busy, onclick: () => this.recognize() }, '악기 알아보기')));
+    }
+    const rows = [];
+    for (const [k, groups] of Object.entries(this.plan.stems)) {
+      rows.push(h('div', { class: 'mc-stem' }, STEM_NAMES[k] || k));
+      for (const g of groups) {
+        const key = `${k}:${g.cat}`, cands = candidates(this.S, k, g), cur = this.choice[key];
+        const sel = h('select', { class: 'mc-sel', onchange: (e) => { this.choice[key] = e.target.value || null; if (this.playing?.startsWith('c-')) this.stopPreview(); else this.render(); } },
+          ...cands.map((c, i) => h('option', { value: c.id, selected: c.id === cur }, `${c.recommended ? '★ 추천 · ' : ''}${c.name}${i === 0 || cands[i - 1].cat !== c.cat ? ` — ${CATS[c.cat][0]} ${Math.round(c.share * 100)}%` : ''}${c.installed ? '' : c.downloadable ? ' (받기)' : ''}`)),
+          h('option', { value: '', selected: !cur }, '넣지 않음'));
+        const oId = `o-${k}-${g.cat}`, cId = `c-${k}-${g.cat}`;
+        rows.push(h('div', { class: `mc-row${g.thin ? ' thin' : ''}`, title: g.thin ? `음표가 ${g.notes}개뿐이에요: 다른 악기에서 새어 든 소리일 가능성이 커서 기본은 빼 두었어요` : '' },
+          h('span', { class: 'mc-cat' }, CATS[g.label][0], g.thin ? h('small', {}, ` · 음표 ${g.notes}`) : null),
+          h('span', { class: 'mc-range', title: rangeText(g.secs) }, rangeText(g.secs)),
+          sel,
+          h('button', { class: `btn sm ghost${this.playing === oId ? ' on' : ''}`, title: '분리한 원음 듣기', onclick: () => this.previewOriginal(k, g) }, this.playing === oId ? '■ 원음' : '▶ 원음'),
+          h('button', { class: `btn sm ghost${this.playing === cId ? ' on' : ''}`, disabled: !cur, title: '고른 악기로 이 구간의 음표 듣기 (8초)', onclick: () => this.previewCandidate(k, g) }, this.playing === cId ? '■ 악기' : '▶ 악기')));
+      }
+    }
+    return h('div', { class: 'ai-step' }, head,
+      h('p', { class: 'dim' }, '구간마다 알아본 악기와 MeloFi 후보예요. ★ 추천이 처음부터 골라져 있어요. 원음과 후보를 들어 보고 바꿔 주세요.'),
+      h('div', { class: 'mc-table' }, ...rows),
+      h('div', { class: 'row' },
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.keepAudio !== false, onchange: (e) => { this.keepAudio = e.target.checked; } }), ' 분리한 원음도 넣기 (음소거, 비교용)'),
+        h('span', { class: 'sp' }),
+        h('button', { class: 'btn', disabled: !!this.busy, title: '악기를 다시 알아봐요', onclick: () => { this.plan = null; this.render(); } }, '다시 알아보기'),
+        h('button', { class: 'btn primary', disabled: !!this.busy || !Object.values(this.choice).some(Boolean), onclick: () => this.buildMidi() }, '이 악기들로 MIDI 프로젝트 만들기')));
   }
 
   async openStems() {
@@ -336,7 +453,7 @@ export class AiSheet {
       requestAnimationFrame(() => { if (this.logEl) this.logEl.scrollTop = this.logEl.scrollHeight; });
     }
     if (this.error) parts.push(h('p', { class: 'cl-msg err' }, this.error));
-    if (this.stems && f) parts.push(this.stemsView());
+    if (this.stems && f) parts.push(this.stemsView(), this.midiView());
     if (f) {
       const bars = f.bars;
       parts.push(h('div', { class: 'ai-step' },
@@ -614,9 +731,20 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
   const db = cleanDownbeats(r.downbeats || [], r.beats || [], p.sig[0]);
   // tempo per bar when the song drifts (a live band) so bars keep lining up with the recording
   if (db.length > 3) {
-    const bars = db.slice(1).map((t, i) => (60 * p.sig[0]) / (t - db[i]));
-    const spread = Math.max(...bars) / Math.min(...bars);
-    if (spread > 1.02) { p.bpm = Math.round(bars[0] * 100) / 100; p.tempos = bars.slice(1).map((bpm, i) => ({ bar: i + 1, bpm: Math.round(bpm * 100) / 100 })).filter((x, i, a) => i === 0 || Math.abs(x.bpm - a[i - 1].bpm) > 0.05); }
+    // one straight line through the downbeats: a steady song keeps one tempo; the beat tracker's
+    // ~20 ms wobble per bar is not a tempo change
+    const n = db.length, xm = (n - 1) / 2, ym = db.reduce((a, t) => a + t, 0) / n;
+    let sxy = 0, sxx = 0; db.forEach((t, i) => { sxy += (i - xm) * (t - ym); sxx += (i - xm) ** 2; });
+    const barSec = sxy / sxx, worst = Math.max(...db.map((t, i) => Math.abs(t - (ym + (i - xm) * barSec))));
+    if (worst < Math.min(0.06, barSec * 0.04)) p.bpm = Math.round(((60 * p.sig[0]) / barSec) * 100) / 100;
+    else {
+      // a real drift (a live band): tempo per bar, smoothed over 5 bars so the wobble stays out
+      const raw = db.slice(1).map((t, i) => t - db[i]);
+      const sm = raw.map((_, i) => { const w = raw.slice(Math.max(0, i - 2), i + 3).sort((x, y) => x - y); return w[w.length >> 1]; });
+      const bars = sm.map((d) => (60 * p.sig[0]) / d);
+      p.bpm = Math.round(bars[0] * 100) / 100;
+      p.tempos = bars.slice(1).map((bpm, i) => ({ bar: i + 1, bpm: Math.round(bpm * 10) / 10 })).filter((x, i, a) => i === 0 || Math.abs(x.bpm - a[i - 1].bpm) > 0.3);
+    }
   }
   p.mode = 'song';
   const t0 = r.first_downbeat || 0;

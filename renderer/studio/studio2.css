@@ -405,3 +405,13 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 @media (max-width: 760px) { .ms-main { grid-template-columns: 1fr; } .ms-nums { grid-template-columns: repeat(3, 1fr); } }
 .ms-tg, .ms-bar .btn, .ms-chk { white-space: nowrap; flex-shrink: 0; }
 .ms-tg select { min-width: 0; }
+/* stems -> MIDI: one row per detected instrument of a stem */
+.mc-table { display: grid; gap: 3px; margin: 8px 0; max-height: 320px; overflow: auto; }
+.mc-stem { margin-top: 6px; color: var(--text); font-weight: 500; font-size: 12.5px; }
+.mc-row { display: grid; grid-template-columns: 110px minmax(80px, 1fr) minmax(200px, 1.6fr) auto auto; align-items: center; gap: 6px; padding: 3px 6px; background: #17181d; border: 1px solid var(--line); border-radius: 3px; font-size: 12px; }
+.mc-cat { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-range { color: var(--dim); font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-sel { min-width: 0; padding: 3px 4px; background: #121318; border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); font: 12px var(--ui); }
+.mc-row .btn.on { border-color: var(--accent); color: var(--accent); }
+.mc-row.thin { opacity: .62; }
+.mc-cat small { color: var(--faint); font-size: 10.5px; }

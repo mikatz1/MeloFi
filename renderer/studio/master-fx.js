@@ -118,6 +118,27 @@ function fftInPlace(re, im, inverse = false) {
   }
 }
 
+// The browser's compressor adds a hidden make-up gain: (1 / gain at 0 dBFS) ^ 0.6. Its static curve
+// is linear up to the threshold, an exponential knee (slope easing from 1 to 1/ratio) over `knee` dB,
+// then 1/ratio. This returns that make-up in dB so it can be taken back out.
+export function autoMakeup(thresholdDb, ratio, kneeDb) {
+  if (ratio <= 1.0001) return 0;
+  const lin = (d) => 10 ** (d / 20), lt = lin(thresholdDb), kneeT = lin(thresholdDb + kneeDb), slope = 1 / ratio;
+  const curve = (x, k) => (x < lt ? x : lt + (1 - Math.exp(-k * (x - lt))) / k);
+  const dbSlope = (x, k) => { const x2 = x * 1.001, y = curve(x, k), y2 = curve(x2, k); return (20 * Math.log10(y2 / y)) / (20 * Math.log10(x2 / x)); };
+  let y0;
+  if (kneeDb <= 0.01) y0 = thresholdDb + (0 - thresholdDb) * slope;
+  else {
+    // the knee's k: its slope at the end of the knee is 1/ratio
+    let lo = 0.1, hi = 10000;
+    for (let i = 0; i < 60; i++) { const k = Math.sqrt(lo * hi); if (dbSlope(kneeT, k) > slope) lo = k; else hi = k; }
+    const k = Math.sqrt(lo * hi);
+    const yKnee = 20 * Math.log10(curve(kneeT, k));
+    y0 = thresholdDb + kneeDb >= 0 ? 20 * Math.log10(curve(1, k)) : yKnee + (0 - (thresholdDb + kneeDb)) * slope;
+  }
+  return -0.6 * y0;
+}
+
 export const MASTER_TYPES = {
   // eight bands (low cut, low shelf, four bells, high shelf, high cut); each tone band works on the
   // whole stereo signal, or only its mid or its side; minimum or linear phase
@@ -206,7 +227,7 @@ export const MASTER_TYPES = {
       // the browser's compressor adds its own make-up gain, about 0.6 x the reduction a full-scale
       // signal would get; take it back out so a band only gets louder by its own gain knob
       const st = comps.map(() => ({ t: -18, r: 2, g: 0 }));
-      const level = (i, at) => { const { t, r, g } = st[i]; const auto = 0.6 * -t * (1 - 1 / r); comps[i].g.gain.setTargetAtTime(db(g - auto), at, 0.01); };
+      const level = (i, at) => { const { t, r, g } = st[i]; comps[i].g.gain.setTargetAtTime(db(g - autoMakeup(t, r, 6)), at, 0.01); };
       const setters = {
         attack: (v, at) => comps.forEach(({ k }) => k.attack.setTargetAtTime(v, at, 0.01)),
         release: (v, at) => comps.forEach(({ k }) => k.release.setTargetAtTime(v, at, 0.01)),
@@ -286,12 +307,16 @@ export const MASTER_TYPES = {
     params: [P('freq', '주파수', 3000, 12000, 6500, { unit: 'Hz', log: true }), P('threshold', '스레숄드', -50, 0, -28, { unit: 'dB' }), P('range', '세기', 1, 20, 8, { unit: 'dB', step: 0.5 })],
     build(c) {
       const input = c.createGain(), output = c.createGain();
-      const x = twoBands(c, input, 6500), k = c.createDynamicsCompressor();
+      const x = twoBands(c, input, 6500), k = c.createDynamicsCompressor(), trim = c.createGain();
       k.ratio.value = 5; k.knee.value = 3; k.attack.value = 0.001; k.release.value = 0.06;
-      x.low.connect(output); x.high.connect(k).connect(output);
-      return unit(input, output, { threshold: k.threshold }, {
+      x.low.connect(output); x.high.connect(k).connect(trim).connect(output);
+      // only reduce: take out the compressor's own make-up gain
+      let t = -28, r = 5;
+      const fix = (at) => trim.gain.setTargetAtTime(db(-autoMakeup(t, r, 3)), at, 0.01);
+      return unit(input, output, {}, {
         freq: x.set,
-        range: (v, at) => k.ratio.setTargetAtTime(Math.min(20, 1 + v / 2), at, 0.02),
+        threshold: (v, at) => { t = v; k.threshold.setTargetAtTime(v, at, 0.01); fix(at); },
+        range: (v, at) => { r = Math.min(20, 1 + v / 2); k.ratio.setTargetAtTime(r, at, 0.02); fix(at); },
       });
     },
   },

@@ -43,6 +43,7 @@
       "vsthost.js",
       "tools/vocal/svs_render.py",
       "tools/stems/analyze.py",
+      "tools/stems/instruments.py",
       "package.json",
       "renderer/**/*",
       "!renderer/_test/**",
