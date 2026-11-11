@@ -162,6 +162,22 @@ function register(ipcMain, { app, findFfmpeg }) {
     try { return await job; } finally { running.delete(key); }
   });
 
+  // a song separated before: its saved result, without running anything (null when there is none).
+  // The MuScriptor run asked for comes with it when it was made; else the Basic Pitch notes.
+  ipcMain.handle('stems:cached', async (_e, payload) => {
+    try {
+      const data = Buffer.from(payload.data);
+      const hash = crypto.createHash('sha1').update(data).update(payload.quick ? 'q' : 'f').digest('hex').slice(0, 16);
+      const done = path.join(CACHE(), hash, 'result.json');
+      if (!fs.existsSync(done)) return null;
+      const res = JSON.parse(await fsp.readFile(done, 'utf8'));
+      if (!Object.values(res.stems).every((f) => fs.existsSync(f))) return null;
+      const runs = res.muscriptor_runs || {};
+      const mus = runs[payload.muscriptor] || null;
+      return { result: { ...res, muscriptor: mus }, muscriptor: mus ? payload.muscriptor : 'off' };
+    } catch { return null; }
+  });
+
   // the separation, beats and Basic Pitch notes are done once per song; a MuScriptor model asked
   // for later only adds its own run to that result
   async function analyse(e, payload, py, data, hash, model) {

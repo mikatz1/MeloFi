@@ -113,6 +113,15 @@ export class AiSheet {
       for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels; }
       this.audio = { mono, rate: buf.sampleRate, duration: buf.duration };
       if (this.engine?.ready) this.step = 'options';
+      // separated before (either way of separating): straight to its result
+      const hit = await window.melofi.stemsCached({ data: file.data, quick: this.sepMode === 'fast', muscriptor: this.mus })
+        || await window.melofi.stemsCached({ data: file.data, quick: this.sepMode !== 'fast', muscriptor: this.mus });
+      if (hit && this.file === file) {
+        this.stems = hit.result; this.fromCache = hit.muscriptor;
+        this.log = []; this.t0 = Date.now();
+        this.addLog(`이 곡은 전에 분리해 둔 결과가 있어서 바로 불러왔어요 (채보: ${hit.muscriptor === 'off' ? 'Basic Pitch' : `MuScriptor ${hit.muscriptor}`}). 다시 분리하려면 뒤로 가서 분리 방식을 고르세요.`);
+        this.step = 'result';
+      }
     } catch (err) {
       this.file = null;
       this.error = '이 파일에서 오디오를 불러올 수 없습니다. WAV, MP3, MP4(AAC) 파일을 사용해 보세요.';
@@ -127,7 +136,7 @@ export class AiSheet {
     const seq = this.seq = (this.seq || 0) + 1;
     const stale = () => seq !== this.seq;
     const file = this.file;
-    this.error = null; this.stems = null; this.plan = null; this.choice = null; this.stopPreview();
+    this.error = null; this.stems = null; this.plan = null; this.choice = null; this.fromCache = null; this.stopPreview();
     this.log = []; this.t0 = Date.now();
     try {
       await this.checkGpu();
@@ -541,6 +550,7 @@ export class AiSheet {
     const t = r.times?.total;
     return h('div', { class: 'ai-step' },
       h('b', {}, '악기별 분리 · 박자 · 채보'),
+      this.fromCache ? h('p', { class: 'dim' }, `전에 분리해 둔 결과를 바로 불러왔어요 (채보: ${this.fromCache === 'off' ? 'Basic Pitch' : `MuScriptor ${this.fromCache}`}). 다른 방식으로 다시 하려면 ← 뒤로.`) : null,
       h('div', { class: 'ai-facts' },
         fact('템포', `${Math.round(r.bpm * 10) / 10} BPM`), fact('박자', `${r.meter}/4`), fact('키', `${PC[r.key.root]} ${r.key.mode === 'minor' ? '마이너' : '메이저'}`),
         fact('첫 마디', `${r.first_downbeat.toFixed(2)}초`), fact('처리', `${r.device === 'cuda' ? 'GPU' : 'CPU'}${t ? ` · ${Math.round(t)}초` : ''}`)),
