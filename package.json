@@ -19,7 +19,6 @@
     "linkedom": "^0.18.9"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.7.0",
     "lamejs": "^1.2.1",
     "mp4-muxer": "^5.2.2"
   },
@@ -37,7 +36,6 @@
       "daw.js",
       "account.js",
       "studio-files.js",
-      "claude.js",
       "vocal.js",
       "stems.js",
       "vsthost.js",

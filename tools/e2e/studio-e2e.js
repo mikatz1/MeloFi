@@ -176,14 +176,6 @@ await check('ai: cleanDownbeats edge cases', () => {
   const gap = f([0, 3.2, 6.4, 12.8, 16, 19.2], bt, 4);
   if (!same(gap, [0, 3.2, 6.4, 9.6, 12.8, 16, 19.2])) throw new Error('gap ' + gap);
 });
-await check('ai: fromFeatures (simple analysis)', () => {
-  const bars = []; for (let i = 0; i < 24; i++) bars.push({ time: i * 2, kick: '1000100010001000', snare: '0000100000001000', hat: '1010101010101010', bass: [40 + (i % 3), 0, 0, 0], chords: ['C', 'G'], chord_beats: [0, 2] });
-  const f = { bpm: 120, key_root: 0, key_mode: 'major', first_downbeat: 0, sections: [{ start_bar: 1, end_bar: 12 }, { start_bar: 13, end_bar: 24 }], bars, melody: [{ s: 4, d: 2, n: 72 }] };
-  const p = ai.fromFeatures(f, 'x.wav', S); S.setProject(p);
-  const end = Math.max(...p.playlist.clips.map((c) => c.start + c.len));
-  if (end !== 24) throw new Error('end ' + end);
-  return `${p.patterns.length} patterns`;
-});
 await check('ai: fromStems (MIDI only, synthetic)', async () => {
   const db = []; for (let i = 0; i < 30; i++) db.push(1 + i * 2);
   const r = { bpm: 120, meter: 4, key: { root: 9, mode: 'minor' }, downbeats: db, first_downbeat: 1, duration: 61, stems: { vocals: 'x', bass: 'y' }, notes: { vocals: [[1.5, 0.5, 72, 90], [59, 0.5, 70, 90]], bass: [[2, 1, 40, 100]] }, drums: [] };
@@ -194,7 +186,8 @@ await check('ai: fromStems (MIDI only, synthetic)', async () => {
 await check('ai: window renders each option', async () => {
   const sh = S.aiSheet; await sh.show(); await sleep(200);
   sh.engine = { ready: true, gpu: true, muscriptor: true, hfToken: true };
-  for (const m of ['engine', 'quick']) for (const sp of ['full', 'fast']) for (const mu of ['off', 'small', 'medium', 'large']) { sh.method = m; sh.sepMode = sp; sh.mus = mu; sh.render(); }
+  for (const sp of ['full', 'fast']) for (const mu of ['off', 'small', 'medium', 'large']) { sh.sepMode = sp; sh.mus = mu; sh.render(); }
+  if (/Claude|간이 분석/.test(sh.el.innerText)) throw new Error('Claude / quick analysis still shown');
   sh.close();
 });
 
