@@ -304,3 +304,51 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 .ai-stem i { width: 12px; font-style: normal; font-size: 9px; color: var(--accent); text-align: center; }
 .ai-stem small { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .ai-nc { display: inline-block; padding: 1px 7px; border: 1px solid #6b5320; border-radius: 3px; color: #e0b46a; font-size: 10.5px; white-space: nowrap; }
+.ai-lbl { font-weight: 600; margin-right: 4px; }
+.ai-seg button { padding: 4px 10px; }
+/* AI analysis: options up front, then progress with a live log */
+.ai-opts { display: grid; gap: 8px; margin: 6px 0 8px; }
+.ai-opt { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; }
+.ai-opt > span:first-child { color: var(--dim); }
+.ai-opt small { grid-column: 2; }
+.ai-opt-ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ai-sel { height: 28px; max-width: 520px; width: 100%; padding: 0 8px; background: #0d0e11; border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); }
+.ai-go { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ai-go > b { color: var(--text); }
+.ai-bar { height: 3px; margin: 8px 0 2px; background: #24252b; border-radius: 2px; overflow: hidden; }
+.ai-bar i { display: block; height: 100%; background: var(--accent); transition: width .25s linear; }
+.ai-logwrap { margin: 4px 0 10px; }
+.ai-logwrap summary { color: var(--dim); font-size: 11.5px; cursor: pointer; padding: 2px 0; }
+.ai-log { height: 132px; margin: 4px 0 0; padding: 8px 10px; overflow: auto; background: #0b0c0f; border: 1px solid var(--line); border-radius: 3px; color: #a9b3a4; font: 11px/1.5 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; word-break: break-all; user-select: text; }
+.ai-gpu { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid #5f8f5a; border-radius: 3px; background: #121317; font-size: 12px; }
+.ai-gpu.warn { border-left-color: var(--accent); }
+.ai-gpu.bad { border-left-color: #e5534b; }
+.ai-gpu b { font-weight: 600; }
+.ai-gpu span { color: var(--dim); }
+.ai-gpu .warn { color: #e0b46a; flex-basis: 100%; }
+.ai-gpu .err { color: #e5786c; flex-basis: 100%; }
+.ai-gpu .btn { margin-left: auto; }
+.ai-bars { display: grid; gap: 6px; margin: 8px 0 2px; }
+.ai-barrow { display: grid; grid-template-columns: 60px 1fr 40px; align-items: center; gap: 8px; }
+.ai-barrow > span { color: var(--dim); font-size: 11.5px; }
+.ai-barrow > em { color: var(--dim); font: 11px Consolas, monospace; font-style: normal; text-align: right; }
+.ai-barrow .ai-bar { margin: 0; height: 6px; }
+.ai-bar.stage i { background: #7fb0ff; }
+.ai-bar.busy { position: relative; }
+.ai-bar.busy i { position: absolute; left: 0; width: 30% !important; animation: ai-indet 1.3s ease-in-out infinite; }
+@keyframes ai-indet { 0% { left: -30%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .ai-bar.busy i { animation: none; left: 0; width: 100% !important; opacity: .35; } }
+.ai-gpu .ai-live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: 11px; }
+.ai-gpu .ai-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #5f8f5a; animation: ai-blink 2s ease-in-out infinite; }
+@keyframes ai-blink { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .ai-gpu .ai-live::before { animation: none; } }
+/* the channel rack at narrow widths: labels stay on one line and cut off with … instead of wrapping letter by letter */
+.st-left { min-width: 0; }
+.st-left .st-head { flex-wrap: nowrap; min-width: 0; }
+.st-ltabs, .st-ltabs button, .st-ltitle, .st-patbar button { white-space: nowrap; flex-shrink: 0; }
+.st-patbar { flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+.rack-row > .steps { min-width: 0; }
+.steps.audio { display: block; min-width: 0; }
+.steps.audio span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rack-foot { flex-wrap: wrap; row-gap: 6px; }
+.rack-foot .hint { flex: 1 1 160px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

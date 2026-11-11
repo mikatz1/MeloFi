@@ -17,59 +17,103 @@
     <line class="g" x1="0" y1="144" x2="600" y2="144"/>
   </svg>
 
+  <!-- top bar: the brand (small once loading is done), the profile, quit -->
   <div class="top">
+    <div class="mini" aria-hidden="true">
+      <svg class="mark" viewBox="56 48 144 168"><rect x="74" y="88" width="26" height="104" rx="13"/><rect x="115" y="56" width="26" height="136" rx="13"/><rect x="156" y="110" width="26" height="82" rx="13"/><rect class="line" x="64" y="200" width="128" height="9" rx="4.5"/></svg>
+      <b>MeloFi</b><span class="mini-ver"></span>
+    </div>
+    <span class="sp"></span>
     <button id="who" class="who" type="button" hidden></button>
     <button id="quit" class="quit" type="button" title="MeloFi 종료" aria-label="MeloFi 종료"></button>
   </div>
 
+  <!-- loading -->
   <div class="head">
     <svg class="mark" viewBox="56 48 144 168" aria-hidden="true"><rect x="74" y="88" width="26" height="104" rx="13"/><rect x="115" y="56" width="26" height="136" rx="13"/><rect x="156" y="110" width="26" height="82" rx="13"/><rect class="line" x="64" y="200" width="128" height="9" rx="4.5"/></svg>
     <div class="name"><b>MeloFi</b><span id="ver"></span></div>
     <div class="tag">Note your idea with MeloFi<sup>™</sup></div>
   </div>
-
   <div class="foot">
     <div class="status" id="status">
       <div class="row"><span id="label">시작하는 중…</span><span id="pct">0%</span></div>
       <div class="bar"><i id="fill"></i></div>
       <div id="detail" class="detail"></div>
     </div>
-
-    <div class="choose" id="choose" hidden>
-      <div class="q">어디로 갈까요?</div>
-      <div class="opts">
-        <button class="opt" type="button" data-go="piano">
-          <svg class="pic" viewBox="0 0 64 40" aria-hidden="true">
-            <rect class="w" x="1" y="1" width="62" height="38" rx="2"/>
-            <path class="k" d="M10 1v38M19 1v38M28 1v38M37 1v38M46 1v38M55 1v38"/>
-            <rect class="b" x="7" y="1" width="6" height="22" rx="1"/><rect class="b" x="16" y="1" width="6" height="22" rx="1"/>
-            <rect class="b" x="34" y="1" width="6" height="22" rx="1"/><rect class="b hi" x="43" y="1" width="6" height="22" rx="1"/><rect class="b" x="52" y="1" width="6" height="22" rx="1"/>
-          </svg>
-          <span class="txt"><b>피아노</b><span>건반 연주 · 악보 재생 · 녹화</span></span>
-          <kbd>1</kbd><em class="last">최근 사용</em>
-        </button>
-        <button class="opt" type="button" data-go="studio">
-          <svg class="pic" viewBox="0 0 64 40" aria-hidden="true">
-            <g class="cells">
-              <rect x="1" y="2" width="6" height="7"/><rect x="9" y="2" width="6" height="7"/><rect x="17" y="2" width="6" height="7"/><rect x="25" y="2" width="6" height="7"/><rect x="33" y="2" width="6" height="7"/><rect x="41" y="2" width="6" height="7"/><rect x="49" y="2" width="6" height="7"/><rect x="57" y="2" width="6" height="7"/>
-              <rect x="1" y="12" width="6" height="7"/><rect x="9" y="12" width="6" height="7"/><rect x="17" y="12" width="6" height="7"/><rect x="25" y="12" width="6" height="7"/><rect x="33" y="12" width="6" height="7"/><rect x="41" y="12" width="6" height="7"/><rect x="49" y="12" width="6" height="7"/><rect x="57" y="12" width="6" height="7"/>
-            </g>
-            <g class="on"><rect x="1" y="2" width="6" height="7"/><rect x="33" y="2" width="6" height="7"/><rect x="17" y="12" width="6" height="7"/><rect x="49" y="12" width="6" height="7"/></g>
-            <path class="clip" d="M1 25h22v12H1zM25 25h14v12H25zM41 25h22v12H41z"/>
-          </svg>
-          <span class="txt"><b>MeloFi Studio</b><span>비트 · 멜로디 · 편곡 · 믹싱</span></span>
-          <kbd>2</kbd><em class="last">최근 사용</em>
-        </button>
-      </div>
-    </div>
   </div>
 
-  <section class="acct" id="acct" hidden aria-label="MeloFi 계정">
-    <div class="acct-head">
-      <button id="back" class="back" type="button">← 뒤로 가기</button>
-      <b id="acctTitle">MeloFi 계정</b>
+  <!-- where to go -->
+  <section class="choose" id="choose" hidden>
+    <div class="q"><b>어디로 갈까요?</b><span>언제든 자유롭게 이동할 수 있어요.</span></div>
+    <div class="opts">
+      <button class="opt" type="button" data-go="piano">
+        <div class="opt-top">
+          <svg class="pic" viewBox="0 0 120 64" aria-hidden="true">
+            <rect class="w" x="1" y="1" width="118" height="62" rx="3"/>
+            <path class="k" d="M18 1v62M35 1v62M52 1v62M69 1v62M86 1v62M103 1v62"/>
+            <rect class="b" x="12" y="1" width="11" height="36" rx="1.5"/><rect class="b" x="29" y="1" width="11" height="36" rx="1.5"/>
+            <rect class="b" x="63" y="1" width="11" height="36" rx="1.5"/><rect class="b hi" x="80" y="1" width="11" height="36" rx="1.5"/><rect class="b" x="97" y="1" width="11" height="36" rx="1.5"/>
+          </svg>
+          <kbd>1</kbd>
+        </div>
+        <b class="opt-name">피아노</b>
+        <span class="opt-desc">건반 연주부터 악보 연습, 녹화까지</span>
+        <ul class="opt-feats">
+          <li>PC 키보드·MIDI 건반으로 88건반 연주</li>
+          <li>악보·MIDI 파일로 떨어지는 노트 연습</li>
+          <li>피아노부터 드럼·관현악까지 75종 악기 지원</li>
+          <li>연주 녹화 및 내보내기 (MP4, MP3, WAV, MIDI)</li>
+          <li>화면 테마 및 배경 설정</li>
+        </ul>
+        <span class="opt-recent" data-recent="piano"></span>
+        <em class="last">최근 사용</em>
+      </button>
+      <button class="opt" type="button" data-go="studio">
+        <div class="opt-top">
+          <svg class="pic" viewBox="0 0 120 64" aria-hidden="true">
+            <g class="cells">
+              <rect x="1" y="3" width="12" height="11"/><rect x="16" y="3" width="12" height="11"/><rect x="31" y="3" width="12" height="11"/><rect x="46" y="3" width="12" height="11"/><rect x="61" y="3" width="12" height="11"/><rect x="76" y="3" width="12" height="11"/><rect x="91" y="3" width="12" height="11"/><rect x="106" y="3" width="12" height="11"/>
+              <rect x="1" y="18" width="12" height="11"/><rect x="16" y="18" width="12" height="11"/><rect x="31" y="18" width="12" height="11"/><rect x="46" y="18" width="12" height="11"/><rect x="61" y="18" width="12" height="11"/><rect x="76" y="18" width="12" height="11"/><rect x="91" y="18" width="12" height="11"/><rect x="106" y="18" width="12" height="11"/>
+            </g>
+            <g class="on"><rect x="1" y="3" width="12" height="11"/><rect x="61" y="3" width="12" height="11"/><rect x="31" y="18" width="12" height="11"/><rect x="91" y="18" width="12" height="11"/></g>
+            <path class="clip" d="M1 36h40v12H1zM44 36h28v12H44zM75 36h43v12H75z"/>
+            <path class="clip c2" d="M1 51h58v11H1zM62 51h56v11H62z"/>
+          </svg>
+          <kbd>2</kbd>
+        </div>
+        <b class="opt-name">MeloFi Studio</b>
+        <span class="opt-desc">비트 제작부터 완성까지 가능한 작곡 스튜디오예요.</span>
+        <ul class="opt-feats">
+          <li>채널 랙 비트, 피아노 롤 멜로디·코드</li>
+          <li>플레이리스트 편곡, 믹서·이펙트, 오토메이션</li>
+          <li>AI 곡 분석 (음원 분리, 박자 측정, 채보)</li>
+          <li>Loop Starter · Riff Machine 기반 아이디어 생성</li>
+          <li>WAV·MP3·스템·MIDI 내보내기 (튜토리얼 13강 제공)</li>
+        </ul>
+        <span class="opt-recent" data-recent="studio"></span>
+        <em class="last">최근 사용</em>
+      </button>
     </div>
-    <div class="acct-body" id="acctBody"></div>
+    <div class="hint">1 · 2 또는 ← → 선택 후 Enter로 열기</div>
+  </section>
+
+  <section class="acct" id="acct" hidden aria-label="MeloFi 계정 센터">
+    <div class="acct-head">
+      <button id="back" class="back" type="button">← 돌아가기</button>
+      <b id="acctTitle">계정 센터</b>
+    </div>
+    <div class="acct-main">
+      <aside class="acct-aside" id="acctAside">
+        <b>MeloFi 계정</b>
+        <ul>
+          <li><em>온라인 저장</em>작곡 프로젝트를 서버에 저장하고 어느 PC에서든 이어서 작업해요.</li>
+          <li><em>공유</em>공유 코드나 링크로 프로젝트를 전달할 수 있어요. (수신자 로그인 불필요)</li>
+          <li><em>내 정보 관리</em>닉네임·비밀번호·마케팅 수신 동의를 바꾸고, 내 데이터를 파일로 내려받을 수 있어요.</li>
+        </ul>
+        <p>로그인 없이도 모든 기능을 이용할 수 있어요.</p>
+      </aside>
+      <div class="acct-body" id="acctBody"></div>
+    </div>
   </section>
 </div>
 <script type="module" src="js/splash.js"></script>

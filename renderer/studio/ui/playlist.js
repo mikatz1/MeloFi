@@ -5,10 +5,10 @@
 //   ruler: click = jump, drag = loop region · marker lane: double-click adds a marker, right-click: tempo change
 //   track headers: double-click renames, M / S buttons mute / solo
 import { clamp, popup, ask, form } from './dom.js';
-import { pattern, patternTicks, barTicks, uid, newTrack, songBars, barLines, barAt } from '../model.js';
+import { pattern, patternTicks, barTicks, uid, newTrack, songBars, barLines, barAt, tickToSec } from '../model.js';
 import { decode, peaks } from '../media.js';
 
-const HEAD_W = 112, RULER_H = 20, LANE_H = 16;
+const HEAD_W = 112, RULER_H = 20, LANE_H = 16, SB = 12; // SB: scroll bar thickness
 
 export class Playlist {
   constructor(studio, canvas) {
@@ -53,6 +53,15 @@ export class Playlist {
   xToB(x) { return this.scrollBar + (x - HEAD_W) / this.barW; }
   tToY(t) { return this.top + (t - this.scrollTrack) * this.trackH; }
   yToT(y) { return Math.floor((y - this.top) / this.trackH) + this.scrollTrack; }
+  // scroll ranges: the song plus room to add more, at least what is on screen
+  get viewBars() { return Math.max(1, (this.w - HEAD_W - SB) / this.barW); }
+  get totalBars() { return Math.max(songBars(this.proj) + 8, this.scrollBar + this.viewBars); }
+  get viewTracks() { return Math.max(1, (this.h - this.top - SB) / this.trackH); }
+  get maxTrack() { return Math.max(0, this.proj.playlist.tracks.length + 1 - Math.floor(this.viewTracks)); }
+  // [start, size] of each thumb in px along its bar
+  hThumb() { const len = this.w - HEAD_W - SB, sz = Math.max(24, len * Math.min(1, this.viewBars / this.totalBars)); return [HEAD_W + (len - sz) * (this.scrollBar / Math.max(1e-6, this.totalBars - this.viewBars)), sz, len]; }
+  vThumb() { const len = this.h - this.top - SB, n = this.proj.playlist.tracks.length + 1, sz = Math.max(24, len * Math.min(1, this.viewTracks / n)); return [this.top + (len - sz) * (this.maxTrack ? this.scrollTrack / this.maxTrack : 0), sz, len]; }
+
   snapB(b) { return Math.max(0, Math.round(b / this.step) * this.step); }
   floorB(b) { return Math.max(0, Math.floor(b / this.step) * this.step); }
 
@@ -85,6 +94,7 @@ export class Playlist {
   draw() {
     const g = this.x, W = this.w, H = this.h, proj = this.proj;
     if (!W) return;
+    this.follow();
     const bt = barTicks(proj), tracks = proj.playlist.tracks;
     g.fillStyle = '#101115'; g.fillRect(0, 0, W, H);
     for (let t = this.scrollTrack; t < tracks.length; t++) {
@@ -170,6 +180,19 @@ export class Playlist {
       if (x >= HEAD_W) { g.fillStyle = '#e0a440'; g.fillRect(x, 0, 1.5, H); }
     }
     if (this.drag?.kind === 'loop') { g.fillStyle = 'rgba(224,164,64,0.25)'; const a = this.bToX(Math.min(this.drag.b0, this.drag.b1)), b = this.bToX(Math.max(this.drag.b0, this.drag.b1)); g.fillRect(a, 0, b - a, H); }
+    // scroll bars: horizontal along the bottom, vertical down the right edge
+    g.fillStyle = '#0d0e11'; g.fillRect(HEAD_W, H - SB, W - HEAD_W, SB); g.fillRect(W - SB, this.top, SB, H - this.top);
+    g.fillStyle = '#16171c'; g.fillRect(0, H - SB, HEAD_W, SB);
+    const [hx, hs] = this.hThumb(), [vy, vs] = this.vThumb();
+    g.fillStyle = this.drag?.kind === 'hbar' ? '#6a6c76' : '#3d3f48'; g.fillRect(hx + 1, H - SB + 3, hs - 2, SB - 6);
+    g.fillStyle = this.drag?.kind === 'vbar' ? '#6a6c76' : '#3d3f48'; g.fillRect(W - SB + 3, vy + 1, SB - 6, vs - 2);
+  }
+
+  // while playing, page along when the playhead runs off the right edge (as FL does)
+  follow() {
+    if (this.drag || this.proj.mode !== 'song' || !this.S.transport?.playing) return;
+    const b = this.S.transport.songPos() / barTicks(this.proj);
+    if (b > this.scrollBar + this.viewBars - 0.5 || b < this.scrollBar) this.scrollBar = Math.max(0, b - 1);
   }
 
   drawNotes(g, c, x, y, w, h, bt) {
@@ -195,10 +218,13 @@ export class Playlist {
     const m = this.proj.media[c.media];
     const ratio = c.sync && m?.bpm ? m.bpm / this.proj.bpm : 1;
     const secPerBar = (60 / this.proj.bpm) * this.proj.sig[0] * (4 / this.proj.sig[1]);
+    // a clip played as recorded follows the song's tempo map, so its waveform does too
+    const bt = barTicks(this.proj), t0 = tickToSec(this.proj, c.start * bt);
+    const at = c.sync || !this.proj.tempos?.length ? (px) => (px / this.barW) * secPerBar : (px) => tickToSec(this.proj, (c.start + px / this.barW) * bt) - t0;
     g.fillStyle = 'rgba(0,0,0,0.5)';
     const n = pc.pk.length / 2;
     for (let px = 0; px < w; px += 1) {
-      const sec = ((c.offset || 0) + (px / this.barW) * secPerBar) / ratio; // stretched seconds -> source seconds
+      const sec = ((c.offset || 0) + at(px)) / ratio; // stretched seconds -> source seconds
       const i = Math.floor((sec / pc.dur) * n);
       if (i >= n) break;
       const lo = pc.pk[i * 2], hi = pc.pk[i * 2 + 1];
@@ -235,6 +261,18 @@ export class Playlist {
     this.c.setPointerCapture(e.pointerId);
     if (this.c.tabIndex < 0) this.c.tabIndex = 0;
     this.c.focus({ preventScroll: true }); // tool keys (P B D T C) act on the playlist
+    if (y >= this.h - SB && x >= HEAD_W) { // horizontal bar: drag the thumb, click beside it pages
+      const [hx, hs, len] = this.hThumb();
+      if (x < hx || x > hx + hs) this.scrollBar = Math.max(0, this.scrollBar + Math.sign(x - hx) * this.viewBars * 0.9);
+      this.drag = { kind: 'hbar', x0: x, sb: this.scrollBar, per: (this.totalBars - this.viewBars) / Math.max(1, len - hs) };
+      this.draw(); return;
+    }
+    if (x >= this.w - SB && y >= this.top) {
+      const [vy, vs, len] = this.vThumb();
+      if (y < vy || y > vy + vs) this.scrollTrack = clamp(this.scrollTrack + Math.sign(y - vy) * Math.max(1, Math.floor(this.viewTracks) - 1), 0, this.maxTrack);
+      this.drag = { kind: 'vbar', y0: y, st: this.scrollTrack, per: this.maxTrack / Math.max(1, len - vs) };
+      this.draw(); return;
+    }
     if (y < RULER_H && x >= HEAD_W) { this.drag = { kind: 'ruler', x0: x, b0: this.snapB(this.xToB(x)), b1: this.snapB(this.xToB(x)) }; return; }
     if (y < this.top && x >= HEAD_W) {
       if (e.button === 2) this.laneMenu(e, this.floorB(this.xToB(x)), this.xToB(x));
@@ -319,10 +357,12 @@ export class Playlist {
     const d = this.drag;
     const [x, y] = this.pos(e);
     if (!d) {
-      const hit = x > HEAD_W && y > this.top ? this.clipAt(x, y) : null;
+      const hit = x > HEAD_W && y > this.top && y < this.h - SB && x < this.w - SB ? this.clipAt(x, y) : null;
       this.c.style.cursor = this.tool === 'slice' && hit ? 'col-resize' : hit && x > this.bToX(hit.start + hit.len) - 7 ? 'ew-resize' : hit ? 'move' : 'default';
       return;
     }
+    if (d.kind === 'hbar') { this.scrollBar = clamp(d.sb + (x - d.x0) * d.per, 0, Math.max(0, this.totalBars - this.viewBars)); this.draw(); return; }
+    if (d.kind === 'vbar') { this.scrollTrack = clamp(Math.round(d.st + (y - d.y0) * d.per), 0, this.maxTrack); this.draw(); return; }
     if (d.kind === 'erase') { const h = this.clipAt(x, y); if (h) this.removeClip(h); return; }
     if (d.kind === 'marquee') {
       d.x1 = x; d.y1 = y;
@@ -368,7 +408,7 @@ export class Playlist {
     this.drag = null;
     if (!d) return;
     const S = this.S, proj = this.proj;
-    if (d.kind === 'marquee') { this.draw(); return; }
+    if (d.kind === 'marquee' || d.kind === 'hbar' || d.kind === 'vbar') { this.draw(); return; }
     if (d.kind === 'ruler') { S.setMode('song'); S.transport.seek(Math.max(0, d.b0 * barTicks(proj) - (proj.loopOn && proj.loop ? proj.loop.start * barTicks(proj) : 0))); this.draw(); return; }
     if (d.kind === 'loop') {
       const a = Math.min(d.b0, d.b1), b = Math.max(d.b0, d.b1);
@@ -511,9 +551,9 @@ export class Playlist {
       const [x] = this.pos(e), b = this.xToB(x);
       this.barW = clamp(this.barW * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 8, 240);
       this.scrollBar = Math.max(0, b - (x - HEAD_W) / this.barW);
-    } else if (e.shiftKey) this.scrollBar = Math.max(0, this.scrollBar + e.deltaY / this.barW * 0.5);
+    } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.scrollBar = clamp(this.scrollBar + (e.deltaX || e.deltaY) / this.barW * 0.5, 0, Math.max(0, this.totalBars - this.viewBars));
     else if (e.altKey) this.trackH = clamp(this.trackH + (e.deltaY < 0 ? 4 : -4), 28, 120);
-    else this.scrollTrack = clamp(this.scrollTrack + Math.sign(e.deltaY), 0, Math.max(0, this.proj.playlist.tracks.length - 2));
+    else this.scrollTrack = clamp(this.scrollTrack + Math.sign(e.deltaY), 0, this.maxTrack);
     this.draw();
   }
 

@@ -44,6 +44,7 @@ export const DEFAULTS = {
   kbZoom: 1,
   noteColor: 'theme',
   scoreHands: true,
+  stemsMuscriptor: 'off',  // song analysis: MuScriptor model (small / medium / large) or off
   scoreBarHidden: false,    // the score's play bar tucked away (it peeks out at the top edge)
   // audio spectrum behind the notes
   spectrum: false,

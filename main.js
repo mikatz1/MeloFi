@@ -354,6 +354,15 @@ app.whenReady().then(() => {
     revealWindow(w);
   });
   // the card's answer: 'piano' or 'studio'
+  // the start card grows when it turns into the choice screen, staying centred where it was
+  ipcMain.handle('splash:resize', (_e, w, h) => {
+    if (!splash || splash.isDestroyed()) return false;
+    const b = splash.getBounds(), W = Math.round(w), H = Math.round(h);
+    splash.setResizable(true);
+    splash.setBounds({ x: Math.round(b.x - (W - b.width) / 2), y: Math.round(b.y - (H - b.height) / 2), width: W, height: H });
+    splash.setResizable(false);
+    return true;
+  });
   ipcMain.handle('start:choose', (_e, target) => {
     startChoice = target === 'studio' ? 'studio' : 'piano';
     if (startChoice === 'piano') { if (win) revealWindow(win); return true; }
