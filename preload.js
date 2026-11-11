@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('melofi', {
   stemsRun: (payload) => ipcRenderer.invoke('stems:run', payload),
   stemsCancel: () => ipcRenderer.invoke('stems:cancel'),
   stemsGpu: () => ipcRenderer.invoke('stems:gpu'),
+  stemsInstruments: (dir) => ipcRenderer.invoke('stems:instruments', dir),
+  stemsAddInstruments: () => ipcRenderer.invoke('stems:addInstruments'),
   stemsSetToken: (t) => ipcRenderer.invoke('stems:setToken', t),
   stemsRead: (file) => ipcRenderer.invoke('stems:read', file),
   onStemsLog: (cb) => { const f = (_e, t) => cb(t); ipcRenderer.on('stems:log', f); return () => ipcRenderer.removeListener('stems:log', f); },

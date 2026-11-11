@@ -41,6 +41,7 @@ const PIP = (gpu) => [
   ['--no-deps', 'basic-pitch'],
   [gpu ? 'onnxruntime-gpu' : 'onnxruntime', 'librosa', 'audioread', 'pretty_midi', 'mir_eval', 'resampy', 'soundfile'],
   ['muscriptor'], // code MIT; its model weights are CC BY-NC 4.0 and download only with the user's HuggingFace token
+  ['transformers'], // instrument recognition (Audio Spectrogram Transformer, BSD-3-Clause)
   gpu ? ['--force-reinstall', '--no-deps', 'torch', 'torchaudio', 'torchvision', '--index-url', 'https://download.pytorch.org/whl/cu128'] : ['torch', 'torchaudio'],
 ];
 
@@ -50,6 +51,7 @@ function register(ipcMain, { app, findFfmpeg }) {
   const MODELS = () => path.join(ROOT(), 'models');
   const CACHE = () => path.join(app.getPath('userData'), 'stems-cache');
   const SCRIPT = path.join(__dirname, 'tools', 'stems', 'analyze.py').replace('app.asar', 'app.asar.unpacked');
+  const INST_SCRIPT = path.join(__dirname, 'tools', 'stems', 'instruments.py').replace('app.asar', 'app.asar.unpacked');
   const python = () => (fs.existsSync(VENV_PY()) ? VENV_PY() : null);
   let busy = null, child = null;
 
@@ -76,9 +78,9 @@ function register(ipcMain, { app, findFfmpeg }) {
     const gpu = await hasGpu();
     const note = async (o) => { try { await fsp.mkdir(ROOT(), { recursive: true }); await fsp.appendFile(path.join(ROOT(), 'status.log'), `${new Date().toISOString()} ${JSON.stringify(o)}\n`); } catch { /* best effort */ } return o; };
     if (!py) return note({ ready: false, gpu, busy: !!busy, hfToken: !!(await readToken()), reason: `엔진이 없습니다 (${VENV_PY()})` });
-    const r = await run(py, ['-c', 'import importlib.util as u, sys; miss = [m for m in ("audio_separator", "beat_this", "basic_pitch", "torch", "muscriptor") if not u.find_spec(m)]; print(",".join(miss)); sys.exit(1 if set(miss) - {"muscriptor"} else 0)']);
+    const r = await run(py, ['-c', 'import importlib.util as u, sys; miss = [m for m in ("audio_separator", "beat_this", "basic_pitch", "torch", "muscriptor", "transformers") if not u.find_spec(m)]; print(",".join(miss)); sys.exit(1 if set(miss) - {"muscriptor", "transformers"} else 0)']);
     const missing = r.out.trim();
-    const out = { ready: r.code === 0, gpu, busy: !!busy, muscriptor: r.code === 0 && !/muscriptor/.test(missing), hfToken: !!(await readToken()) };
+    const out = { ready: r.code === 0, gpu, busy: !!busy, muscriptor: r.code === 0 && !/muscriptor/.test(missing), instruments: r.code === 0 && !/transformers/.test(missing), hfToken: !!(await readToken()) };
     if (!out.ready) out.reason = r.code === -1 ? `Python을 실행하지 못했습니다: ${r.err.slice(0, 200)}` : missing ? `빠진 구성 요소: ${missing}` : (r.err.split(/\r?\n/).filter(Boolean).pop() || `종료 코드 ${r.code}`).slice(0, 200);
     return out.ready ? out : note({ ...out, python: py });
   });
@@ -103,7 +105,7 @@ function register(ipcMain, { app, findFfmpeg }) {
       }
       const gpu = await hasGpu();
       const steps = PIP(gpu);
-      const names = ['음원 분리 (audio-separator)', '박자 분석 (Beat This!)', '채보 (Basic Pitch)', '오디오 도구', '악기별 채보 (MuScriptor)', 'PyTorch'];
+      const names = ['음원 분리 (audio-separator)', '박자 분석 (Beat This!)', '채보 (Basic Pitch)', '오디오 도구', '악기별 채보 (MuScriptor)', '악기 인식 (AST)', 'PyTorch'];
       for (let i = 0; i < steps.length; i++) {
         send({ p: 0.05 + 0.9 * (i / steps.length), label: `${names[i]} 설치 중… (${i + 1}/${steps.length})` });
         const r = await run(VENV_PY(), ['-m', 'pip', 'install', '--disable-pip-version-check', ...steps[i]], {}, (l) => { if (/^(Collecting|Downloading|Installing|Successfully)/.test(l)) send({ detail: l.slice(0, 110) }); });
@@ -197,6 +199,46 @@ function register(ipcMain, { app, findFfmpeg }) {
       return { ok: true, result: JSON.parse(await fsp.readFile(done, 'utf8')) };
     } finally { busy = null; }
   }
+
+  // an engine installed before instrument recognition existed: add just that package
+  ipcMain.handle('stems:addInstruments', async (e) => {
+    const py = python();
+    if (!py) return { ok: false, message: '분석 엔진을 먼저 설치해 주세요.' };
+    if (busy) return { ok: false, message: '이미 작업 중입니다.' };
+    const send = (m) => { if (!e.sender.isDestroyed()) e.sender.send('stems:progress', m); };
+    busy = 'setup';
+    try {
+      send({ p: 0.1, label: '악기 인식 구성 요소 설치 중…' });
+      const r = await run(py, ['-m', 'pip', 'install', '--disable-pip-version-check', 'transformers'], {}, (l) => { if (/^(Collecting|Downloading|Installing|Successfully)/.test(l)) send({ detail: l.slice(0, 110) }); });
+      if (r.code) return { ok: false, message: `설치하지 못했습니다: ${(r.err || r.out).split(/\r?\n/).filter(Boolean).slice(-2).join(' ').slice(-300)}` };
+      send({ p: 1, label: '설치를 마쳤습니다.' });
+      return { ok: true };
+    } finally { busy = null; }
+  });
+
+  // which instrument plays in each stem and when (tools/stems/instruments.py), cached with the song
+  ipcMain.handle('stems:instruments', async (e, dir) => {
+    const py = python();
+    if (!py) return { ok: false, message: '분석 엔진을 먼저 설치해 주세요.' };
+    const d = path.resolve(String(dir || ''));
+    if (!d.startsWith(path.resolve(CACHE())) || !fs.existsSync(path.join(d, 'result.json'))) return { ok: false, message: '분석 결과를 찾지 못했습니다.' };
+    const file = path.join(d, 'instruments.json');
+    if (fs.existsSync(file)) return { ok: true, result: JSON.parse(await fsp.readFile(file, 'utf8')), cached: true };
+    if (busy) return { ok: false, message: '다른 작업이 끝날 때까지 기다려 주세요.' };
+    const send = (m) => { if (!e.sender.isDestroyed()) e.sender.send('stems:progress', m); };
+    const log = (t) => { if (!e.sender.isDestroyed()) e.sender.send('stems:log', t); };
+    busy = 'instruments';
+    try {
+      let err = null;
+      const r = await run(py, [INST_SCRIPT, '--dir', d, '--models', MODELS()], { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', HF_HOME: path.join(MODELS(), 'hf') }, onSpawn: (p) => { child = p; } }, (l, isErr) => {
+        if (isErr) { if (!/warn/i.test(l)) log(l); return; }
+        try { const m = JSON.parse(l); if (m.error) { err = m.error; log(`오류: ${m.error}`); } else if (m.log) log(m.log); else { send(m); if (m.label) log(`▶ ${m.label}`); } } catch { log(l); }
+      });
+      child = null;
+      if (r.code || !fs.existsSync(file)) return { ok: false, message: `악기를 알아보지 못했습니다: ${err || r.err.split(/\r?\n/).filter(Boolean).pop() || r.code}` };
+      return { ok: true, result: JSON.parse(await fsp.readFile(file, 'utf8')) };
+    } finally { busy = null; }
+  });
 
   // GPU check before an analysis: the NVIDIA card (name, memory, load, programs on it) and which GPU
   // MeloFi's own screen (the piano visualizer) is drawn on

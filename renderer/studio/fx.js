@@ -2,7 +2,7 @@
 // in the offline renderer. Each effect type lists its parameters (for the UI and automation) and
 // builds a unit { input, output, set(params, at), param(name) -> AudioParam | null, dispose() }.
 import { makeImpulse } from '../js/audio.js';
-import { MASTER_TYPES, MASTER_FX, PEAK_FX } from './master-fx.js';
+import { MASTER_TYPES, MASTER_FX, PEAK_FX, autoMakeup } from './master-fx.js';
 
 // p: { key, label, min, max, def, unit?, log?, step?, choices? }
 const P = (key, label, min, max, def, extra = {}) => ({ key, label, min, max, def, ...extra });
@@ -21,7 +21,7 @@ export const FX_TYPES = {
       P('highF', '고음 주파수', 2000, 16000, 7000, { unit: 'Hz', log: true }),
     ],
     build(c) {
-      const hp = biq(c, 'highpass', 20, 0.7), lo = biq(c, 'lowshelf', 110), mid = biq(c, 'peaking', 1000, 1), hi = biq(c, 'highshelf', 7000);
+      const hp = biq(c, 'highpass', 20, BW), lo = biq(c, 'lowshelf', 110), mid = biq(c, 'peaking', 1000, 1), hi = biq(c, 'highshelf', 7000);
       hp.connect(lo).connect(mid).connect(hi);
       const map = { cut: hp.frequency, low: lo.gain, lowF: lo.frequency, mid: mid.gain, midF: mid.frequency, q: mid.Q, high: hi.gain, highF: hi.frequency };
       return unit(hp, hi, map);
@@ -40,9 +40,14 @@ export const FX_TYPES = {
     build(c) {
       const k = c.createDynamicsCompressor(), g = c.createGain();
       k.connect(g);
-      return unit(k, g, { threshold: k.threshold, ratio: k.ratio, attack: k.attack, release: k.release, knee: k.knee }, {
-        makeup: (v, at) => g.gain.setTargetAtTime(db(v), at, 0.01),
-      });
+      // the browser adds its own make-up gain on top; take it out so only the make-up knob adds level
+      const st = { threshold: -18, ratio: 4, knee: 6, makeup: 4 };
+      const level = (at) => g.gain.setTargetAtTime(db(st.makeup - autoMakeup(st.threshold, st.ratio, st.knee)), at, 0.01);
+      const setters = { makeup: (v, at) => { st.makeup = v; level(at); } };
+      for (const key of ['threshold', 'ratio', 'knee']) setters[key] = (v, at) => { st[key] = v; k[key].setTargetAtTime(v, at, 0.015); level(at); };
+      const u = unit(k, g, { attack: k.attack, release: k.release }, setters);
+      u.param = (key) => ({ attack: k.attack, release: k.release })[key] || null;
+      return u;
     },
   },
   delay: {
@@ -60,7 +65,7 @@ export const FX_TYPES = {
       const dry = c.createGain(), wet = c.createGain();
       const split = c.createChannelSplitter(2), merge = c.createChannelMerger(2);
       const dL = c.createDelay(4), dR = c.createDelay(4), fbL = c.createGain(), fbR = c.createGain();
-      const tone = biq(c, 'lowpass', 5000, 0.5);
+      const tone = biq(c, 'lowpass', 5000, BW);
       input.connect(dry).connect(output);
       input.connect(tone).connect(split);
       split.connect(dL, 0); split.connect(dR, 1);
@@ -117,7 +122,7 @@ export const FX_TYPES = {
     build(c) {
       const input = c.createGain(), output = c.createGain(), dry = c.createGain(), wet = c.createGain();
       const ws = c.createWaveShaper(); ws.oversample = '4x';
-      const tone = biq(c, 'lowpass', 6000, 0.6);
+      const tone = biq(c, 'lowpass', 6000, BW);
       input.connect(dry).connect(output);
       input.connect(ws).connect(tone).connect(wet).connect(output);
       return unit(input, output, { tone: tone.frequency }, {
@@ -134,8 +139,14 @@ export const FX_TYPES = {
       P('res', '레조넌스', 0.1, 18, 0.7, { step: 0.1 }),
     ],
     build(c) {
-      const f = biq(c, 'lowpass', 20000, 0.7);
-      return unit(f, f, { freq: f.frequency, res: f.Q }, { type: (v) => { f.type = ['lowpass', 'highpass', 'bandpass'][Math.round(v)] || 'lowpass'; } });
+      // resonance as a Q ratio (0.71 = flat Butterworth); low / high-pass take it in dB, band-pass as is
+      const f = biq(c, 'lowpass', 20000, BW);
+      let res = 0.7;
+      const q = (at) => f.Q.setTargetAtTime(f.type === 'bandpass' ? res : 20 * Math.log10(Math.max(0.1, res)), at, 0.015);
+      return unit(f, f, { freq: f.frequency }, {
+        type: (v, at) => { f.type = ['lowpass', 'highpass', 'bandpass'][Math.round(v)] || 'lowpass'; q(at); },
+        res: (v, at) => { res = v; q(at); },
+      });
     },
   },
   reverb: {
@@ -170,17 +181,13 @@ export const FX_TYPES = {
     },
   },
   limiter: {
-    name: '리미터', hint: '최대 음량을 막아 소리를 키움',
+    name: '리미터', hint: '최대 음량을 막아 소리를 키움 (실제 피크 기준, 3ms 미리 보기)',
     params: [P('gain', '입력 게인', 0, 18, 3, { unit: 'dB', step: 0.5 }), P('ceiling', '최대', -6, 0, -0.3, { unit: 'dB', step: 0.1 })],
+    // the maximizer's engine with a fast release (it never lets a peak past the ceiling)
     build(c) {
-      const pre = c.createGain(), k = c.createDynamicsCompressor(), post = c.createGain();
-      k.knee.value = 0; k.ratio.value = 20; k.attack.value = 0.002; k.release.value = 0.08;
-      pre.connect(k).connect(post);
-      return unit(pre, post, {}, {
-        gain: (v, at) => pre.gain.setTargetAtTime(db(v), at, 0.01),
-        // a 20:1 compressor lets peaks overshoot its threshold by ~1 dB: set it that much lower
-        ceiling: (v, at) => k.threshold.setTargetAtTime(v - 1, at, 0.01),
-      });
+      const u = MASTER_TYPES.maximizer.build(c);
+      u.set({ release: 0.08 }, c.currentTime);
+      return u;
     },
   },
   // live pitch correction (FL Studio's Pitcher; Newtone does it offline): snaps a singing voice
@@ -275,6 +282,8 @@ export const FX_PRESETS = [
   ['마스터 기본', '마스터에 넣으면 소리가 단단하고 커짐', [['eq', { cut: 25, high: 1 }], ['comp', { threshold: -16, ratio: 2, attack: 0.03, release: 0.2, makeup: 2 }], ['limiter', { gain: 4, ceiling: -0.5 }]]],
 ];
 
+// Web Audio's low- / high-pass Q is in dB: Butterworth is -3.01 dB
+const BW = -3.0103;
 function biq(c, type, f, q = 0.7) { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; }
 const db = (v) => Math.pow(10, v / 20);
 

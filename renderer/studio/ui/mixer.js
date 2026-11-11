@@ -3,6 +3,7 @@
 import { h, knob, fader, popup, ask } from './dom.js';
 import { FX_TYPES, FX_ORDER, FX_PRESETS, fxDefaults, fmtParam } from '../fx.js';
 import { uid, newBus } from '../model.js';
+import { LoudnessMeter } from '../meter.js';
 
 const panFmt = (v) => (Math.abs(v) < 0.02 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
 
@@ -12,7 +13,8 @@ export class Mixer {
     this.el = el;
     this.meters = new Map(); // strip id -> { el, peak }
     this.edit = null;        // { strip, fx } being edited
-    this.lufs = { short: [], int: [] };
+    this.meter = new LoudnessMeter(); // BS.1770, the same meter as the mastering window
+    this.onBlock = (b) => { if (this.S.transport?.playing) this.meter.push(b); };
   }
 
   get proj() { return this.S.proj; }
@@ -210,17 +212,14 @@ export class Mixer {
     }
     if (!this.spec?.isConnected) return;
     const now = performance.now();
-    if (!this.lastL || now - this.lastL > 100) {
+    if (!this.lastL || now - this.lastL > 150) {
       this.lastL = now;
-      const L = E.loudness();
-      if (S.transport.playing) { this.lufs.short.push(L); if (this.lufs.short.length > 30) this.lufs.short.shift(); if (L > -70) this.lufs.int.push(L); }
-      const pw = (a) => (a.length ? 10 * Math.log10(a.reduce((s, x) => s + Math.pow(10, x / 10), 0) / a.length) : -70);
-      // integrated: gate at -70 and then 10 LU under the ungated level (BS.1770)
-      const g1 = this.lufs.int.filter((x) => x > -70), rel = pw(g1) - 10, g2 = g1.filter((x) => x > rel);
-      const fmt = (x) => (x <= -69.5 ? '—' : x.toFixed(1));
+      E.blockListeners?.add(this.onBlock);
+      const m = this.meter, fmt = (x) => (x <= -69.5 ? '—' : x.toFixed(1));
       this.lufsEl.replaceChildren(
-        h('span', {}, '순간 ', h('b', {}, fmt(L))), h('span', {}, '3초 ', h('b', {}, fmt(pw(this.lufs.short)))), h('span', {}, '전체 ', h('b', {}, fmt(pw(g2)))), h('small', {}, 'LUFS'),
-        h('button', { class: 'btn sm ghost', onclick: () => { this.lufs = { short: [], int: [] }; } }, '초기화'));
+        h('span', {}, '순간 ', h('b', {}, fmt(m.M))), h('span', {}, '3초 ', h('b', {}, fmt(m.S))), h('span', {}, '전체 ', h('b', {}, fmt(m.I))), h('small', {}, 'LUFS'),
+        h('span', {}, '피크 ', h('b', {}, fmt(m.TP))), h('small', {}, 'dBTP'),
+        h('button', { class: 'btn sm ghost', onclick: () => this.meter.reset() }, '초기화'));
     }
     // spectrum (log frequency)
     const cv = this.spec, r = cv.getBoundingClientRect();

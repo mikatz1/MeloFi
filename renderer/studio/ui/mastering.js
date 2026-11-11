@@ -138,7 +138,8 @@ export class MasteringWindow {
   show() {
     this.el.hidden = false;
     this.place();
-    this.E.onBlock = (b) => { this.meter.push(b); if (this.meter.S > -70 && this.S.transport.playing) { this.history.push(this.meter.S); if (this.history.length > 1800) this.history.shift(); } };
+    this.onBlock ||= (b) => { this.meter.push(b); if (this.meter.S > -70 && this.S.transport.playing) { this.history.push(this.meter.S); if (this.history.length > 1800) this.history.shift(); } };
+    this.E.blockListeners?.add(this.onBlock);
     this.render();
     cancelAnimationFrame(this.raf);
     const loop = () => { if (this.el.hidden) return; this.draw(); this.raf = requestAnimationFrame(loop); };
@@ -148,6 +149,7 @@ export class MasteringWindow {
   close() {
     this.el.hidden = true;
     cancelAnimationFrame(this.raf);
+    this.E.blockListeners?.delete(this.onBlock);
     if (this.refOn) this.toggleRef(false);
     this.E.setMono(false);
     if (this.bypass) this.toggleBypass(false);
@@ -312,13 +314,15 @@ export class MasteringWindow {
       const off = (lo, hi) => { const ix = BANDS.map((fc, i) => [fc, i]).filter(([fc]) => fc >= lo && fc <= hi); return ix.reduce((a, [fc, i]) => a + bands[i] - targetCurve(fc), 0) / ix.length; };
       const ref = off(700, 1400);
       const dev = { low: off(40, 120) - ref, mud: off(180, 450) - ref, pres: off(2000, 5000) - ref, air: off(8000, 16000) - ref };
-      const fix = (d, max = 4) => Math.max(-max, Math.min(max, -d * 0.5));
+      // gentle: a third of the gap, a little more room to cut than to boost; the 300 Hz region is
+      // only ever cut (lifting it makes a master boxy)
+      const fix = (d, up = 1.5, down = 2.5) => Math.max(-down, Math.min(up, -d * 0.35));
       // stereo: how much of the low end is in the sides
       let sLow = 0, mLow = 0, a1 = 0;
       for (let i = 0; i < raw.left.length; i++) { const mm = 0.5 * (raw.left[i] + raw.right[i]), ss = 0.5 * (raw.left[i] - raw.right[i]); a1 += 0.02 * (ss - a1); sLow += a1 * a1; mLow += mm * mm; }
       const sideLow = 10 * Math.log10((sLow + 1e-12) / (mLow + 1e-12));
       const chain = [
-        ['peq', { hpF: 25, lsF: 90, lsG: fix(dev.low, 3), p2F: 300, p2G: fix(dev.mud, 3), p2Q: 1, p3F: 3200, p3G: fix(dev.pres, 3), p3Q: 0.8, hsF: 10000, hsG: fix(dev.air, 3) }],
+        ['peq', { hpF: 25, lsF: 90, lsG: fix(dev.low), p2F: 300, p2G: fix(dev.mud, 0), p2Q: 1, p3F: 3200, p3G: fix(dev.pres), p3Q: 0.8, hsF: 10000, hsG: fix(dev.air) }],
         ['mbcomp', { ...mb(1.6, Math.round(m0.I - 4)), r1: 1.8, r2: 1.8, t5: Math.round(m0.I - 6), attack: 0.02, release: 0.18 }],
         ['imager', { w1: sideLow > -20 ? 0.3 : 0.6, w2: 1, w3: 1.05, w4: 1.1 }],
         ['maximizer', { gain: 0, ceiling, release: 0.15 }],

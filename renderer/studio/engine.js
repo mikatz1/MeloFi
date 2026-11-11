@@ -67,11 +67,11 @@ export class StudioEngine {
     split.connect(this.kL, 0); split.connect(this.kR, 1);
     this.meterBuf = new Float32Array(512);
     // BS.1770 meter (live only): K-weighted 100 ms blocks, true peak, correlation, scope points
-    this.blocks = [];
     if (!(c instanceof OfflineAudioContext)) {
       this.meterNode = new AudioWorkletNode(c, 'melofi-meter', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: 'explicit' });
       this.out.connect(this.meterNode);
-      this.meterNode.port.onmessage = (e) => { this.blocks.push(e.data); if (this.blocks.length > 600) this.blocks.shift(); this.onBlock?.(e.data); };
+      this.blockListeners = new Set();
+      this.meterNode.port.onmessage = (e) => { for (const f of this.blockListeners) f(e.data); };
     }
     this.channels = new Map(); // channel id -> Host
     this.buses = new Map();    // bus id -> Strip
