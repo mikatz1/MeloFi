@@ -456,10 +456,12 @@ app.whenReady().then(() => {
   ipcMain.handle('picker:options', () => picker?.opts || {});
 
   // ---------- on-screen keyboard window (plays the window that opened it) ----------
-  let keysWin = null, keysOwner = null;
-  ipcMain.handle('keys:open', (e) => {
+  let keysWin = null, keysOwner = null, keysTheme = 'dark';
+  ipcMain.handle('keys:open', (e, opts = {}) => {
     const parent = BrowserWindow.fromWebContents(e.sender);
     keysOwner = e.sender;
+    keysTheme = opts?.theme === 'white' ? 'white' : 'dark';
+    if (keysWin && !keysWin.isDestroyed()) keysWin.webContents.send('keys:theme', keysTheme);
     if (keysWin && keysWin.getParentWindow() !== parent) { keysWin.destroy(); keysWin = null; }
     if (keysWin) { if (keysWin.isMinimized()) keysWin.restore(); keysWin.show(); keysWin.focus(); return true; }
     keysWin = makeWindow({ width: 900, height: 230, minWidth: 420, minHeight: 150, title: t('화면 건반'), parent }, '', 'keys.html');
@@ -468,6 +470,13 @@ app.whenReady().then(() => {
     return true;
   });
   ipcMain.handle('keys:close', () => { keysWin?.close(); return true; });
+  // the keys window takes the colours of the studio that opened it (dark / white)
+  ipcMain.handle('keys:getTheme', () => keysTheme);
+  ipcMain.on('keys:theme', (e, th) => {
+    if (e.sender !== keysOwner) return;
+    keysTheme = th === 'white' ? 'white' : 'dark';
+    if (keysWin && !keysWin.isDestroyed()) keysWin.webContents.send('keys:theme', keysTheme);
+  });
   // headless tests (tools/e2e/i18n-e2e.js): read and capture the other windows
   if (HEADLESS) {
     const testWin = (e, which) => ({ picker: pickerWin, keys: keysWin, splash, studio: studioWin, piano: win }[which] || BrowserWindow.fromWebContents(e.sender));
@@ -511,6 +520,13 @@ app.whenReady().then(() => {
   ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('win:toggleFullscreen', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setFullScreen(!w.isFullScreen()); });
   ipcMain.handle('win:setFullscreen', (e, on) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.setFullScreen(!!on); });
+  // the studio's white theme: the window buttons drawn over the title bar follow it
+  ipcMain.handle('win:titleBarColors', (e, o = {}) => {
+    const w = BrowserWindow.fromWebContents(e.sender), hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v) ? v : d);
+    if (!w || w.isDestroyed()) return;
+    try { w.setTitleBarOverlay({ color: hex(o.color, '#0d0e12'), symbolColor: hex(o.symbolColor, '#8d8b85') }); } catch { /* no overlay here */ }
+    w.setBackgroundColor(hex(o.background, '#08090d'));
+  });
   // exact window size (the whole window is content: the title bar is drawn by the page)
   // Size in real screen pixels (what a screen share captures). Electron sizes windows in
   // scaled units, so divide by the display scale; if it doesn't fit the screen, take the

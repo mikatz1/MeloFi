@@ -9,6 +9,7 @@ import { SCALES } from '../model.js';
 import { encodeWav } from '../../js/recorder.js';
 import { addMedia } from '../media.js';
 import { t } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const LEFT = 44;
@@ -120,21 +121,22 @@ export class NewtoneWindow {
     c.width = W * d; c.height = H * d;
     const g = c.getContext('2d');
     g.setTransform(d, 0, 0, d, 0, 0);
-    g.fillStyle = '#131418'; g.fillRect(0, 0, W, H);
+    const P = studioPalette();
+    g.fillStyle = P.ntBg; g.fillRect(0, 0, W, H);
     const [lo, hi] = this.range(), rowH = H / (hi - lo);
     const sc = this.S.proj.scale, st = sc ? SCALES[sc.type]?.steps : null;
     for (let m = lo; m < hi; m++) {
       const y = this.y(m + 0.5), pc = ((m % 12) + 12) % 12;
       const black = [1, 3, 6, 8, 10].includes(pc), inSc = !st || st.includes(((m - (sc?.root || 0)) % 12 + 12) % 12);
-      g.fillStyle = inSc ? (black ? '#17181d' : '#1b1c22') : '#141519';
+      g.fillStyle = inSc ? (black ? P.ntRowBlack : P.ntRow) : P.ntRowOut;
       g.fillRect(LEFT, y - rowH / 2, W - LEFT, rowH);
-      g.fillStyle = black ? '#2a2b31' : '#d9d6cf'; g.fillRect(0, y - rowH / 2, LEFT - 4, rowH - 1);
-      if (pc === 0 || rowH > 12) { g.fillStyle = black ? '#9a978f' : '#3b3a36'; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(`${NAMES[pc]}${Math.floor(m / 12) - 1}`, 3, y + 3); }
+      g.fillStyle = black ? P.ntKeyB : P.keyW; g.fillRect(0, y - rowH / 2, LEFT - 4, rowH - 1);
+      if (pc === 0 || rowH > 12) { g.fillStyle = black ? P.ntInkB : P.ntInkW; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(`${NAMES[pc]}${Math.floor(m / 12) - 1}`, 3, y + 3); }
     }
     if (!this.an) return;
     // the sung pitch line (original), then each note's blob at its target with its moved line
     const fr = this.an.frames;
-    g.strokeStyle = 'rgba(160,170,190,0.45)'; g.lineWidth = 1; g.beginPath();
+    g.strokeStyle = P.ntLine; g.lineWidth = 1; g.beginPath();
     let pen = false;
     for (const f of fr) { if (!f.midi) { pen = false; continue; } const X = this.x(f.t), Y = this.y(f.midi); if (X < LEFT || X > W) { pen = false; continue; } if (pen) g.lineTo(X, Y); else g.moveTo(X, Y); pen = true; }
     g.stroke();
@@ -142,15 +144,15 @@ export class NewtoneWindow {
       const x0 = this.x(nt.start), x1 = this.x(nt.end);
       if (x1 < LEFT || x0 > W) continue;
       const y = this.y(nt.target), sel = this.sel.has(nt), moved = Math.abs(nt.target - nt.median) > 0.01 || nt.stretch !== 1;
-      g.fillStyle = sel ? 'rgba(240,190,120,0.9)' : moved ? 'rgba(232,161,93,0.75)' : 'rgba(120,150,210,0.55)';
+      g.fillStyle = sel ? 'rgba(240,190,120,0.9)' : moved ? 'rgba(232,161,93,0.75)' : P.ntNote;
       roundRect(g, Math.max(LEFT, x0), y - rowH * 0.42, x1 - Math.max(LEFT, x0), rowH * 0.84, Math.min(6, rowH * 0.4));
       g.fill();
       // the note's own motion, moved with it
-      g.strokeStyle = sel ? '#2a1a08' : 'rgba(255,255,255,0.7)'; g.beginPath(); pen = false;
+      g.strokeStyle = sel ? '#2a1a08' : P.ntMotion; g.beginPath(); pen = false;
       for (let i = nt.a; i < nt.b; i++) { const f = fr[i]; if (!f.midi) continue; const X = this.x(f.t); if (X < LEFT) continue; const Y = this.y(nt.target + (f.midi - nt.median) * nt.variation); if (pen) g.lineTo(X, Y); else g.moveTo(X, Y); pen = true; }
       g.stroke();
       const cents = Math.round((nt.target - Math.round(nt.target)) * 100);
-      if (x1 - x0 > 34) { g.fillStyle = sel ? '#2a1a08' : '#fff'; g.font = '10px "Segoe UI", sans-serif'; g.fillText(`${NAMES[((Math.round(nt.target) % 12) + 12) % 12]}${cents ? (cents > 0 ? '+' : '') + cents : ''}`, Math.max(LEFT, x0) + 4, y + 3.5); }
+      if (x1 - x0 > 34) { g.fillStyle = sel ? '#2a1a08' : P.ntInk; g.font = '10px "Segoe UI", sans-serif'; g.fillText(`${NAMES[((Math.round(nt.target) % 12) + 12) % 12]}${cents ? (cents > 0 ? '+' : '') + cents : ''}`, Math.max(LEFT, x0) + 4, y + 3.5); }
     }
   }
 

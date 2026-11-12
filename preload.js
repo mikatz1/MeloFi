@@ -40,7 +40,10 @@ contextBridge.exposeInMainWorld('melofi', {
   splashResize: (w, h) => ipcRenderer.invoke('splash:resize', w, h),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   openInstrumentPicker: (opts) => ipcRenderer.invoke('picker:open', opts),
-  openKeysWindow: () => ipcRenderer.invoke('keys:open'),
+  openKeysWindow: (opts) => ipcRenderer.invoke('keys:open', opts),
+  keysTheme: (theme) => ipcRenderer.send('keys:theme', theme), // the studio's theme, for the keys window it opened
+  keysGetTheme: () => ipcRenderer.invoke('keys:getTheme'),
+  onKeysTheme: (cb) => ipcRenderer.on('keys:theme', (_e, th) => cb(th)),
   setZoom: (f) => webFrame.setZoomFactor(Math.max(0.5, Math.min(2, +f || 1))),
   closeKeysWindow: () => ipcRenderer.invoke('keys:close'),
   // headless tests only (main registers these when MELOFI_SHOT is set)
@@ -67,6 +70,7 @@ contextBridge.exposeInMainWorld('melofi', {
   relaunch: () => ipcRenderer.invoke('app:relaunch'),
   toggleFullscreen: () => ipcRenderer.invoke('win:toggleFullscreen'),
   setFullscreen: (on) => ipcRenderer.invoke('win:setFullscreen', on),
+  setTitleBarColors: (o) => ipcRenderer.invoke('win:titleBarColors', o),
   setWindowSize: (w, h) => ipcRenderer.invoke('win:setSize', w, h),
   studioSave: (json, name, p) => ipcRenderer.invoke('studio:save', json, name, p),
   studioOpen: () => ipcRenderer.invoke('studio:open'),

@@ -4,6 +4,14 @@
 import '../i18n/i18n.js'; // the static text in keys.html follows the language (translateDom)
 
 const api = window.melofi;
+
+// the studio's white theme reaches this window too (the piano opens it dark)
+function setTheme(th) {
+  if (th === 'white') document.documentElement.dataset.studioTheme = 'white'; else delete document.documentElement.dataset.studioTheme;
+  api.setTitleBarColors?.(th === 'white' ? { color: '#d5d6d9', symbolColor: '#3a3b40', background: '#ebecee' } : { color: '#0d0e12', symbolColor: '#8d8b85', background: '#08090d' });
+}
+api.onKeysTheme?.(setTheme);
+api.keysGetTheme?.().then((th) => { if (th === 'white') setTheme(th); });
 const $ = (s) => document.querySelector(s);
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const BLACK = new Set([1, 3, 6, 8, 10]);

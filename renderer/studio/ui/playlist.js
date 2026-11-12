@@ -8,6 +8,7 @@ import { clamp, popup, ask, form } from './dom.js';
 import { pattern, patternTicks, barTicks, uid, newTrack, songBars, barLines, barAt, tickToSec } from '../model.js';
 import { decode, peaks } from '../media.js';
 import { t, tc } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 const HEAD_W = 112, RULER_H = 20, LANE_H = 16, SB = 12; // SB: scroll bar thickness
 
@@ -96,28 +97,28 @@ export class Playlist {
     const g = this.x, W = this.w, H = this.h, proj = this.proj;
     if (!W) return;
     this.follow();
-    const bt = barTicks(proj), tracks = proj.playlist.tracks;
-    g.fillStyle = '#101115'; g.fillRect(0, 0, W, H);
+    const bt = barTicks(proj), tracks = proj.playlist.tracks, P = studioPalette();
+    g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
     for (let t = this.scrollTrack; t < tracks.length; t++) {
       const y = this.tToY(t);
       if (y > H) break;
-      g.fillStyle = t % 2 ? '#15161b' : '#18191e';
+      g.fillStyle = t % 2 ? P.trackAlt : P.track;
       g.fillRect(HEAD_W, y, W - HEAD_W, this.trackH);
     }
     // loop region
     if (proj.loop) {
       const x0 = this.bToX(proj.loop.start), x1 = this.bToX(proj.loop.end);
-      g.fillStyle = proj.loopOn ? 'rgba(224,164,64,0.07)' : 'rgba(255,255,255,0.03)';
+      g.fillStyle = proj.loopOn ? P.loopOn : P.loopOff;
       g.fillRect(Math.max(HEAD_W, x0), this.top, x1 - Math.max(HEAD_W, x0), H);
     }
     // grid: bar lines follow time signature markers
     const lines = barLines(proj, Math.max(0, this.xToB(HEAD_W)) * bt, this.xToB(W) * bt + bt);
     for (const L of lines) {
       const beatT = (96 * 4) / L.sig[1];
-      if (this.barW * beatT / bt > 10) for (let k = 1; k < L.sig[0]; k++) { const x = Math.round(this.bToX((L.tick + k * beatT) / bt)) + 0.5; if (x >= HEAD_W) { g.fillStyle = '#1c1d23'; g.fillRect(x, this.top, 1, H - this.top); } }
+      if (this.barW * beatT / bt > 10) for (let k = 1; k < L.sig[0]; k++) { const x = Math.round(this.bToX((L.tick + k * beatT) / bt)) + 0.5; if (x >= HEAD_W) { g.fillStyle = P.plBeat; g.fillRect(x, this.top, 1, H - this.top); } }
       const x = Math.round(this.bToX(L.tick / bt)) + 0.5;
       if (x < HEAD_W) continue;
-      g.fillStyle = L.num % 4 === 0 ? '#34363f' : '#272830';
+      g.fillStyle = L.num % 4 === 0 ? P.plBar4 : P.plBar;
       g.fillRect(x, this.top, 1, H - this.top);
     }
     // clips
@@ -127,17 +128,17 @@ export class Playlist {
       const x = this.bToX(c.start), y = this.tToY(c.track), w = c.len * this.barW;
       if (x > W || x + w < HEAD_W || y > H || y + this.trackH < this.top) continue;
       const col = this.clipColor(c);
-      g.fillStyle = c.mute ? '#4a4b52' : col; g.globalAlpha = c.kind === 'auto' ? 0.35 : c.mute ? 0.5 : 0.85;
+      g.fillStyle = c.mute ? P.clipMute : col; g.globalAlpha = c.kind === 'auto' ? 0.35 : c.mute ? 0.5 : P.clipA;
       g.fillRect(x + 1, y + 2, w - 2, this.trackH - 4);
       g.globalAlpha = 1;
-      g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x + 1, y + 2, w - 2, 13);
-      g.fillStyle = '#fff'; g.font = '10.5px "Segoe UI", "Malgun Gothic", sans-serif';
+      g.fillStyle = P.clipBand; g.fillRect(x + 1, y + 2, w - 2, 13);
+      g.fillStyle = P.clipInk; g.font = '10.5px "Segoe UI", "Malgun Gothic", sans-serif';
       g.fillText(this.clipName(c), x + 5, y + 12, Math.max(10, w - 10));
       const iy = y + 16, ih = this.trackH - 21;
       if (c.kind === 'audio') this.drawAudio(g, c, x, iy, w, ih);
       else if (c.kind === 'auto') this.drawAuto(g, c, x, iy, w, ih);
       else this.drawNotes(g, c, x, iy, w, ih, bt);
-      if (this.S.selClip === c || this.sel.has(c)) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.trackH - 5); }
+      if (this.S.selClip === c || this.sel.has(c)) { g.strokeStyle = P.clipSel; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.trackH - 5); }
     }
     if (this.drag?.kind === 'marquee') {
       const d = this.drag, mx = Math.min(d.x0, d.x1), my = Math.min(d.y0, d.y1);
@@ -149,44 +150,44 @@ export class Playlist {
     for (let t = this.scrollTrack; t < tracks.length; t++) {
       const y = this.tToY(t), tr = tracks[t];
       if (y > H) break;
-      g.fillStyle = '#1d1e24'; g.fillRect(0, y, HEAD_W - 1, this.trackH - 1);
+      g.fillStyle = P.head; g.fillRect(0, y, HEAD_W - 1, this.trackH - 1);
       if (tr.color) { g.fillStyle = tr.color; g.fillRect(0, y, 3, this.trackH - 1); }
-      g.fillStyle = tr.mute ? '#5d5c58' : '#b8b5ae'; g.font = '11px "Segoe UI", "Malgun Gothic", sans-serif';
+      g.fillStyle = tr.mute ? P.headInkMute : P.headInk; g.font = '11px "Segoe UI", "Malgun Gothic", sans-serif';
       g.fillText(tr.name, 8, y + 16, HEAD_W - 16);
-      for (const [i, k, on, oc] of [[0, 'M', tr.mute, '#6b2f31'], [1, 'S', tr.solo, '#6b5320']]) {
+      for (const [i, k, on, oc] of [[0, 'M', tr.mute, P.muteOn], [1, 'S', tr.solo, P.soloOn]]) {
         const bx = 8 + i * 22, by = y + this.trackH - 20;
-        g.fillStyle = on ? oc : '#26272e'; g.fillRect(bx, by, 18, 14);
-        g.fillStyle = on ? '#fff' : '#8b8983'; g.font = '600 10px "Segoe UI", sans-serif'; g.fillText(k, bx + 5, by + 11);
+        g.fillStyle = on ? oc : P.msOff; g.fillRect(bx, by, 18, 14);
+        g.fillStyle = on ? P.msInkOn : P.msInk; g.font = '600 10px "Segoe UI", sans-serif'; g.fillText(k, bx + 5, by + 11);
       }
     }
     // marker / tempo lane
-    g.fillStyle = '#131418'; g.fillRect(0, RULER_H, W, LANE_H);
-    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", "Malgun Gothic", sans-serif'; g.fillText(t('마커 · 템포'), 8, RULER_H + 12);
-    for (const m of proj.markers) { const x = this.bToX(m.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#8fc0a9'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(m.name, x + 4, RULER_H + 12); }
-    for (const tc of proj.tempos) { const x = this.bToX(tc.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = '#e0a440'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`BPM ${tc.bpm}`, x + 4, RULER_H + 12); }
-    for (const sm of proj.sigs || []) { const x = this.bToX(sm.tick / bt); if (x < HEAD_W || x > W) continue; g.fillStyle = '#9fb6e8'; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`${sm.sig[0]}/${sm.sig[1]}`, x + 4, RULER_H + 12); }
+    g.fillStyle = P.markerLane; g.fillRect(0, RULER_H, W, LANE_H);
+    g.fillStyle = P.laneInk; g.font = '9.5px "Segoe UI", "Malgun Gothic", sans-serif'; g.fillText(t('마커 · 템포'), 8, RULER_H + 12);
+    for (const m of proj.markers) { const x = this.bToX(m.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = P.marker; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(m.name, x + 4, RULER_H + 12); }
+    for (const tc of proj.tempos) { const x = this.bToX(tc.bar); if (x < HEAD_W || x > W) continue; g.fillStyle = P.tempo; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`BPM ${tc.bpm}`, x + 4, RULER_H + 12); }
+    for (const sm of proj.sigs || []) { const x = this.bToX(sm.tick / bt); if (x < HEAD_W || x > W) continue; g.fillStyle = P.sig; g.fillRect(x, RULER_H, 2, LANE_H); g.fillText(`${sm.sig[0]}/${sm.sig[1]}`, x + 4, RULER_H + 12); }
     // ruler
-    g.fillStyle = '#16171c'; g.fillRect(0, 0, W, RULER_H);
-    if (proj.loop) { const x0 = Math.max(HEAD_W, this.bToX(proj.loop.start)), x1 = this.bToX(proj.loop.end); if (x1 > HEAD_W) { g.fillStyle = proj.loopOn ? '#7a5a22' : '#3a3530'; g.fillRect(x0, 0, x1 - x0, 6); } }
-    g.fillStyle = '#8b8983'; g.font = '10px "Cascadia Mono", Consolas, monospace';
+    g.fillStyle = P.ruler; g.fillRect(0, 0, W, RULER_H);
+    if (proj.loop) { const x0 = Math.max(HEAD_W, this.bToX(proj.loop.start)), x1 = this.bToX(proj.loop.end); if (x1 > HEAD_W) { g.fillStyle = proj.loopOn ? P.loopBarOn : P.loopBarOff; g.fillRect(x0, 0, x1 - x0, 6); } }
+    g.fillStyle = P.rulerInk; g.font = '10px "Cascadia Mono", Consolas, monospace';
     for (const L of lines) {
       const x = this.bToX(L.tick / bt);
       if (x >= HEAD_W - 1) { g.fillRect(x, 14, 1, 6); if (this.barW * L.len / bt > 16 || L.num % 4 === 0) g.fillText(String(L.num + 1), x + 3, 15); }
     }
-    g.fillStyle = '#16171c'; g.fillRect(0, 0, HEAD_W, RULER_H);
-    g.fillStyle = '#5d5c58'; g.fillText(this.tool === 'slice' ? t('자르기 도구') : '', 8, 14);
+    g.fillStyle = P.ruler; g.fillRect(0, 0, HEAD_W, RULER_H);
+    g.fillStyle = P.laneInk; g.fillText(this.tool === 'slice' ? t('자르기 도구') : '', 8, 14);
     if (this.proj.mode === 'song' && this.S.transport) {
       const T = this.S.transport.songPos();
       const x = this.bToX(T / bt);
-      if (x >= HEAD_W) { g.fillStyle = '#e0a440'; g.fillRect(x, 0, 1.5, H); }
+      if (x >= HEAD_W) { g.fillStyle = P.playhead; g.fillRect(x, 0, 1.5, H); }
     }
-    if (this.drag?.kind === 'loop') { g.fillStyle = 'rgba(224,164,64,0.25)'; const a = this.bToX(Math.min(this.drag.b0, this.drag.b1)), b = this.bToX(Math.max(this.drag.b0, this.drag.b1)); g.fillRect(a, 0, b - a, H); }
+    if (this.drag?.kind === 'loop') { g.fillStyle = P.loopDrag; const a = this.bToX(Math.min(this.drag.b0, this.drag.b1)), b = this.bToX(Math.max(this.drag.b0, this.drag.b1)); g.fillRect(a, 0, b - a, H); }
     // scroll bars: horizontal along the bottom, vertical down the right edge
-    g.fillStyle = '#0d0e11'; g.fillRect(HEAD_W, H - SB, W - HEAD_W, SB); g.fillRect(W - SB, this.top, SB, H - this.top);
-    g.fillStyle = '#16171c'; g.fillRect(0, H - SB, HEAD_W, SB);
+    g.fillStyle = P.scroll; g.fillRect(HEAD_W, H - SB, W - HEAD_W, SB); g.fillRect(W - SB, this.top, SB, H - this.top);
+    g.fillStyle = P.ruler; g.fillRect(0, H - SB, HEAD_W, SB);
     const [hx, hs] = this.hThumb(), [vy, vs] = this.vThumb();
-    g.fillStyle = this.drag?.kind === 'hbar' ? '#6a6c76' : '#3d3f48'; g.fillRect(hx + 1, H - SB + 3, hs - 2, SB - 6);
-    g.fillStyle = this.drag?.kind === 'vbar' ? '#6a6c76' : '#3d3f48'; g.fillRect(W - SB + 3, vy + 1, SB - 6, vs - 2);
+    g.fillStyle = this.drag?.kind === 'hbar' ? P.thumbOn : P.thumb; g.fillRect(hx + 1, H - SB + 3, hs - 2, SB - 6);
+    g.fillStyle = this.drag?.kind === 'vbar' ? P.thumbOn : P.thumb; g.fillRect(W - SB + 3, vy + 1, SB - 6, vs - 2);
   }
 
   // while playing, page along when the playhead runs off the right edge (as FL does)
@@ -203,7 +204,7 @@ export class Playlist {
     if (!all.length) return;
     const ns = all.map((n) => n.n), lo = Math.min(...ns), hi = Math.max(...ns) + 1;
     const pl = patternTicks(this.proj, p), off = (c.offset || 0) * bt;
-    g.fillStyle = 'rgba(0,0,0,0.55)';
+    g.fillStyle = studioPalette().clipNotes;
     for (let o = -off; o < c.len * bt; o += pl) for (const n of all) {
       const t = o + n.t;
       if (t < 0 || t >= c.len * bt) continue;
@@ -222,7 +223,7 @@ export class Playlist {
     // a clip played as recorded follows the song's tempo map, so its waveform does too
     const bt = barTicks(this.proj), t0 = tickToSec(this.proj, c.start * bt);
     const at = c.sync || !this.proj.tempos?.length ? (px) => (px / this.barW) * secPerBar : (px) => tickToSec(this.proj, (c.start + px / this.barW) * bt) - t0;
-    g.fillStyle = 'rgba(0,0,0,0.5)';
+    g.fillStyle = studioPalette().clipWave;
     const n = pc.pk.length / 2;
     for (let px = 0; px < w; px += 1) {
       const sec = ((c.offset || 0) + at(px)) / ratio; // stretched seconds -> source seconds
@@ -237,11 +238,11 @@ export class Playlist {
     const a = this.proj.autos.find((q) => q.id === c.auto);
     if (!a || !a.points.length) return;
     const span = (a.len || c.len) * this.barW;
-    g.strokeStyle = '#e8e0ff'; g.lineWidth = 1.5;
+    g.strokeStyle = studioPalette().autoLine; g.lineWidth = 1.5;
     g.beginPath();
     for (let o = 0; o < w; o += span) a.points.forEach((p, i) => { const px = x + o + p.t * span, py = y + (1 - p.v) * h; if (px > x + w) return; if (i === 0) g.moveTo(px, py); else g.lineTo(px, py); });
     g.stroke();
-    g.fillStyle = '#fff';
+    g.fillStyle = studioPalette().autoPoint;
     for (const p of a.points) g.fillRect(x + p.t * span - 2.5, y + (1 - p.v) * h - 2.5, 5, 5);
   }
 

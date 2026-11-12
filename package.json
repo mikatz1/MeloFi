@@ -1,6 +1,6 @@
 {
   "name": "melofi",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Virtual piano with a visualizer, score playback and practice",
   "main": "main.js",
   "scripts": {

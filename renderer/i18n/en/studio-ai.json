@@ -481,5 +481,7 @@
   "{name} 듣는 중": "Listening to {name}",
   "노래는 악기가 아니에요: 가사와 목소리는 보컬 합성으로 옮기는 게 맞아서 음색 비교를 하지 않았어요. 멜로디만 악기로 듣고 싶으면 골라 주세요": "A sung lead is not an instrument: lyrics and voice belong to the vocal synth, so it was not compared by timbre. Pick an instrument if you want the melody played by one",
   "{name} · 이 곡에 맞춤": "{name} · fitted to this song",
-  "{cat}: 인식 {n}%": "{cat}: recognised {n}%"
+  "{cat}: 인식 {n}%": "{cat}: recognised {n}%",
+  "{elapsed} 지남 · 약 {left} 남음": "{elapsed} elapsed · about {left} left",
+  "{elapsed} 지남": "{elapsed} elapsed"
 }

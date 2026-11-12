@@ -7,6 +7,7 @@ import { decode, onsets, gridSlices, peaks } from '../media.js';
 import { STEP, pattern, notesOf } from '../model.js';
 import { fmtParam } from '../fx.js';
 import { t, tdyn } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 export class ChannelSheet {
   constructor(studio) {
@@ -328,15 +329,15 @@ export class ChannelSheet {
     const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
     cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
     const g = cv.getContext('2d'), W = cv.width, H = cv.height;
-    const pk = peaks(buf, W);
-    g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, W, H);
+    const pk = peaks(buf, W), P = studioPalette();
+    g.fillStyle = P.well; g.fillRect(0, 0, W, H);
     const x0 = ((sp.start || 0) / buf.duration) * W, x1 = ((sp.end ?? buf.duration) / buf.duration) * W;
     for (let x = 0; x < W; x++) {
       const lo = pk[x * 2], hi = pk[x * 2 + 1];
-      g.fillStyle = ch.kind === 'sample' && (x < x0 || x > x1) ? '#3a3b40' : ch.color;
+      g.fillStyle = ch.kind === 'sample' && (x < x0 || x > x1) ? P.waveOff : ch.color;
       g.fillRect(x, H / 2 - hi * H / 2, 1, Math.max(1, (hi - lo) * H / 2));
     }
-    g.fillStyle = '#e0a440';
+    g.fillStyle = P.trace;
     if (ch.kind === 'slicer') for (const t of ch.slices || []) g.fillRect((t / buf.duration) * W, 0, d, H);
     else { g.fillRect(x0, 0, 2 * d, H); g.fillRect(x1 - 2 * d, 0, 2 * d, H); }
     if (!bind) return;

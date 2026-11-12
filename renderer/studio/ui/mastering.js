@@ -10,6 +10,7 @@ import { renderMix } from '../io.js';
 import { measure, limit, gain as gainMix, dB } from '../master-dsp.js';
 import { LoudnessMeter, TARGETS } from '../meter.js';
 import { t, tc, N_ } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 const f = (x, d = 1) => (x <= -69.5 ? '—' : x.toFixed(d));
 
@@ -425,9 +426,10 @@ export class MasteringWindow {
     const c = this.canvas(this.scope);
     if (!c) return;
     const [g, W, H] = c, s = this.meter.scope, R = Math.min(W, H) / 2 - 4;
-    g.fillStyle = 'rgba(11,12,15,0.35)'; g.fillRect(0, 0, W, H);
-    g.strokeStyle = '#24252b'; g.beginPath(); g.moveTo(W / 2, H / 2 - R); g.lineTo(W / 2, H / 2 + R); g.moveTo(W / 2 - R, H / 2); g.lineTo(W / 2 + R, H / 2); g.stroke();
-    g.fillStyle = '#e0a440';
+    const P = studioPalette();
+    g.fillStyle = P.wellFade; g.fillRect(0, 0, W, H);
+    g.strokeStyle = P.wellLine; g.beginPath(); g.moveTo(W / 2, H / 2 - R); g.lineTo(W / 2, H / 2 + R); g.moveTo(W / 2 - R, H / 2); g.lineTo(W / 2 + R, H / 2); g.stroke();
+    g.fillStyle = P.trace;
     // mid up, side across (rotated 45 degrees, as a goniometer)
     for (let i = 0; i + 1 < s.length; i += 2) {
       const l = s[i], r = s[i + 1], x = W / 2 + ((l - r) / Math.SQRT2) * R, y = H / 2 - ((l + r) / Math.SQRT2) * R;
@@ -441,10 +443,11 @@ export class MasteringWindow {
     const [g, W, H] = c, E = this.E, an = E.spec;
     const bins = this.bins && this.bins.length === an.frequencyBinCount ? this.bins : (this.bins = new Float32Array(an.frequencyBinCount));
     an.getFloatFrequencyData(bins);
-    g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, W, H);
+    const P = studioPalette();
+    g.fillStyle = P.well; g.fillRect(0, 0, W, H);
     const X = (fq) => (Math.log(fq / 20) / Math.log(1000)) * W;
-    g.fillStyle = '#1f2026'; g.font = '9px "Segoe UI", sans-serif';
-    for (const fq of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) { const x = X(fq); g.fillRect(x, 0, 1, H); g.fillStyle = '#4a4b52'; g.fillText(fq >= 1000 ? `${fq / 1000}k` : String(fq), x + 2, H - 3); g.fillStyle = '#1f2026'; }
+    g.fillStyle = P.wellGrid; g.font = '9px "Segoe UI", sans-serif';
+    for (const fq of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) { const x = X(fq); g.fillRect(x, 0, 1, H); g.fillStyle = P.wellInk; g.fillText(fq >= 1000 ? `${fq / 1000}k` : String(fq), x + 2, H - 3); g.fillStyle = P.wellGrid; }
     const sr = E.ctx.sampleRate, Y = (db) => H - ((db + 100) / 90) * H;
     // live spectrum, averaged over 1/6 octave around each point and eased over time
     const pts = Math.floor(W / 2);
@@ -459,7 +462,7 @@ export class MasteringWindow {
       const y = Y(Math.max(-100, this.sm[p]));
       if (p === 0) g.moveTo(x, y); else g.lineTo(x, y);
     }
-    g.strokeStyle = '#c9c4b8'; g.lineWidth = 1; g.stroke();
+    g.strokeStyle = P.msMix; g.lineWidth = 1; g.stroke();
     // reference and the balance line, tilted the same way, lined up at 1 kHz with the live view
     const tilt = (fc) => 4.5 * Math.log2(fc / 1000);
     const curve = (vals, color, dash) => {
@@ -468,8 +471,8 @@ export class MasteringWindow {
       BANDS.forEach((fc, i) => { const x = X(fc), y = Y(-45 + vals[i] - at1k + tilt(fc)); if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); });
       g.setLineDash(dash || []); g.strokeStyle = color; g.lineWidth = 1.5; g.stroke(); g.setLineDash([]);
     };
-    curve(BANDS.map(targetCurve), '#3f6f4a', [4, 4]);
-    if (this.ref?.bands) curve(this.ref.bands, '#7fb0ff');
+    curve(BANDS.map(targetCurve), P.msTarget, [4, 4]);
+    if (this.ref?.bands) curve(this.ref.bands, P.msRef);
     // the EQ's response (±12 dB over the height)
     const peq = this.fx.find((x) => x.type === 'peq' && x.on !== false), u = peq && E.masterStrip.unit(peq.id);
     if (u?.response) {
@@ -477,24 +480,24 @@ export class MasteringWindow {
       const mag = u.response(freqs);
       g.beginPath();
       for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * W, y = H / 2 - (dB(mag[i]) / 12) * (H / 2 - 6); if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
-      g.strokeStyle = '#e0a440'; g.lineWidth = 1.5; g.stroke();
-      g.fillStyle = '#2a2b31'; g.fillRect(0, H / 2, W, 1);
+      g.strokeStyle = P.trace; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = P.wellZero; g.fillRect(0, H / 2, W, 1);
     }
   }
 
   drawHist(target) {
     const c = this.canvas(this.hist);
     if (!c) return;
-    const [g, W, H] = c, v = this.history;
-    g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, W, H);
+    const [g, W, H] = c, v = this.history, P = studioPalette();
+    g.fillStyle = P.well; g.fillRect(0, 0, W, H);
     const Y = (l) => H - ((l + 40) / 40) * H; // -40 .. 0 LUFS
-    g.fillStyle = '#2f4a36'; g.fillRect(0, Y(target + 1), W, Y(target - 1) - Y(target + 1));
-    g.fillStyle = '#4a4b52'; g.font = '9px "Segoe UI", sans-serif'; g.fillText(t('목표 {v}', { v: target }), 4, Y(target) - 3);
+    g.fillStyle = P.targetBand; g.fillRect(0, Y(target + 1), W, Y(target - 1) - Y(target + 1));
+    g.fillStyle = P.wellInk; g.font = '9px "Segoe UI", sans-serif'; g.fillText(t('목표 {v}', { v: target }), 4, Y(target) - 3);
     if (v.length < 2) return;
     g.beginPath();
     const n = Math.min(v.length, Math.floor(W));
     for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * W, y = Y(v[v.length - n + i]); if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
-    g.strokeStyle = '#e0a440'; g.lineWidth = 1.2; g.stroke();
+    g.strokeStyle = P.trace; g.lineWidth = 1.2; g.stroke();
   }
 }
 

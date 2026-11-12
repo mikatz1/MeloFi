@@ -175,7 +175,18 @@ export class AiSheet {
 
   // the two bars: the current stage (indeterminate when the stage reports no steps) and the whole run
   paintBars() {
-    if (this.barEl) { this.barEl.style.width = `${Math.round((this.progress || 0) * 100)}%`; this.allPct.textContent = `${Math.round((this.progress || 0) * 100)}%`; }
+    if (this.barEl) {
+      const p = Math.max(0, Math.min(1, this.progress || 0)), pc = Math.round(p * 100);
+      this.barEl.style.width = `${pc}%`;
+      this.allPct.textContent = `${pc}%`;
+      this.barEl.parentElement.setAttribute('aria-valuenow', pc);
+      this.barEl.parentElement.classList.toggle('low', pc < 12); // the number sits outside the fill until it fits
+      // elapsed and a rough time left from the pace so far (only once there is enough to go on)
+      if (this.etaEl) {
+        const sec = this.t0 ? (Date.now() - this.t0) / 1000 : 0, mmss = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, '0')}`;
+        this.etaEl.textContent = !sec ? '' : p > 0.05 && p < 0.995 ? t('{elapsed} 지남 · 약 {left} 남음', { elapsed: mmss(sec), left: mmss((sec * (1 - p)) / p) }) : t('{elapsed} 지남', { elapsed: mmss(sec) });
+      }
+    }
     if (this.stageEl) {
       const known = typeof this.stage === 'number';
       this.stageEl.parentElement.classList.toggle('busy', !known);
@@ -441,11 +452,12 @@ export class AiSheet {
   // ---------- UI ----------
   renderProgress() {
     if (this.progEl) {
-      this.progEl.textContent = this.busy === 'stems' || this.busy === 'setup' ? `${tdyn(this.stemLabel || '')} ${Math.round(this.progress * 100)}%${this.stemDetail && this.busy === 'setup' ? ` · ${tdyn(this.stemDetail)}` : ''}`
+      this.progEl.textContent = this.busy === 'stems' || this.busy === 'setup' ? `${tdyn(this.stemLabel || '')}${this.stemDetail && this.busy === 'setup' ? ` · ${tdyn(this.stemDetail)}` : ''}`
         : this.busy === 'build' ? t('트랙을 만드는 중…')
         : this.busy === 'decode' ? t('파일을 읽는 중…')
-        : this.busy === 'analyse' ? `${tdyn(this.stemLabel) || t('분석 중…')} ${Math.round(this.progress * 100)}%` : '';
+        : this.busy === 'analyse' ? `${tdyn(this.stemLabel) || t('분석 중…')}` : '';
     }
+    this.paintBars();
   }
 
   // the page before this one (the run page is skipped: it is only a progress view)
@@ -490,12 +502,12 @@ export class AiSheet {
   }
 
   busyView() {
+    const bars = ['stems', 'analyse', 'setup'].includes(this.busy);
     return h('div', { class: 'ai-busy' },
-      h('div', { class: 'row' }, this.progEl = h('span', {}),
+      h('div', { class: 'ai-prog-head' }, this.progEl = h('span', { class: 'ai-prog-label' }), this.etaEl = h('span', { class: 'ai-prog-eta' }),
         this.busy === 'stems' || this.busy === 'setup' ? h('button', { class: 'btn sm ghost', onclick: () => { window.melofi.stemsCancel(); this.addLog(t('취소를 요청했어요.')); } }, t('취소')) : null),
-      ['stems', 'analyse', 'setup'].includes(this.busy) ? h('div', { class: 'ai-bars' },
-        h('div', { class: 'ai-barrow' }, h('span', {}, t('현재 단계')), h('div', { class: 'ai-bar stage' }, this.stageEl = h('i')), this.stagePct = h('em')),
-        h('div', { class: 'ai-barrow' }, h('span', {}, tc('progress', '전체')), h('div', { class: 'ai-bar' }, this.barEl = h('i')), this.allPct = h('em'))) : null,
+      bars ? h('div', { class: 'ai-meter', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100 }, this.barEl = h('i', {}, this.allPct = h('b'))) : null,
+      bars ? h('div', { class: 'ai-substage' }, h('span', {}, t('현재 단계')), h('div', { class: 'ai-bar stage' }, this.stageEl = h('i')), this.stagePct = h('em')) : null,
       this.busy === 'setup' ? (() => { const log = h('pre', { class: 'ai-log' }, this.log.join('\n')); this.logEl = log; requestAnimationFrame(() => { if (this.logEl) this.logEl.scrollTop = this.logEl.scrollHeight; }); return log; })() : null);
   }
 
