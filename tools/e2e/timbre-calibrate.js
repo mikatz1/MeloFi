@@ -104,7 +104,7 @@ for (const id of ids) {
   oct.dropped = r.octaveFix.other.removed.length;
   r.fixed.other.forEach((nt, j) => { const i = kept[j], want = tr[i][2], had = tn[i][2]; if (had !== want) { oct.wrong++; if (nt[2] === want) oct.fixed++; } else if (nt[2] !== want) oct.falsely++; });
   const g = { secs: [{ start: 0, end: 1 }] };
-  const m = await M.matchGroup(S, r, 'other', g, [0, length + 2], { x, rate: truth.rate }, { plausible: [], also: [id, ...REPS] });
+  const m = await M.matchGroup(S, r, 'other', g, [0, length + 2], { x, rate: truth.rate }, { plausible: [], also: [id, ...REPS], mix: args.mix !== false });
   const c = m.cands || [];
   const me = c.find((k) => k.id === id);
   const rank = c.findIndex((k) => k.id === id) + 1;

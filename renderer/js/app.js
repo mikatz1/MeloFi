@@ -3,6 +3,7 @@ import { instrumentFor, kitFor, drumHit } from './gm.js';
 import { Settings, DEFAULTS } from './settings.js';
 import { Engine } from './audio.js';
 import { Stage } from './stage.js';
+import { KeyList } from './keylist.js';
 import { Recorder } from './recorder.js';
 import { UI } from './ui.js';
 import { PRESETS, RESERVED, keyLabel, noteName } from './keymap.js';
@@ -58,6 +59,7 @@ class App {
     await this.engine.init();
     boot(0.13, t('화면을 준비하는 중…'));
     this.stage = new Stage(document.getElementById('stage'), { gpu: this.settings.get('gpu') });
+    this.keyList = new KeyList(this.stage, { names: () => this.settings.get('noteNames') });
     console.log('renderer:', this.stage.renderer);
     const bg = this.settings.get('bgImage');
     if (bg) await new Promise((r) => { const im = new Image(); im.onload = im.onerror = r; im.src = bg; }); // decoded before the first frame
@@ -174,6 +176,7 @@ class App {
     this.stage.setOptions({ visualizer: v.visualizer, particles: v.particles, bloom: v.bloom, speed: v.speed, labels: v.labels, range: v.range,
       noteColor: v.noteColor, barWidth: v.barWidth, bgDim: v.bgDim, zoom: v.kbZoom, center: this.playCenter(), stream: v.streamMode, fxExtra: v.fxExtra, spec: this.specOpts(v) });
     this.applyStream(v.streamMode);
+    this.keyList.setEnabled(v.keyList);
     this.stage.setBackground(v.bgImage);
     this.metronome.setTempo(v.bpm);
     this.metronome.setBeats(v.beats);
@@ -189,6 +192,7 @@ class App {
       if ('room' in p) this.engine.setRoom(p.room);
       if ('resonance' in p) this.engine.setResonance(p.resonance);
       if ('theme' in p || 'customTheme' in p) this.stage.setTheme(this.settings.get('theme'), this.settings.get('customTheme'));
+      if ('keyList' in p) this.keyList.setEnabled(p.keyList);
       const so = {};
       for (const k of ['visualizer', 'particles', 'bloom', 'speed', 'labels', 'range', 'noteColor', 'barWidth', 'bgDim', 'fxExtra']) if (k in p) so[k] = p[k];
       if ('kbZoom' in p) { so.zoom = p.kbZoom; this.scoreZoom = null; } // picking a zoom by hand wins over the fit
@@ -720,6 +724,7 @@ class App {
     }
     notes.sort((a, b) => a.t - b.t);
     this.stage.fall = { notes, maxD: notes.reduce((m, x) => Math.max(m, x.d), 0), now: () => P.now() };
+    P.leadIn = () => (this.stage.fall ? this.stage.fallSeconds() : 0);
     this.stage.bars.length = 0;
   }
 

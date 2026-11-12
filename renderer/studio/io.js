@@ -1,5 +1,5 @@
 // MeloFi Studio — files: save / open .mfproj, autosave, MIDI export & import, WAV export.
-import { PPQ, barTicks, ticksToSec, tickToSec, migrate, newChannel, newPattern, uid } from './model.js';
+import { PPQ, barTicks, ticksToSec, tickToSec, tempoList, migrate, newChannel, newPattern, uid } from './model.js';
 import { eventsFor, scheduleAll } from './transport.js';
 import { StudioEngine } from './engine.js';
 import { encodeWav } from '../js/recorder.js';
@@ -40,9 +40,22 @@ function allNotes(proj) {
 // isKit(instId) -> true for drum kits (they go on MIDI channel 10)
 export function projectToMidi(proj, isKit = (id) => id.startsWith('drums')) {
   const { events } = allNotes(proj);
-  const us = Math.round(60000000 / proj.bpm);
-  const t0 = [0, ...text(0x03, proj.name), 0, 0xff, 0x51, 0x03, (us >> 16) & 255, (us >> 8) & 255, us & 255,
-    0, 0xff, 0x58, 0x04, proj.sig[0], Math.log2(proj.sig[1]), 24, 8, 0, 0xff, 0x2f, 0x00];
+  // the tempo track carries the whole tempo map and every time-signature change (변박), so the file
+  // plays at the song's speed all through, not at bar 1's tempo
+  const meta = [];
+  const song = exportMode(proj) === 'song';
+  for (const x of song ? tempoList(proj) : [{ tick: 0, bpm: proj.bpm }]) {
+    const us = Math.round(60000000 / x.bpm);
+    meta.push({ t: Math.round(x.tick), b: [0xff, 0x51, 0x03, (us >> 16) & 255, (us >> 8) & 255, us & 255] });
+  }
+  const sigAt = (sig) => [0xff, 0x58, 0x04, sig[0], Math.log2(sig[1]), 24, 8];
+  meta.push({ t: 0, b: sigAt(proj.sig) });
+  if (song) for (const x of proj.sigs || []) if (x.tick > 0) meta.push({ t: Math.round(x.tick), b: sigAt(x.sig) });
+  meta.sort((a, b) => a.t - b.t);
+  const t0 = [0, ...text(0x03, proj.name)];
+  let mt = 0;
+  for (const m of meta) { t0.push(...vlq(m.t - mt), ...m.b); mt = m.t; }
+  t0.push(0, 0xff, 0x2f, 0x00);
   const tracks = [chunk('MTrk', t0)];
   let next = 0;
   for (const c of proj.channels) {

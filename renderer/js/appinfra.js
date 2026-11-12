@@ -73,6 +73,17 @@ function showBar(text, buttons = [], { percent = null, autoHide = 0 } = {}) {
 }
 
 export function showUpdateState(s) { onState(s); } // (tests, screenshots)
+
+// 지금 다시 시작: AI work still running (separation, engine install, singing, instrument matching)
+// would be cut off, so ask: restart once it ends, or now
+async function restart() {
+  const r = await api.updateRestart();
+  if (!r?.busy) return;
+  showBar([t('AI 작업이 아직 진행 중이에요'), el('small', {}, t('지금 다시 시작하면 작업이 멈춰요'))], [
+    { label: t('끝나면 다시 시작'), cls: 'go', act: async () => { await api.updateRestart({ whenIdle: true }); showBar([t('AI 작업이 끝나면 다시 시작해요')]); } },
+    { label: t('지금 다시 시작'), act: () => api.updateRestart({ force: true }) },
+  ]);
+}
 function onState(s) {
   if (!s) return;
   version = s.current || version;
@@ -85,7 +96,7 @@ function onState(s) {
     case 'downloading':
       return showBar([t('새 버전 받는 중'), el('small', {}, `${s.percent || 0}%`)], [], { percent: s.percent || 0 });
     case 'ready':
-      return showBar([t('다시 시작하면 적용돼요'), el('small', {}, s.version)], [{ label: t('지금 다시 시작'), cls: 'go', act: () => api.updateRestart() }]);
+      return showBar([t('다시 시작하면 적용돼요'), el('small', {}, s.version)], [{ label: t('지금 다시 시작'), cls: 'go', act: () => restart() }]);
     case 'error':
       if (s.version) return showBar([tdyn(s.message) || t('받지 못했어요')], [{ label: t('다시 받기'), act: () => api.updateDownload() }]);
       if (mine) return showBar([tdyn(s.message) || t('업데이트를 확인하지 못했어요')], [], { autoHide: 6000 });

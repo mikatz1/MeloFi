@@ -80,7 +80,7 @@
   "템포 {bpm}": "Tempo {bpm}",
   "최근에 이 채널로 연주한 음이 없습니다": "Nothing was played on this channel recently",
   "방금 연주한 것 넣기": "Dump score log",
-  "{n}개 음을 패턴에 넣었습니다. 박자가 어긋나면 도구 › 퀀타이즈를 쓰세요.": "Added {n} {n|note|notes} to the pattern. If the timing is off, use Tools › Quantize.",
+  "{n}개 음을 패턴에 넣었어요. 박자가 어긋나면 도구 › 퀀타이즈를 써 보세요.": "Added {n} {n|note|notes} to the pattern. If the timing is off, use Tools › Quantize.",
   "오토메이션 클립: 시간에 따라 값 바꾸기": "Automation clip: change the value over time",
   "MIDI 연결 대기 중… (취소)": "Waiting for MIDI… (cancel)",
   "MIDI 컨트롤러 연결": "Link to MIDI controller",
@@ -367,5 +367,18 @@
   "스윙": "Swing",
   "테마": "Theme",
   "다크": "Dark",
-  "화이트": "White"
+  "화이트": "White",
+  "음원 분리 중": "Separating",
+  "분석 엔진 설치 중": "Installing the analysis engine",
+  "MIDI 변환 · 악기 찾는 중": "MIDI conversion · finding instruments",
+  "약 {left} 남음": "about {left} left",
+  "눌러서 AI 창 열기": "Click to open the AI window",
+  "AI 작업이 끝났어요": "AI job finished",
+  "AI 작업이 멈췄어요": "AI job stopped",
+  "눌러서 결과 보기": "Click to see the result",
+  "눌러서 자세히 보기": "Click for details",
+  "트랙을 만드는 중": "Building tracks",
+  "파일을 읽는 중": "Reading the file",
+  "MIDI 변환을 취소했어요.": "MIDI conversion cancelled.",
+  "분석에 GPU 사용 중 ({util}%)": "GPU in use by the analysis ({util}%)"
 }

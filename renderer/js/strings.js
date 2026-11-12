@@ -45,6 +45,7 @@ const KO = {
     dlCancel: '취소',
     recent: '최근 악보',
     stream: '방송 모드',
+    keyList: '누르는 건반 목록',
     winSize: '창 크기',
     winCustom: '직접 입력',
     renderVideo: '고화질 영상 내보내기',
@@ -261,6 +262,8 @@ const KO = {
     labels: '건반 표시',
     labelKinds: { keys: '키', notes: '음이름', none: '없음' },
     noteNames: '음이름 표기',
+    keyList: '누르는 건반 목록',
+    keyListHint: '연주 중인 건반을 왼쪽 위에 색과 음이름으로 보여 줍니다',
     noteNameKinds: { en: 'C D E', ko: '도 레 미' },
     range: '건반 수',
 

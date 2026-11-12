@@ -9,7 +9,8 @@ import { cleanDownbeats, fromStems, meterMap } from './ai.js';
 import { synthDefaults, SYNTH_PRESETS, SYNTH_CATEGORIES, SYNTH_PARAMS, SynthChannel } from '../synth.js';
 import * as T from '../timbre.js';
 import { loadSome } from '../channel.js';
-import { PAD } from '../../js/audio.js';
+import { PAD, makeImpulse } from '../../js/audio.js';
+import { FX_TYPES, fxDefaults } from '../fx.js';
 import { t, tc, N_ } from '../../i18n/i18n.js';
 
 // recognition categories: Korean name and the MeloFi instruments that fit, best first
@@ -174,7 +175,7 @@ export function candidates(S, k, g) {
   if (g.match?.cands?.length) {
     const info = (id) => S.app.instruments.find((i) => i.id === id);
     const list = g.match.cands.slice(0, 8).map((c) => ({
-      id: c.id, acc: c.acc, parts: c.parts, kind: candKind(S, c.id), name: candName(S, c.id), cat: g.label, share: 0,
+      id: c.id, acc: c.acc, parts: c.parts, mix: c.mix || null, kind: candKind(S, c.id), name: candName(S, c.id), cat: g.label, share: 0,
       installed: isSynthId(c.id) || !!info(c.id)?.installed, downloadable: !!info(c.id)?.downloadable,
     }));
     list[0].recommended = true;
@@ -197,20 +198,52 @@ export function candidates(S, k, g) {
 export const rangeText = (secs) => t('{r}마디', { r: secs.map((s) => (s.end - s.start <= 1 ? `${s.start + 1}` : `${s.start + 1}~${s.end}`)).join(', ') });
 
 // a few seconds of a group's notes played by a candidate instrument (rendered offline)
+// Where a preview starts: the busiest stretch of the group (most notes, loudest) within its sections,
+// from just before its first note, so a quiet or empty start of the section is not what gets played.
+export function highlightStart(r, k, g, bars, seconds = 8) {
+  const ranges = g.secs.map((s) => [bars[s.start], bars[s.end] ?? r.duration]);
+  const inGroup = (t) => ranges.some(([a, b]) => t >= a && t < b);
+  const notes = stemNotes(r, k).filter(([t]) => inGroup(t)).sort((x, y) => x[0] - y[0]);
+  if (!notes.length) return ranges[0][0];
+  let best = 0, bestScore = -1, j = 0, score = 0;
+  for (let i = 0; i < notes.length; i++) {
+    while (j < notes.length && notes[j][0] < notes[i][0] + seconds) { score += 1 + (notes[j][3] || 64) / 127; j++; }
+    if (score > bestScore) { bestScore = score; best = i; }
+    score -= 1 + (notes[i][3] || 64) / 127;
+  }
+  const start = notes[best][0] - 0.15;
+  const own = ranges.find(([a, b]) => notes[best][0] >= a && notes[best][0] < b);
+  return Math.max(own ? own[0] : 0, start);
+}
+
 export async function renderCandidate(S, r, k, g, instId, bars, seconds = 8) {
-  const t0 = bars[g.secs[0].start], t1 = Math.min(bars[g.secs[0].end] ?? r.duration, t0 + seconds);
+  const t0 = highlightStart(r, k, g, bars, seconds), t1 = Math.min(r.duration, t0 + seconds);
   const p = newProject();
   p.bpm = Math.round(r.bpm * 100) / 100;
-  const ch = channelFor(S, instId, 'preview', 0, { vol: 0.8, send: 0.12 });
-  p.channels = [ch]; p.selected = ch.id;
-  const pat = newPattern(0, 1); pat.notes = { [ch.id]: [] };
+  // as the project will have it: the fitted mix (automatic mixing) and the matched dynamics
+  const cand = g.match?.cands?.find((c) => c.id === instId), mx = cand?.mix, vk = cand?.vel || 1;
+  const lg = mx?.layer ? Math.sqrt(mx.layer.g) : 0, v1 = lg > 1 ? 0.8 / lg : 0.8;
+  const ch = channelFor(S, instId, 'preview', 0, mx ? { vol: v1, send: mx.send, fx: mixFx(mx), ...envExtra(instId, mx.env) } : { vol: 0.8, send: 0.12 });
+  const lay = mx?.layer ? channelFor(S, mx.layer.id, 'layer', 1, { vol: Math.min(1, v1 * lg), send: mx.send, fx: mixFx(mx) }) : null;
+  p.channels = lay ? [ch, lay] : [ch]; p.selected = ch.id;
+  const pat = newPattern(0, 1); pat.notes = { [ch.id]: [], ...(lay ? { [lay.id]: [] } : {}) };
   const tick = (s) => Math.round(secToTick(p, Math.max(0, s), 'pattern'));
-  for (const [t, d, n, v] of stemNotes(r, k)) if (t >= t0 && t < t1) pat.notes[ch.id].push({ t: tick(t - t0), d: Math.max(STEP / 4, tick(d)), n, v });
+  for (const [t, d, n, v] of stemNotes(r, k)) {
+    if (t < t0 || t >= t1) continue;
+    pat.notes[ch.id].push({ t: tick(t - t0), d: Math.max(STEP / 4, tick(d)), n, v: Math.min(127, Math.round(v * vk)) });
+    if (lay) pat.notes[lay.id].push({ t: tick(t - t0), d: Math.max(STEP / 4, tick(d)), n, v: Math.min(127, Math.round(v * (mx.layer.vel || 1))) });
+  }
   pat.bars = Math.max(1, Math.ceil(tick(t1 - t0) / barTicks(p)));
   p.patterns = [pat]; p.current = pat.id; p.playlist.clips = [];
   const mix = await renderMix(p, { tail: 1 });
   return mix;
 }
+
+// the eq inserts of a mixed candidate (automatic mixing) as the channel's effects
+let mixSeq = 0;
+// a fitted attack / release: a synth's own envelope settings, a sampled instrument's channel env
+const envExtra = (id, env) => (!env ? {} : isSynthId(id) ? { synth: { ...synthParams(id), aa: Math.min(4, synthParams(id).aa * env.a), ar: Math.min(6, synthParams(id).ar * env.r) } } : { env: { attack: env.a, release: env.r } });
+export const mixFx = (mx) => (mx?.eq || []).map((params) => ({ id: uid('f'), type: 'eq', on: true, params: { ...fxDefaults('eq'), ...params } }));
 
 // the project: the separated audio (muted, for reference) if wanted, and for every stem one MIDI
 // channel per chosen instrument holding that stem's notes in the bars of its sections
@@ -228,18 +261,32 @@ export async function buildAssigned(r, plan, choice, fileName, S, { audio = true
     for (const g of plan.stems[k] || []) {
       const id = choice[`${k}:${g.cat}`];
       if (!id) continue; // "leave out"
-      const key = `${k}:${id}`;
+      const cand = g.match?.cands?.find((c) => c.id === id), mx = cand?.mix;
+      // a candidate mixed for its section (automatic mixing) gets a channel of its own with the
+      // fitted EQ, reverb send and envelope, and its layer a second channel playing the same notes
+      const key = mx ? `${k}:${id}:${mixSeq++}` : `${k}:${id}`;
       if (!chans.has(key)) {
-        const kit = S.isKit(id);
-        const ch = channelFor(S, id, `${tc('stem', STEM_NAMES[k])} · ${candName(S, id)}`, p.channels.length + chans.size, { vol: k === 'drums' ? 0.85 : 0.75, send: kit ? 0.05 : 0.15 });
-        chans.set(key, ch);
+        const kit = S.isKit(id), vol = k === 'drums' ? 0.85 : 0.75;
+        const name = `${tc('stem', STEM_NAMES[k])} · ${candName(S, id)}`;
+        if (mx) {
+          // layer level: the second instrument at g times the first's power (fader: squared)
+          const lg = mx.layer ? Math.sqrt(mx.layer.g) : 0, v1 = lg > 1 ? vol / lg : vol;
+          const ch = channelFor(S, id, mx.layer ? t('{name} (레이어 1)', { name }) : t('{name} (믹스 맞춤)', { name }), p.channels.length + chans.size, { vol: v1, send: mx.send, fx: mixFx(mx), ...envExtra(id, mx.env) });
+          chans.set(key, ch);
+          if (mx.layer) {
+            const l = channelFor(S, mx.layer.id, t('{name} (레이어 2)', { name: `${tc('stem', STEM_NAMES[k])} · ${candName(S, mx.layer.id)}` }), p.channels.length + chans.size, { vol: Math.min(1, v1 * lg), send: mx.send, fx: mixFx(mx) });
+            chans.set(`${key}:layer`, l);
+            ch.layer = l;
+          }
+        } else chans.set(key, channelFor(S, id, name, p.channels.length + chans.size, { vol, send: kit ? 0.05 : 0.15 }));
       }
       // the dynamics the instrument matched best at (the transcription's velocities run low)
-      const vk = g.match?.cands?.find((c) => c.id === id)?.vel || 1;
-      for (const s of g.secs) for (let b = s.start; b < s.end; b++) owner.push([k, b, chans.get(key), vk]);
+      const vk = cand?.vel || 1, ch = chans.get(key);
+      for (const s of g.secs) for (let b = s.start; b < s.end; b++) owner.push([k, b, ch, vk, ch.layer, mx?.layer?.vel || 1]);
     }
   }
-  const who = new Map(owner.map(([k, b, ch, vk]) => [`${k}:${b}`, [ch, vk]]));
+  const who = new Map(owner.map(([k, b, ...rest]) => [`${k}:${b}`, rest]));
+  for (const ch of chans.values()) delete ch.layer;
   p.channels.push(...chans.values());
   const endBar = Math.max(1, Math.ceil(tickOf(r.duration) / bt));
   const tr = p.playlist.tracks.length;
@@ -247,12 +294,13 @@ export async function buildAssigned(r, plan, choice, fileName, S, { audio = true
   const pats = [];
   for (let b = 0; b < endBar; b += 8) { const len = Math.min(8, endBar - b), pat = newPattern(p.patterns.length + pats.length, len); pat.name = t('{a}~{b}마디', { a: b + 1, b: b + len }); pats.push([b, len, pat]); }
   for (const k of order) for (const [t, d, n, v] of stemNotes(r, k)) {
-    const [ch, vk] = who.get(`${k}:${barOf(plan.bars, t)}`) || [];
+    const [ch, vk, lch, lvk] = who.get(`${k}:${barOf(plan.bars, t)}`) || [];
     if (!ch) continue;
     const tk = tickOf(t), slot = pats[Math.min(pats.length - 1, Math.floor(tk / bt / 8))];
     if (!slot) continue;
     const [b0, , pat] = slot;
     (pat.notes[ch.id] ||= []).push({ t: tk - b0 * bt, d: Math.max(STEP / 4, tickOf(t + d) - tk), n, v: Math.min(127, Math.round(v * vk)) });
+    if (lch) (pat.notes[lch.id] ||= []).push({ t: tk - b0 * bt, d: Math.max(STEP / 4, tickOf(t + d) - tk), n, v: Math.min(127, Math.round(v * lvk)) });
   }
   for (const [b0, len, pat] of pats) { if (!Object.keys(pat.notes).length) continue; p.patterns.push(pat); p.playlist.clips.push({ id: uid('k'), pattern: pat.id, track: tr, start: b0, len }); }
   if (!p.patterns.length) p.patterns = [newPattern(0)];
@@ -345,18 +393,21 @@ const toClip = (clips, t) => { const c = clips.find((k) => t >= k.a && t < k.b);
 // notes [t, d, n, v] (seconds) played by an instrument, mono, rendered offline, dry: just the
 // sampler or the synth into the context (no mixer strip, reverb or limiter: the sound itself, and
 // several times faster than a project render). Returns the samples and where t = 0 is in them.
-export async function renderNotes(S, id, notes, length, rate = 44100) {
+// opts: { env: { a, r } (attack / release times scaled, the automatic mixing), params (a synth's
+// settings in place of the candidate's own) }
+export async function renderNotes(S, id, notes, length, rate = 44100, { env = null, params = null } = {}) {
   const off = 0.05, vel = (v) => Math.max(1, Math.min(127, Math.round(v || 90)));
   let ctx = null;
   if (isSynthId(id)) {
     ctx = new OfflineAudioContext(2, Math.ceil((off + length + 1) * rate), rate);
     const ch = new SynthChannel(ctx, ctx.destination);
-    ch.setParams(synthParams(id));
+    const sp = params || synthParams(id);
+    ch.setParams(env ? { ...sp, aa: Math.min(4, sp.aa * env.a), ar: Math.min(6, sp.ar * env.r) } : sp);
     for (const [t, d, n, v] of notes) ch.noteOn(n, vel(v), off + t, d);
   } else {
     // sampled instruments: the sampler's own voice maths, in this thread (sampledVoices)
     const inst = await loadSome(id, notes.map(([, , n, v]) => [n, vel(v)]));
-    return { x: sampledVoices(inst, notes.map(([t, d, n, v]) => [t, d, n, vel(v)]), off, length + 1, rate), rate, off };
+    return { x: sampledVoices(inst, notes.map(([t, d, n, v]) => [t, d, n, vel(v)]), off, length + 1, rate, env), rate, off };
   }
   const buf = await ctx.startRendering();
   const L = buf.getChannelData(0), R = buf.getChannelData(1), x = new Float32Array(L.length);
@@ -386,7 +437,9 @@ function kernel() {
   }
   return (KERNEL = k);
 }
-export function sampledVoices(inst, notes, off, seconds, rate) {
+// env: { a, r } scales every region's attack and release (as a channel's env does, channel.js)
+export function sampledVoices(inst, notes, off, seconds, rate, env = null) {
+  const ka = env?.a ?? 1, kr = env?.r ?? 1;
   const K = kernel(), out = new Float32Array(Math.ceil((off + seconds) * rate)), m = inst.manifest;
   const region = (note, v) => { const list = inst.byKey[note]; if (!list?.length) return null; return list.find((r) => v >= r.lv && v <= r.hv) || list.reduce((b, r) => (Math.abs((r.lv + r.hv) / 2 - v) < Math.abs((b.lv + b.hv) / 2 - v) ? r : b)); };
   // a key struck again cuts its previous voice (30 ms)
@@ -399,11 +452,11 @@ export function sampledVoices(inst, notes, off, seconds, rate) {
     const meta = m.samples[r.s], L = d0.L, R = d0.R || d0.L, last = L.length - PAD;
     const x = vel / 127, amp = ((m.gain ?? 1) * r.g * (0.45 + 0.55 * x * x)) / 32768;
     const step = Math.pow(2, (note - r.c) / 12 + (r.t || 0) / 1200) * (meta.rate / rate), exact = step === 1;
-    const atk = amp / (r.attack ? Math.max(96, r.attack * rate) : 96);
+    const ra = r.a || r.attack || 0, atk = amp / (ra ? Math.max(96, ra * ka * rate) : 96); // (as channel.js: manifests store it as a or attack)
     const ls = r.loop ? PAD + r.loop[0] : 0, le = r.loop ? PAD + r.loop[1] : 0;
     const start = Math.round((off + t) * rate);
     const relAt = Math.round((off + t + d) * rate), cutAt = cut.has(idx) ? Math.round((off + cut.get(idx)) * rate) : Infinity;
-    const rcRel = Math.exp(-1 / (Math.max(0.005, r.r / 4.5) * rate)), rcCut = Math.exp(-1 / (0.03 * rate));
+    const rcRel = Math.exp(-1 / (Math.max(0.005, (r.r * kr) / 4.5) * rate)), rcCut = Math.exp(-1 / (0.03 * rate));
     let pos = PAD + (r.off || 0), g = 0, rc = 1, rel = false;
     for (let i = start; i < out.length; i++) {
       if (i === relAt || i === cutAt) { rel = true; rc = rc === 1 ? (i === cutAt ? rcCut : rcRel) : Math.min(rc, i === cutAt ? rcCut : rcRel); }
@@ -516,9 +569,266 @@ async function tuneSynth(base, { evalParams, budget, target }) {
   return { params: cur, acc: curAcc, evals };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Automatic mixing (docs/timbre-matching.md, "자동 믹싱"): the best few candidates of the same
+// family as the best one are given a channel EQ, a reverb send, a slightly changed attack and release
+// and, if it helps, a second instrument of the same family layered under them, all fitted to the
+// section and all bounded (MIX). Every setting is one the project's mixer has (the eq insert of
+// fx.js, the channel's send to the project reverb, the channel's env, a second channel), and the
+// score is measured on exactly that sound with no normalisation, so the score rises only as far as
+// the sound the user will hear comes closer to the song.
+export const MIX = {
+  K: 4,              // candidates looked at: the first K of the plain matching...
+  EQ_DB: 6,          // ...of the best one's family; EQ bands at most ±6 dB each
+  TILT: 3,           // the EQ's overall slope over the part's partials at most ±3 dB per octave
+  SENDS: [0, 0.1, 0.2, 0.35], // send to the project reverb (hall), at most 0.35
+  ENV: [0.7, 1.3],   // attack / release times ×0.7 or ×1.3 (±30 %)
+  LAYER: [0.2, 0.3, 0.4], // a second instrument's share of the level, at most 40 %
+  GAIN: 0.5,         // a setting is kept when it raises the accuracy by at least this much
+  LAYER_GAIN: 1,     // a second channel only for a full point
+  FAM_MARGIN: 2,     // no mixing when another family's best is within 2 points of the first
+};
+// the family a candidate belongs to (synth presets are synths)
+export function famOf(S, id) { return isSynthId(id) ? 'synth' : S.app.instruments.find((i) => i.id === id)?.family || 'other'; }
+export const ENV_SAMPLED = true; // channel.js plays a channel's env (attack / release scale)
+
+// The project's reverb (engine.js: makeImpulse 'hall', a stereo convolver that normalises its
+// impulse), heard in mono as the matching hears everything: the convolver's own response to a click,
+// left and right averaged. Drawn once with a fixed seed, so every run fits against the same hall
+// (the engine's draw differs only in its noise, not in its length, colour or level).
+let HALL = null;
+async function hallIR(rate) {
+  if (HALL?.rate === rate) return HALL;
+  const keep = Math.random;
+  let seed = 99; Math.random = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  let b; try { b = makeImpulse(new OfflineAudioContext(2, 1, rate), 'hall'); } finally { Math.random = keep; }
+  const ctx = new OfflineAudioContext(2, b.length + 128, rate), click = ctx.createBuffer(1, 1, rate);
+  click.getChannelData(0)[0] = 1;
+  const src = ctx.createBufferSource(); src.buffer = click;
+  const conv = ctx.createConvolver(); conv.buffer = b;
+  src.connect(conv).connect(ctx.destination); src.start();
+  const out = await ctx.startRendering(), L = out.getChannelData(0), R = out.getChannelData(1), m = new Float32Array(L.length);
+  for (let i = 0; i < m.length; i++) m[i] = 0.5 * (L[i] + R[i]);
+  HALL = { rate, m };
+  return HALL;
+}
+
+// A dry render through a channel's settings, (+ layer) -> eq inserts, rendered once as two signals:
+// what goes straight out and what the reverb send returns at full send. The reverb is linear, so a
+// send level is then only dry + send × 0.9 × wet (the send is post-fader as in the mixer, strip.js,
+// and the engine plays the reverb at 0.9): every send level from one render.
+export async function mixParts(x, rate, { eq = null, add = null } = {}) {
+  let y = x;
+  if (add) { y = new Float32Array(x); const n = Math.min(x.length, add.x.length); for (let i = 0; i < n; i++) y[i] += add.g * add.x[i]; }
+  const H = await hallIR(rate);
+  const ctx = new OfflineAudioContext(2, y.length, rate);
+  const buf = ctx.createBuffer(1, y.length, rate); buf.copyToChannel(y, 0);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  let node = src;
+  for (const p of eq || []) { const u = FX_TYPES.eq.build(ctx); u.set({ ...fxDefaults('eq'), ...p }, 0); node.connect(u.input); node = u.output; }
+  const ir = ctx.createBuffer(1, H.m.length, rate); ir.copyToChannel(H.m, 0);
+  const conv = ctx.createConvolver(); conv.normalize = false; conv.buffer = ir;
+  const merge = ctx.createChannelMerger(2);
+  node.connect(merge, 0, 0); node.connect(conv).connect(merge, 0, 1);
+  merge.connect(ctx.destination);
+  src.start();
+  const out = await ctx.startRendering();
+  return { dry: out.getChannelData(0), wet: out.getChannelData(1) };
+}
+export function blend({ dry, wet }, send) {
+  if (!send) return dry;
+  const k = send * 0.9, m = new Float32Array(dry.length);
+  for (let i = 0; i < m.length; i++) m[i] = dry[i] + k * wet[i];
+  return m;
+}
+export async function mixRender(x, rate, { eq = null, send = 0, add = null } = {}) { return blend(await mixParts(x, rate, { eq, add }), send); }
+
+// The EQ from the partials: stem − candidate, in dB, for every partial of every measured note, set
+// against frequency. Per note the levels are relative to its strongest partial, so each note's mean
+// is taken out (only the shape counts); the shape is fitted by least squares with four bands of the
+// eq insert (low shelf, two bells, high shelf) placed over the part's own range, their responses
+// taken from the browser's biquads. Bands are clamped to ±EQ_DB and the whole curve's slope to TILT.
+const hzOf = (n) => 440 * Math.pow(2, (n - 69) / 12);
+const clampF = (f, lo, hi) => Math.max(lo, Math.min(hi, f));
+export function fitEq(SF, CF, P) {
+  const pts = [];
+  for (let i = 0; i < SF.length; i++) {
+    const a = SF[i], b = CF[i];
+    if (!a?.harm || !b?.harm) continue;
+    const note = [];
+    for (let h = 0; h < a.harm.length; h++) {
+      const f = hzOf(P[i][2]) * (h + 1);
+      if (a.harm[h] == null || b.harm[h] == null || a.harm[h] <= -40 || b.harm[h] <= -40 || f > 12000) continue;
+      note.push([f, a.harm[h] - b.harm[h], a.poly ? 0.3 : 1]);
+    }
+    if (note.length >= 3) pts.push(note);
+  }
+  if (pts.length < 3) return null;
+  const fs = pts.flat().map((p) => p[0]), fmin = Math.min(...fs), fmax = Math.max(...fs);
+  if (fmax / fmin < 2) return null;
+  const lowF = clampF(fmin * 1.5, 40, 400), highF = clampF(fmax / 1.5, 2000, 16000);
+  const m1 = clampF(fmin * Math.pow(fmax / fmin, 1 / 3), 200, 6000), m2 = clampF(fmin * Math.pow(fmax / fmin, 2 / 3), 200, 6000);
+  // (two bells clamped next to each other, as on a bass, are one)
+  const two = m2 / m1 >= 1.4;
+  const bands = [['lowshelf', lowF], ['peaking', m1], ...(two ? [['peaking', m2]] : []), ['highshelf', highF]];
+  // unit responses (dB per dB of gain) at every point
+  const ctx = new OfflineAudioContext(1, 1, 44100), grid = Float32Array.from(fs);
+  const resp = bands.map(([type, f]) => {
+    const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = type === 'peaking' ? 1 : 0.7; b.gain.value = 6;
+    const mag = new Float32Array(grid.length), ph = new Float32Array(grid.length);
+    b.getFrequencyResponse(grid, mag, ph);
+    return Array.from(mag, (v) => (20 * Math.log10(Math.max(v, 1e-6))) / 6);
+  });
+  // normal equations with each note's mean taken out, ridge so an unseen band stays at 0
+  const nb = bands.length, A = Array.from({ length: nb }, () => new Array(nb).fill(0)), y = new Array(nb).fill(0);
+  let idx = 0, wsum = 0;
+  for (const note of pts) {
+    const w = note[0][2], ix = note.map((_, j) => idx + j);
+    const md = note.reduce((s, p) => s + p[1], 0) / note.length;
+    const mr = resp.map((r) => ix.reduce((s, j) => s + r[j], 0) / ix.length);
+    note.forEach((p, j) => {
+      const xr = resp.map((r, b) => r[ix[j]] - mr[b]), d = p[1] - md;
+      for (let u = 0; u < nb; u++) { y[u] += w * xr[u] * d; for (let v = 0; v < nb; v++) A[u][v] += w * xr[u] * xr[v]; }
+      wsum += w;
+    });
+    idx += note.length;
+  }
+  for (let u = 0; u < nb; u++) A[u][u] += 0.05 * wsum;
+  let g = solve(A, y);
+  if (!g) return null;
+  if (!two) { g.splice(2, 0, 0); resp.splice(2, 0, resp[0].map(() => 0)); }
+  g = g.map((v) => Math.max(-MIX.EQ_DB, Math.min(MIX.EQ_DB, v)));
+  // the overall slope of the curve over the range, in dB per octave
+  const lg = fs.map((f) => Math.log2(f)), cv = fs.map((_, j) => resp.reduce((s, r, b) => s + g[b] * r[j], 0));
+  const mx = lg.reduce((s, v) => s + v, 0) / lg.length, my = cv.reduce((s, v) => s + v, 0) / cv.length;
+  let sxy = 0, sxx = 0; lg.forEach((v, j) => { sxy += (v - mx) * (cv[j] - my); sxx += (v - mx) ** 2; });
+  const slope = sxx ? sxy / sxx : 0;
+  if (Math.abs(slope) > MIX.TILT) g = g.map((v) => (v * MIX.TILT) / Math.abs(slope));
+  return { g, lowF: Math.round(lowF), m1: Math.round(m1), m2: Math.round(m2), highF: Math.round(highF) };
+}
+// fitted bands (scaled) as the two eq inserts: shelves and the first bell, then the second bell
+export function eqInserts(fit, scale = 1) {
+  if (!fit) return null;
+  const r1 = (v) => Math.max(-MIX.EQ_DB, Math.min(MIX.EQ_DB, Math.round(v * scale * 2) / 2)), g = fit.g;
+  if (g.every((v) => Math.abs(r1(v)) < 0.5)) return null;
+  return [
+    { low: r1(g[0]), lowF: fit.lowF, mid: r1(g[1]), midF: fit.m1, q: 1, high: r1(g[3]), highF: fit.highF },
+    ...(Math.abs(r1(g[2])) >= 0.5 ? [{ mid: r1(g[2]), midF: fit.m2, q: 1 }] : []),
+  ];
+}
+// two fits on the same bands added (a second pass on what the first left)
+const sumFit = (a, b) => (a && b && a.lowF === b.lowF && a.m1 === b.m1 && a.m2 === b.m2 && a.highF === b.highF ? { ...a, g: a.g.map((v, i) => v + b.g[i]) } : a || b);
+function solve(A, y) {
+  const n = y.length, M = A.map((row, i) => [...row, y[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-9) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+const rms = (x) => { let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i]; return Math.sqrt(s / (x.length || 1)); };
+
+// The fit for one group, after the plain matching. ctx: what matchGroup measured (SF, P, the
+// render's notes, measureRen, the dry renders). Changes the candidates in place: a candidate whose
+// settings raise its accuracy by GAIN or more gets mix: { eq, send, env, layer, acc0 } and the
+// new accuracy.
+async function fitMix(S, k, cands, { SF, P, notes, length, measureRen, raws, kit, plausible = [] }) {
+  const stats = { looked: 0, mixed: 0, layered: 0, renders: 0 };
+  if (!cands.length) return stats;
+  const fam = famOf(S, cands[0].id);
+  // the family must be clear: with another family's best within FAM_MARGIN of the first, which
+  // family it is is a coin toss, and fitting only one of them would make the toss look certain
+  // and the first must be a sound the stem and the recognition make plausible (a pad in front on
+  // the bass stem is the transcription's doing, not a pad: fitting it would dress up a wrong answer)
+  if (plausible.length && !plausible.includes(cands[0].id.replace(/~\d+$/, ''))) { stats.implausible = true; return stats; }
+  const rival = cands.find((c) => famOf(S, c.id) !== fam);
+  if (rival && rival.acc > cands[0].acc - MIX.FAM_MARGIN) { stats.unclear = true; return stats; }
+  const group = cands.slice(0, MIX.K).filter((c) => famOf(S, c.id) === fam && raws.has(c.id));
+  const acc = (x, rate, off) => T.compare(SF, measureRen(x, rate, off), { normalize: false });
+  // one setting (EQ, envelope, layer) rendered once and heard at every send level; the best of them
+  const tryAll = async (set, src) => {
+    stats.renders++;
+    const parts = await mixParts(src.x, src.rate, set);
+    let best = null;
+    for (const send of MIX.SENDS) {
+      const x = blend(parts, send), r = acc(x, src.rate, src.off);
+      if (!best || r.acc > best.acc) best = { ...set, send, acc: r.acc, parts: r.parts, raw: r.raw, src, x };
+    }
+    return best;
+  };
+  const better = (a, b) => (b && b.acc > a.acc ? b : a);
+  for (const c of group) {
+    if (c.acc < cands[0].acc - 6) continue; // too far behind to come first
+    stats.looked++;
+    const dry = raws.get(c.id);
+    let best = await tryAll({}, dry);
+    // EQ fitted on what the best send left (full and half strength), a second pass on what that left
+    if (!kit) {
+      const fit = fitEq(SF, measureRen(best.x, dry.rate, dry.off), P);
+      if (fit) {
+        for (const r of await Promise.all([1, 0.5].map((sc) => { const f = { ...fit, g: fit.g.map((v) => v * sc) }; const eq = eqInserts(f); return eq ? tryAll({ eq, fit: f }, dry) : null; }))) best = better(best, r);
+        if (best.fit) {
+          const fit2 = sumFit(best.fit, fitEq(SF, measureRen(best.x, dry.rate, dry.off), P)), eq = eqInserts(fit2);
+          if (eq) best = better(best, await tryAll({ eq, fit: fit2 }, dry));
+        }
+      }
+    }
+    c._best = best;
+  }
+  // attack and release ±30 % (the instrument re-rendered: the slow part, so only for the one in
+  // front after the EQ and send)
+  const lead = [...group].sort((a, b) => Math.max(b.acc, b._best?.acc ?? 0) - Math.max(a.acc, a._best?.acc ?? 0))[0];
+  if (!kit && lead?._best && (isSynthId(lead.id) || ENV_SAMPLED)) {
+    const dry = raws.get(lead.id), vk = dry.vk || 1, keep = lead._best;
+    const nn = vk === 1 ? notes : notes.map(([a, b, cc, v]) => [a, b, cc, Math.min(127, Math.round((v || 90) * vk))]);
+    const envs = [...MIX.ENV.map((a) => ({ a, r: 1 })), ...MIX.ENV.map((r) => ({ a: 1, r }))];
+    const res = await Promise.all(envs.map(async (env) => {
+      const ren = await renderNotes(S, lead.id, nn, length, dry.rate, { env });
+      return tryAll({ eq: keep.eq, fit: keep.fit, env }, { ...ren, vk });
+    }));
+    for (const r of res) lead._best = better(lead._best, r);
+  }
+  for (const c of group) {
+    const best = c._best;
+    delete c._best;
+    if (!best) continue;
+    if (best.acc >= c.acc + MIX.GAIN) {
+      c.mix = { eq: best.eq || null, send: best.send, env: best.env || null, acc0: c.acc };
+      c.acc = best.acc; c.parts = best.parts; c.raw = best.raw;
+      c._mixSrc = best.src;
+      stats.mixed++;
+    }
+  }
+  // a layer: the best one so far with a second instrument of the family under it
+  if (!kit) {
+    const sorted = [...group].sort((a, b) => b.acc - a.acc), A = sorted[0], B = sorted.find((c) => c !== A && (isSynthId(c.id) || S.app.instruments.find((i) => i.id === c.id)?.installed));
+    if (A && B) {
+      const srcA = A._mixSrc || raws.get(A.id), dryB = raws.get(B.id);
+      const ra = rms(srcA.x), rb = rms(dryB.x);
+      let best = null;
+      if (ra > 0 && rb > 0) {
+        for (const w of MIX.LAYER) {
+          const g = (w / (1 - w)) * (ra / rb);
+          const r = await tryAll({ eq: A.mix?.eq, add: { x: dryB.x, g } }, srcA);
+          if (!best || r.acc > best.acc) best = { ...r, w, g };
+        }
+      }
+      if (best && best.acc >= A.acc + MIX.LAYER_GAIN) {
+        A.mix = { ...(A.mix || { eq: null, env: null, acc0: A.acc }), send: best.send, layer: { id: B.id, w: best.w, g: +best.g.toFixed(4), vel: B.vel || 1 } };
+        A.acc = best.acc; A.parts = best.parts; A.raw = best.raw;
+        stats.layered++;
+      }
+    }
+  }
+  for (const c of group) delete c._mixSrc;
+  return stats;
+}
+
 // one group. audio: the stem's samples. Returns { cands: [{ id, acc, parts, pre }] best first,
 // probes (notes measured), desc (the sound described, timbre.describe) }
-export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, plausible = [], max = 8, widen = 6, target = 90, also = [], normalize = true, synthSearch = true, reverb = true } = {}) {
+export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, plausible = [], max = 8, widen = 6, target = 90, also = [], normalize = true, synthSearch = true, reverb = true, mix = true } = {}) {
   await fingerprints();
   const kit = k === 'drums';
   const all = groupNotes(r, k, g, bars);
@@ -620,7 +930,15 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
     for (const c of tried.values()) if (TUNED.has(c.id)) { const k = presetOf(c.id); if (!keep.has(k) || keep.get(k).acc < c.acc) keep.set(k, c); }
     for (const c of [...tried.values()]) if (TUNED.has(c.id) && keep.get(presetOf(c.id)) !== c) { tried.delete(c.id); TUNED.delete(c.id); }
   }
-  const cands = [...tried.values()].filter((c) => !c.error).sort((a, b) => b.acc - a.acc);
+  let cands = [...tried.values()].filter((c) => !c.error).sort((a, b) => b.acc - a.acc);
+  // the automatic mixing on the best of the family (fitMix), then the order again
+  if (mix && cands.length) {
+    const top0 = cands[0].id, acc0 = cands[0].acc;
+    stats.mix = await fitMix(S, k, cands, { SF, P, notes, length, measureRen, raws, kit, plausible: kit ? [] : plausible });
+    stats.mix.top0 = top0; stats.mix.acc0 = acc0;
+    cands = cands.sort((a, b) => b.acc - a.acc);
+    stats.mix.topChanged = cands[0].id !== top0;
+  }
   stats.wall = Math.round(performance.now() - stats.wall); stats.renderMs = Math.round(stats.renderMs); stats.seconds = +length.toFixed(1);
   raws.clear();
   return { cands, probes: P.length, desc, room, errors: [...tried.values()].filter((c) => c.error).length, stats };
@@ -710,7 +1028,7 @@ export function splitByTimbre(r, k, groups, bars, audio) {
 }
 
 // every group of every stem gets g.match. onProgress(fraction, label)
-export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90, also = [], octaves = true, split = true, normalize = true, synthSearch = true, reverb = true } = {}) {
+export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90, also = [], octaves = true, split = true, normalize = true, synthSearch = true, reverb = true, mix = true } = {}) {
   await fingerprints();
   // each stem is listened to once: octave errors, then the groups split where the timbre changes
   const audio = new Map();
@@ -732,7 +1050,7 @@ export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90,
       // a sung lead is not an instrument: it goes to the vocal synth (lyrics, a voice), not to a
       // matching instrument
       if (k === 'vocals') { g.match = { cands: [], vocal: true }; continue; }
-      g.match = await matchGroup(S, r, k, g, plan.bars, audio.get(k), { plausible: plausibleFor(S, k, g), target, also: k === 'drums' ? [] : also, normalize, synthSearch, reverb });
+      g.match = await matchGroup(S, r, k, g, plan.bars, audio.get(k), { plausible: plausibleFor(S, k, g), target, also: k === 'drums' ? [] : also, normalize, synthSearch, reverb, mix });
     } catch (err) { g.match = { cands: [], error: String(err.message || err) }; }
   }
   onProgress(1, '');

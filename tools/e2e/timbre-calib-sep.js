@@ -135,7 +135,7 @@ if (args.dirs) {
     for (const ch of p.channels) { const m = await io.renderMix(p, { only: ch.id, tail: 2, rate: 44100 }); iso[ch.name] = m.left.map((v, j) => 0.5 * (v + m.right[j])); }
     const r = await readJson(`${dir}\\result.json`), inst = await readJson(`${dir}\\instruments.json`);
     const plan = M.sections(r, inst);
-    await M.matchAll(S, r, plan, { also: Object.values(MIXES[mix]) });
+    await M.matchAll(S, r, plan, { also: Object.values(MIXES[mix]), mix: args.mix !== false });
     for (const [k, groups] of Object.entries(plan.stems)) {
       const st = await M.stemAudio(r.stems[k]);
       for (const g of groups) {

@@ -543,5 +543,11 @@
   "MeloFi 계정 센터": "MeloFi account center",
   "start::최근 프로젝트": "Recent project",
   "start::최근 악보": "Recent score",
-  "화이트": "White"
+  "화이트": "White",
+  "누르는 건반 목록": "Keys being played",
+  "연주 중인 건반을 왼쪽 위에 색과 음이름으로 보여 줍니다": "Lists the keys being played in the top-left corner, with their colours and note names",
+  "AI 작업이 아직 진행 중이에요": "AI work is still running",
+  "지금 다시 시작하면 작업이 멈춰요": "Restarting now stops it",
+  "끝나면 다시 시작": "Restart when it ends",
+  "AI 작업이 끝나면 다시 시작해요": "MeloFi will restart when the AI work ends"
 }

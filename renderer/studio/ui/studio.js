@@ -33,6 +33,7 @@ import { takeInput, alignTake, audioOffsetSec, inputConstraints } from '../../js
 import { finish, encode, fmtLufs, fmtDb } from '../export-audio.js';
 import { TARGETS } from '../meter.js';
 import { MasteringWindow } from './mastering.js';
+import { AiMini } from './aimini.js';
 import { STUDIO_THEMES, setStudioTheme, studioTheme, invalidatePalette } from './theme.js';
 import { T } from '../../js/strings.js';
 import { t, tc, tdyn, N_, langChoices, onLangChange, translateDom, locale } from '../../i18n/i18n.js';
@@ -671,7 +672,7 @@ export class Studio {
       }
       pat.bars = Math.max(pat.bars, Math.min(16, Math.ceil(end / barTicks(p))));
     }, true, t('방금 연주한 것 넣기'));
-    this.status(t('{n}개 음을 패턴에 넣었습니다. 박자가 어긋나면 도구 › 퀀타이즈를 쓰세요.', { n: notes.length }));
+    this.status(t('{n}개 음을 패턴에 넣었어요. 박자가 어긋나면 도구 › 퀀타이즈를 써 보세요.', { n: notes.length }));
     this.setTab('roll');
     this.roll.focusNotes();
   }
@@ -1216,6 +1217,7 @@ export class Studio {
       tb, this.mainEl, this.keysEl,
       h('div', { class: 'st-foot' }, this.statusEl));
     document.body.append(this.el);
+    this.aiMini = new AiMini(this); // AI work still running with its window closed: a progress card in the corner
     this.el.addEventListener('mouseover', (e) => { const t = e.target.closest('[title]'); this.hintEl.textContent = t && this.el.contains(t) ? t.title : baseHint(); });
     // the left / right split can be dragged; the width is remembered
     const setW = (w) => this.layoutCols(w);

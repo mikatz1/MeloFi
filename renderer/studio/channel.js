@@ -119,6 +119,13 @@ export function loadInstrument(id, onProgress = () => {}, budgetMB = 260) {
 
 let vidSeq = 1;
 
+// a channel's envelope scale (ch.env = { attack, release }, set by the MIDI conversion's automatic
+// mixing or in the channel settings): every region's attack and release time times 0.7..1.3.
+// No env: 1 and 1, the sound exactly as before.
+const ENV_MIN = 0.7, ENV_MAX = 1.3;
+const envK = (v) => (Number.isFinite(v) ? Math.max(ENV_MIN, Math.min(ENV_MAX, v)) : 1);
+export function envScale(ch) { return ch?.env ? { a: envK(ch.env.attack), r: envK(ch.env.release) } : null; }
+
 // Plays a MeloFi instrument, a one-shot sample or a sliced loop through the sinc sampler.
 // Its sound goes into `out` (the channel's mixer strip).
 export class SamplerChannel {
@@ -144,6 +151,7 @@ export class SamplerChannel {
 
   // ch: the project channel. Loads what it plays if that changed.
   async setSource(ch, onProgress) {
+    this.env = envScale(ch);
     const key = ch.kind === 'sample' || ch.kind === 'slicer' ? JSON.stringify({ k: ch.kind, s: ch.sample, sl: ch.slices }) : `inst:${ch.inst}`;
     if (this.srcKey === key && this.inst) return;
     this.srcKey = key;
@@ -183,9 +191,10 @@ export class SamplerChannel {
     if (prev != null) this.node.port.postMessage({ type: 'off', vid: prev, tau: 0.03, at });
     const vid = vidSeq++;
     this.last.set(note, vid);
-    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at, pan: opts.pan || 0, attack: r.a || r.attack || 0, loop: r.loop || (r.ls != null && r.le > r.ls ? [r.ls, r.le] : null) }); // manifests store the sustain loop as ls/le and attack as a
-    if (dur != null) this.node.port.postMessage({ type: 'off', vid, tau: r.r / 4.5, at: (at || this.ctx.currentTime) + dur });
-    this.lastRel = r.r;
+    this.node.port.postMessage({ type: 'on', vid, id: `${this.inst.id}:${r.s}`, step, gain, off: r.off, at, pan: opts.pan || 0, attack: (r.a || r.attack || 0) * (this.env?.a ?? 1), loop: r.loop || (r.ls != null && r.le > r.ls ? [r.ls, r.le] : null) }); // manifests store the sustain loop as ls/le and attack as a
+    const rel = this.env ? r.r * this.env.r : r.r;
+    if (dur != null) this.node.port.postMessage({ type: 'off', vid, tau: rel / 4.5, at: (at || this.ctx.currentTime) + dur });
+    this.lastRel = rel;
     this.lastVoice = { vid, c: r.c, t: r.t, rate, note };
     return vid;
   }

@@ -203,6 +203,29 @@ await check('ai: fromStems (MIDI only, synthetic)', async () => {
   const end = Math.max(...p.playlist.clips.map((c) => c.start + c.len));
   if (end !== 30) throw new Error('end bar ' + end);
 });
+await check('ai: steady song with an intro read half a bar off keeps one tempo; MIDI carries the tempo map', async () => {
+  // 6/4 at 200 BPM (1.8 s bars); the tracker put the first three downbeats half a bar off
+  const db = [0.4, 1.3, 2.2]; for (let i = 2; i < 60; i++) db.push(0.4 + i * 1.8);
+  const beats = []; for (let t = 0.4; t < 0.4 + 60 * 1.8; t += 0.3) beats.push(+t.toFixed(3));
+  const r = { bpm: 200, meter: 6, key: { root: 0, mode: 'major' }, beats, downbeats: db, first_downbeat: 0.4, duration: 110, stems: { piano: 'x' }, notes: { piano: [[0.4, 0.3, 60, 90], [0.4 + 50 * 1.8, 0.3, 64, 90]] }, drums: [] };
+  const p = await ai.fromStems(r, null, 'z.wav', S, { audio: false, midi: true });
+  if (p.tempos?.length) throw new Error('per-bar tempos ' + JSON.stringify(p.tempos.slice(0, 3)));
+  if (Math.abs(p.bpm - 200) > 0.5) throw new Error('bpm ' + p.bpm);
+  // the bar-51 note sits on a bar line of the grid
+  const tk = Math.round(model.secToTick(p, 50 * 1.8, 'song')), bt = model.barTicks(p);
+  if (Math.abs(tk / bt - Math.round(tk / bt)) > 0.02) throw new Error('bar 51 off the grid: ' + (tk / bt));
+  // MIDI export: every tempo change goes into the tempo track
+  const q = { ...p, tempos: [{ bar: 4, bpm: 100 }], playlist: { ...p.playlist, clips: p.playlist.clips.length ? p.playlist.clips : [{ id: 'c', kind: 'pattern', start: 0, len: 1 }] } };
+  const b = io.projectToMidi(q); let n51 = 0; for (let i = 0; i < b.length - 2; i++) if (b[i] === 0xff && b[i + 1] === 0x51 && b[i + 2] === 3) n51++;
+  if (n51 !== 2) throw new Error('tempo events in MIDI ' + n51);
+});
+await check('piano: a score whose first note is at 0 s starts with its notes up top (lead-in)', async () => {
+  const P = A.player;
+  if (typeof P.lead !== 'function') throw new Error('no lead-in');
+  const was = P.leadIn; P.leadIn = () => 2; P.events = [{ t: 0, n: 60, v: 90, d: 0.5, line: 'x' }]; P.pos = 0;
+  const v = P.now(); P.leadIn = was; P.events = [];
+  if (!(v < -1.9)) throw new Error('now at rest ' + v);
+});
 await check('ai: window renders each option', async () => {
   const sh = S.aiSheet; await sh.show(); await sleep(200);
   sh.engine = { ready: true, gpu: true, muscriptor: true, hfToken: true };

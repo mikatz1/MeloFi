@@ -6,11 +6,28 @@ import { h, popup } from './dom.js';
 import { encode } from '../export-audio.js';
 import { newProject, newChannel, newPattern, newTrack, uid, STEP, secToTick, barTicks, PPQ } from '../model.js';
 import { addMedia } from '../media.js';
-import { sections, candidates, rangeText, renderCandidate, buildAssigned, matchAll, candKind, CATS, STEM_NAMES } from './midiconvert.js';
+import { sections, candidates, rangeText, renderCandidate, highlightStart, buildAssigned, matchAll, candKind, candName, CATS, STEM_NAMES } from './midiconvert.js';
 import { t, tc, N_, tdyn } from '../../i18n/i18n.js';
 
 // the window's pages, one at a time: a finished page slides away and is reached again only with 뒤로
 const STEPS = [['file', N_('파일')], ['options', N_('분리 방식')], ['run', N_('분리')], ['result', N_('결과')], ['midi', N_('MIDI 변환')]];
+
+// the automatic mixing's settings for a candidate, in words (the % column's tooltip)
+function mixText(S, mx) {
+  const pct = (v) => `${Math.round(v)}%`, sg = (v) => `${v > 0 ? '+' : ''}${v}dB`, fq = (f) => (f >= 1000 ? `${(f / 1000).toFixed(1)}kHz` : `${f}Hz`);
+  const bits = [];
+  const bands = [];
+  for (const p of mx.eq || []) {
+    if (p.low) bands.push(`${fq(p.lowF)}↓ ${sg(p.low)}`);
+    if (p.mid) bands.push(`${fq(p.midF)} ${sg(p.mid)}`);
+    if (p.high) bands.push(`${fq(p.highF)}↑ ${sg(p.high)}`);
+  }
+  if (bands.length) bits.push(t('EQ {bands}', { bands: bands.join(', ') }));
+  bits.push(t('리버브 {n}', { n: pct(mx.send * 100) }));
+  if (mx.env) bits.push(t('어택 ×{a} · 릴리스 ×{r}', { a: mx.env.a, r: mx.env.r }));
+  if (mx.layer) bits.push(t('레이어 {name} {n}', { name: candName(S, mx.layer.id), n: pct(mx.layer.w * 100) }));
+  return t('이 구간에 맞춰 믹스를 조정했어요. 조정 전 {acc}, {what}', { acc: pct(mx.acc0), what: bits.join(' · ') });
+}
 
 // a measured sound in words (timbre.describe), for the parts MeloFi has no close match for
 function soundText(d) {
@@ -97,7 +114,7 @@ export class AiSheet {
   // mode: install | reinstall (start over; the old engine stays until the new one passes) | update
   async setupEngine(mode = 'install') {
     if (this.busy) return;
-    if (mode === 'reinstall' && !confirm(t('분석 엔진을 처음부터 다시 설치할까요? 약 3 GB를 다시 받아요. 받아 둔 모델과 토큰은 그대로 두고, 새 엔진이 점검을 통과할 때까지 지금 엔진도 지우지 않아요.'))) return;
+    if (mode === 'reinstall' && !confirm(t('분석 엔진을 다시 설치할까요? 약 3 GB를 새로 받아요. 받아 둔 모델과 토큰은 그대로 두고, 새 엔진이 점검을 통과할 때까지 지금 엔진도 지우지 않아요.'))) return;
     this.busy = 'setup'; this.progress = 0; this.stage = null; this.stemLabel = t('설치를 준비하는 중…'); this.stemDetail = ''; this.error = null;
     this.log = []; this.t0 = Date.now(); this.render();
     const r = await window.melofi.stemsSetup({ mode });
@@ -137,7 +154,7 @@ export class AiSheet {
       }
     } catch (err) {
       this.file = null;
-      this.error = t('이 파일에서 오디오를 불러올 수 없습니다. WAV, MP3, MP4(AAC) 파일을 사용해 보세요.');
+      this.error = t('오디오를 불러올 수 없는 파일이에요. WAV, MP3, MP4(AAC) 파일을 사용해 주세요.');
     }
     this.busy = null;
     this.render();
@@ -149,6 +166,7 @@ export class AiSheet {
     const seq = this.seq = (this.seq || 0) + 1;
     const stale = () => seq !== this.seq;
     const file = this.file;
+    const again = !!this.stems; // 이 방식으로 다시 분리: a fresh run, not the saved result
     this.error = null; this.stems = null; this.plan = null; this.choice = null; this.fromCache = null; this.stopPreview();
     this.log = []; this.t0 = Date.now();
     try {
@@ -157,7 +175,7 @@ export class AiSheet {
       this.addLog(g ? t('GPU: {name} · 여유 메모리 {free} GB · 사용률 {util}%', { name: g.name, free: (g.freeMB / 1024).toFixed(1), util: g.util }) : t('GPU: 없음 (CPU로 처리)'));
       this.busy = 'stems'; this.progress = 0; this.stemLabel = t('분리를 시작하는 중…'); this.stemDetail = ''; this.step = 'run'; this.render();
       this.addLog(t('분리 시작: {file} · 분리 {sep} · 채보 {notes}', { file: file.name, sep: this.sepMode === 'fast' ? t('빠르게') : tc('sep', '전체'), notes: this.mus === 'off' ? 'Basic Pitch' : `MuScriptor ${this.mus}` }));
-      const r = await window.melofi.stemsRun({ name: file.name, data: file.data, quick: this.sepMode === 'fast', muscriptor: this.engine.hfToken ? this.mus : 'off' });
+      const r = await window.melofi.stemsRun({ name: file.name, data: file.data, quick: this.sepMode === 'fast', muscriptor: this.engine.hfToken ? this.mus : 'off', fresh: again });
       if (stale()) return;
       if (!r.ok) throw new Error(r.message);
       if (r.cached) this.addLog(t('저장된 결과를 다시 썼어요 (분리·박자는 건너뜀).'));
@@ -184,12 +202,22 @@ export class AiSheet {
       // elapsed and a rough time left from the pace so far (only once there is enough to go on)
       if (this.etaEl) {
         const sec = this.t0 ? (Date.now() - this.t0) / 1000 : 0, mmss = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, '0')}`;
-        this.etaEl.textContent = !sec ? '' : p > 0.05 && p < 0.995 ? t('{elapsed} 지남 · 약 {left} 남음', { elapsed: mmss(sec), left: mmss((sec * (1 - p)) / p) }) : t('{elapsed} 지남', { elapsed: mmss(sec) });
+        // time left from the recent pace (the last ~90 s), not the average since the start: the stages
+        // run at very different speeds, so the average said 6 minutes where 4 were left
+        const now = Date.now(), hist = (this.etaHist ||= []);
+        if (!hist.length || p < hist.at(-1).p) hist.length = 0;
+        if (!hist.length || now - hist.at(-1).t > 1000) hist.push({ t: now, p });
+        while (hist.length > 2 && now - hist[1].t > 90000) hist.shift();
+        const h0 = hist[0], rate = h0 && now - h0.t > 15000 && p > h0.p ? (p - h0.p) / ((now - h0.t) / 1000) : 0;
+        const own = /남은 시간|left/i.test(tdyn(this.stemLabel || '')); // the stage says its own time left (MuScriptor)
+        this.etaEl.textContent = !sec ? '' : rate > 0 && p < 0.995 && !own ? t('{elapsed} 지남 · 약 {left} 남음', { elapsed: mmss(sec), left: mmss((1 - p) / rate) }) : t('{elapsed} 지남', { elapsed: mmss(sec) });
       }
     }
     if (this.stageEl) {
       const known = typeof this.stage === 'number';
       this.stageEl.parentElement.classList.toggle('busy', !known);
+      // the timbre comparison reports only the whole run: no stage row then (a sliding bar said nothing)
+      this.stageEl.parentElement.parentElement.hidden = !known && this.busy === 'analyse';
       this.stageEl.style.width = known ? `${Math.round(this.stage * 100)}%` : '';
       this.stagePct.textContent = known ? `${Math.round(this.stage * 100)}%` : '';
     }
@@ -248,9 +276,12 @@ export class AiSheet {
 
   async recognize() {
     this.busy = 'analyse'; this.progress = 0; this.stage = null; this.stemLabel = t('악기를 알아보는 중…'); this.error = null;
+    this.cancelMatch = false; // 취소 while recognising or comparing
+    const cancelled = () => { this.busy = null; this.cancelMatch = false; this.addLog(t('MIDI 변환을 취소했어요.')); this.render(); };
     this.addLog(t('악기 인식 시작 (AST · AudioSet)'));
     this.render();
     const r = await window.melofi.stemsInstruments(this.cacheDir);
+    if (this.cancelMatch) return cancelled();
     this.busy = null;
     if (!r.ok) { this.error = r.message; this.render(); return; }
     this.inst = r.result;
@@ -258,11 +289,11 @@ export class AiSheet {
     // every section is compared with MeloFi's instruments and synth presets by ear (timbre.js):
     // the candidates play the section's own notes and are measured against the separated sound
     this.busy = 'analyse'; this.progress = 0; this.stemLabel = t('어울리는 악기를 찾는 중…'); this.render();
-    this.addLog(t('음색 비교 시작: 구간마다 후보 악기가 같은 음표를 연주해 원음과 비교해요'));
+    this.addLog(t('음색 비교를 시작해요. 구간마다 후보 악기로 같은 음표를 연주해 원음과 비교해요.'));
     const t0 = performance.now();
     try {
-      await matchAll(this.S, this.stems, plan, { onProgress: (p, label) => { this.progress = p; this.stemLabel = label ? t('음색 비교 중 · {what}', { what: label }) : t('음색 비교 중…'); this.renderProgress(); if (this.barEl) this.barEl.style.width = `${Math.round(p * 100)}%`; } });
-    } catch (err) { this.addLog(t('음색 비교 실패: {why}', { why: err.message })); }
+      await matchAll(this.S, this.stems, plan, { onProgress: (p, label) => { if (this.cancelMatch) throw new Error('cancelled'); this.progress = p; this.stemLabel = label ? t('음색 비교 중 · {what}', { what: label }) : t('음색 비교 중…'); this.renderProgress(); if (this.barEl) this.barEl.style.width = `${Math.round(p * 100)}%`; } });
+    } catch (err) { if (this.cancelMatch) return cancelled(); this.addLog(t('음색 비교 실패: {why}', { why: err.message })); }
     this.busy = null;
     this.plan = plan;
     // the best match for every group, unless the user picked one already; stray parts stay out
@@ -272,7 +303,7 @@ export class AiSheet {
       if (!(key in this.choice)) this.choice[key] = g.stray ? null : candidates(this.S, k, g)[0]?.id || null;
     }
     const n = Object.values(this.plan.stems).flat().filter((g) => !g.stray).length;
-    this.addLog(t('음색 비교 끝 ({s}초): 구간 {n}개, 90% 이상 {good}개', { s: Math.round((performance.now() - t0) / 1000), n, good: Object.values(this.plan.stems).flat().filter((g) => !g.stray && (g.match?.cands?.[0]?.acc || 0) >= 90).length }));
+    this.addLog(t('음색 비교가 끝났어요 ({s}초). 구간 {n}개 중 {good}개가 90% 이상 맞아요.', { s: Math.round((performance.now() - t0) / 1000), n, good: Object.values(this.plan.stems).flat().filter((g) => !g.stray && (g.match?.cands?.[0]?.acc || 0) >= 90).length }));
     this.render();
   }
 
@@ -280,7 +311,7 @@ export class AiSheet {
   async previewOriginal(k, g) {
     const id = `o-${k}-${g.cat}`;
     if (this.playing === id) return this.stopPreview();
-    await this.preview(id, this.stems.stems[k], this.plan.bars[g.secs[0].start]);
+    await this.preview(id, this.stems.stems[k], highlightStart(this.stems, k, g, this.plan.bars)); // the busy part, not a quiet start
   }
 
   async previewCandidate(k, g) {
@@ -293,8 +324,8 @@ export class AiSheet {
       // an instrument not downloaded yet has no samples to play: fetch it first
       const meta = this.S.app.instruments.find((i) => i.id === instId);
       if (meta && !meta.installed) {
-        if (!meta.downloadable) throw new Error(t('{name}은(는) 이 PC에 없어서 들어볼 수 없어요', { name: meta.name }));
-        this.S.app.ui.toast(t('{name}을(를) 받는 중이에요. 받는 대로 들려드릴게요.', { name: meta.name }), { ms: 3000 });
+        if (!meta.downloadable) throw new Error(t('{name}이(가) 이 PC에 없어 미리 들을 수 없어요.', { name: meta.name }));
+        this.S.app.ui.toast(t('{name}을(를) 받고 있어요. 다 받으면 바로 들려드릴게요.', { name: meta.name }), { ms: 3000 });
         const r = await this.S.app.downloadInstrument(instId, { quiet: true });
         if (!r?.ok && !this.S.app.instruments.find((i) => i.id === instId)?.installed) throw new Error(t('{name}을(를) 받지 못했어요', { name: meta.name }));
         if (this.playing !== id) return;
@@ -334,12 +365,12 @@ export class AiSheet {
     const head = h('b', {}, t('MIDI로 변환 · 악기 자동 지정'));
     if (!eng.instruments) {
       return h('div', { class: 'ai-step' }, head,
-        h('p', {}, t('분리한 트랙을 구간별로 듣고 어울리는 악기를 골라 MIDI로 바꿔요. 먼저 악기 인식 구성 요소가 필요해요 (약 10MB, 처음 실행할 때 모델 약 350MB를 내려받아요).')),
+        h('p', {}, t('분리한 트랙을 구간별로 듣고 어울리는 악기를 골라 MIDI로 바꿔요. 먼저 악기 인식 도구(약 10MB)를 설치해야 하고, 처음 실행할 때 모델(약 350MB)을 더 받아요.')),
         h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.addInstruments() }, t('악기 인식 설치'))));
     }
     if (!this.plan) {
       return h('div', { class: 'ai-step' }, head,
-        h('p', {}, t('트랙마다 어떤 악기 소리인지 알아보고 마디 단위 구간으로 나눈 뒤, 구간마다 MeloFi 악기와 신스 프리셋으로 같은 음표를 연주해 원음과 음색을 비교해요. 곡 하나에 1~3분 걸려요.')),
+        h('p', {}, t('트랙마다 어떤 악기인지 알아보고 마디 단위로 나눈 뒤, MeloFi 악기와 신스 프리셋으로 같은 음표를 연주해 원음과 비교해요. 곡당 1~3분쯤 걸려요.')),
         h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn primary', disabled: !!this.busy, onclick: () => this.recognize() }, t('악기 알아보기'))));
     }
     const rows = [], strays = [], missing = [];
@@ -349,24 +380,25 @@ export class AiSheet {
       const measured = best?.acc != null;
       const sel = h('select', { class: 'mc-sel', onchange: (e) => { this.choice[key] = e.target.value || null; if (this.playing?.startsWith('c-')) this.stopPreview(); else this.render(); } },
         ...cands.map((c, i) => h('option', { value: c.id, selected: c.id === cur },
-          measured ? `${pct(c.acc)} · ${c.name} (${c.kind})${i === 0 ? ' ★' : ''}${c.installed ? '' : c.downloadable ? t(' · 받기') : ''}`
+          measured ? `${pct(c.acc)} · ${c.name} (${c.kind})${c.mix ? (c.mix.layer ? t(' · 믹스 맞춤 + {name}', { name: candName(this.S, c.mix.layer.id) }) : t(' · 믹스 맞춤')) : ''}${i === 0 ? ' ★' : ''}${c.installed ? '' : c.downloadable ? t(' · 받기') : ''}`
             : `${c.recommended ? t('★ 추천 · ') : ''}${c.name}${i === 0 || cands[i - 1].cat !== c.cat ? ` — ${t('{cat}: 인식 {n}%', { cat: t(CATS[c.cat][0]), n: Math.round(c.share * 100) })}` : ''}${c.installed ? '' : c.downloadable ? t(' (받기)') : ''}`)),
         h('option', { value: '', selected: !cur }, t('넣지 않음')));
       const pick = cands.find((c) => c.id === cur);
       const why = pick?.parts ? (pick.parts.n != null ? t('배음 {h} · 스펙트럼 {c} · 소리 모양 {e} · 잡음 {n}', { h: pct(pick.parts.h ?? 0), c: pct(pick.parts.c ?? 0), e: pct(pick.parts.e ?? 0), n: pct(pick.parts.n) }) : t('배음 {h} · 스펙트럼 {c} · 소리 모양 {e}', { h: pct(pick.parts.h ?? 0), c: pct(pick.parts.c ?? 0), e: pct(pick.parts.e ?? 0) })) : '';
       const oId = `o-${k}-${g.cat}`, cId = `c-${k}-${g.cat}`;
       const label = measured ? best.kind : t(CATS[g.label][0]);
-      const tip = stray ? t('{why}: 다른 악기에서 새어 들어온 소리거나 잘못 알아본 것일 가능성이 커서 기본은 빼 두었어요', { why: g.heard <= 2 ? t('곡 전체에서 {n}번만 들려요', { n: g.heard }) : t('음표가 {n}개뿐이에요', { n: g.notes }) })
+      const tip = stray ? t('{why}: 다른 악기 소리가 섞였거나 잘못 알아들었을 가능성이 커서 기본 선택에서 뺐어요.', { why: g.heard <= 2 ? t('곡 전체에서 {n}번만 들려요', { n: g.heard }) : t('음표가 {n}개뿐이에요', { n: g.notes }) })
         : g.match?.vocal ? t('노래는 악기가 아니에요: 가사와 목소리는 보컬 합성으로 옮기는 게 맞아서 음색 비교를 하지 않았어요. 멜로디만 악기로 듣고 싶으면 골라 주세요')
         : g.match?.unmeasured ? t('이 구간은 음이 또렷하지 않아 음색을 재지 못했어요') : '';
       const el = h('div', { class: `mc-row${stray ? ' thin' : ''}`, title: tip },
         h('span', { class: 'mc-cat' }, stray ? `${tc('stem', STEM_NAMES[k])} · ` : '', label, stray ? h('small', {}, t(' · 음표 {n}', { n: g.notes })) : null),
         h('span', { class: 'mc-range', title: rangeText(g.secs) }, rangeText(g.secs)),
         sel,
-        h('span', { class: `mc-acc${measured && best.acc >= 90 ? ' ok' : ''}`, title: why ? t('고른 악기와 원음의 닮은 정도: {why}', { why }) : '' }, pick?.acc != null ? pct(pick.acc) : '—'),
+        h('span', { class: `mc-acc${measured && best.acc >= 90 ? ' ok' : ''}`, title: why ? t('고른 악기와 원음의 닮은 정도: {why}', { why }) + (pick?.mix ? `
+${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : '—'),
         h('button', { class: `btn sm ghost${this.playing === oId ? ' on' : ''}`, title: t('분리한 원음 듣기'), onclick: () => this.previewOriginal(k, g) }, this.playing === oId ? t('■ 원음') : t('▶ 원음')),
         h('button', { class: `btn sm ghost${this.playing === cId ? ' on' : ''}`, disabled: !cur, title: t('고른 악기로 이 구간의 음표 듣기 (8초)'), onclick: () => this.previewCandidate(k, g) }, this.playing === cId ? t('■ 악기') : t('▶ 악기')));
-      if (!stray && measured && best.acc < 90) missing.push(h('li', {}, t('{stem} {range}: 가장 가까운 {name}도 {acc}. {sound}', { stem: tc('stem', STEM_NAMES[k]), range: rangeText(g.secs), name: best.name, acc: pct(best.acc), sound: soundText(g.match.desc) })));
+      if (!stray && measured && best.acc < 90) missing.push(h('li', {}, t('{stem} {range}: 가장 비슷한 {name}도 {acc}예요. {sound}', { stem: tc('stem', STEM_NAMES[k]), range: rangeText(g.secs), name: best.name, acc: pct(best.acc), sound: soundText(g.match.desc) })));
       return el;
     };
     for (const [k, groups] of Object.entries(this.plan.stems)) {
@@ -375,11 +407,11 @@ export class AiSheet {
       for (const g of valid) rows.push(row(k, g, false));
       for (const g of groups.filter((x) => x.stray)) strays.push(row(k, g, true));
     }
-    if (strays.length) rows.push(h('div', { class: 'mc-stem dim' }, t('한두 번만 들리는 소리 · 잡음이나 잘못 알아본 것일 수 있어요')), ...strays);
+    if (strays.length) rows.push(h('div', { class: 'mc-stem dim' }, t('한두 번만 들리는 소리예요. 잡음이거나 잘못 알아들은 소리일 수 있어요.')), ...strays);
     return h('div', { class: 'ai-step' }, head,
-      h('p', { class: 'dim' }, t('구간마다 MeloFi의 악기와 신스 프리셋이 그 구간의 음표를 직접 연주해 보고, 원음과 배음 · 스펙트럼 · 소리 모양(어택과 감쇠) · 잡음을 비교한 닮은 정도예요. 가장 닮은 것이 골라져 있어요. 원음과 들어 보고 바꿔 주세요.')),
+      h('p', { class: 'dim' }, t('MeloFi 악기와 신스 프리셋이 구간마다 그 음표를 직접 연주해 원음과 비교한 닮은 정도예요. 배음, 스펙트럼, 소리 모양, 잡음을 따져 가장 닮은 악기를 골라 뒀으니 원음과 들어 보고 바꿔 주세요.')),
       h('div', { class: 'mc-table' }, ...rows),
-      missing.length ? h('details', { class: 'mc-missing' }, h('summary', {}, t('90%에 못 미친 구간 {n}개 · MeloFi에 아직 없는 악기일 수 있어요', { n: missing.length })), h('ul', {}, ...missing)) : null,
+      missing.length ? h('details', { class: 'mc-missing' }, h('summary', {}, t('90%에 못 미치는 구간이 {n}개 있어요. MeloFi에 아직 없는 악기일 수 있어요.', { n: missing.length })), h('ul', {}, ...missing)) : null,
       h('div', { class: 'row' },
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.keepAudio !== false, onchange: (e) => { this.keepAudio = e.target.checked; } }), t(' 분리한 원음도 넣기 (음소거, 비교용)')),
         h('span', { class: 'sp' }),
@@ -495,7 +527,7 @@ export class AiSheet {
       // the separation engine: open-source models on this computer
       !eng.ready ? h('div', { class: 'ai-engine' },
         h('b', {}, t('분리 엔진 설치')),
-        h('p', { class: 'dim' }, t('악기별 음원 분리(BS-RoFormer · BS-RoFormer SW 6-stem · DrumSep), 박자 분석(Beat This!), 채보(Basic Pitch)를 이 컴퓨터에서 실행합니다. Python을 따로 깔 필요 없이 버튼 하나로 설치돼요. 처음 한 번 {size} (빈 공간 6 GB 필요, 중간에 멈추면 이어서 받아요).', { size: eng.gpu ? t('약 3.5 GB를 받고 NVIDIA GPU로 빠르게 처리해요') : t('약 1.5 GB를 받아요. GPU가 없으면 한 곡에 몇 분 걸려요') })),
+        h('p', { class: 'dim' }, t('이 PC에서 음원 분리(BS-RoFormer, BS-RoFormer SW 6-stem, DrumSep), 박자 분석(Beat This!), 채보(Basic Pitch)를 실행해요. Python을 따로 깔 필요 없이 버튼 하나로 설치돼요. 처음 한 번 {size}. 빈 공간 6 GB가 필요하고, 중간에 멈춰도 이어서 받아요.', { size: eng.gpu ? t('약 3.5 GB를 받고 NVIDIA GPU로 빠르게 처리해요') : t('약 1.5 GB를 받아요. GPU가 없으면 한 곡에 몇 분 걸려요') })),
         eng.reason ? h('p', { class: 'cl-msg err' }, t('엔진을 쓸 수 없는 이유: {why}', { why: tdyn(eng.reason) })) : null,
         h('div', { class: 'row' }, h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.setupEngine('install') }, t('엔진 설치')),
           h('button', { class: 'btn sm ghost', disabled: !!this.busy, onclick: async () => { this.engine = await window.melofi.stemsStatus(); if (this.engine.ready && this.audio) this.step = 'options'; this.render(); } }, t('다시 확인')))) : null);
@@ -505,7 +537,7 @@ export class AiSheet {
     const bars = ['stems', 'analyse', 'setup'].includes(this.busy);
     return h('div', { class: 'ai-busy' },
       h('div', { class: 'ai-prog-head' }, this.progEl = h('span', { class: 'ai-prog-label' }), this.etaEl = h('span', { class: 'ai-prog-eta' }),
-        this.busy === 'stems' || this.busy === 'setup' ? h('button', { class: 'btn sm ghost', onclick: () => { window.melofi.stemsCancel(); this.addLog(t('취소를 요청했어요.')); } }, t('취소')) : null),
+        this.busy === 'stems' || this.busy === 'setup' || this.busy === 'analyse' ? h('button', { class: 'btn sm ghost', onclick: () => { if (this.busy === 'analyse') this.cancelMatch = true; window.melofi.stemsCancel(); this.addLog(t('취소를 요청했어요.')); } }, t('취소')) : null),
       bars ? h('div', { class: 'ai-meter', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100 }, this.barEl = h('i', {}, this.allPct = h('b'))) : null,
       bars ? h('div', { class: 'ai-substage' }, h('span', {}, t('현재 단계')), h('div', { class: 'ai-bar stage' }, this.stageEl = h('i')), this.stagePct = h('em')) : null,
       this.busy === 'setup' ? (() => { const log = h('pre', { class: 'ai-log' }, this.log.join('\n')); this.logEl = log; requestAnimationFrame(() => { if (this.logEl) this.logEl.scrollTop = this.logEl.scrollHeight; }); return log; })() : null);
@@ -563,13 +595,15 @@ export class AiSheet {
     const short = engine && usable && free < need && !g.ours;
     this.gpuShort = short;
     const gpuLine = !engine ? null : !g
-      ? h('p', { class: 'cl-msg err' }, t('NVIDIA GPU를 찾지 못했어요. 프로세서(CPU)로 처리해서 아주 오래 걸려요 (예상 시간에 반영).'))
-      : h('div', { class: `ai-gpu${short ? ' bad' : g.util > 40 ? ' warn' : ''}` },
+      ? h('p', { class: 'cl-msg err' }, t('NVIDIA GPU를 찾지 못해 CPU로 처리해요. 아주 오래 걸릴 수 있어요(예상 시간에 반영).'))
+      : h('div', { class: `ai-gpu${short ? ' bad' : g.util > 40 && !this.busy ? ' warn' : ''}` },
         h('b', {}, g.name),
         h('span', {}, t('그래픽 메모리 {total} GB 중 {free} GB 비어 있음 · 사용률 {util}%', { total: (g.totalMB / 1024).toFixed(1), free: (g.freeMB / 1024).toFixed(1), util: g.util })),
-        this.gpuInfo.screen ? h('span', {}, this.gpuInfo.screen.vendor === 'NVIDIA' ? t('MeloFi 화면(피아노 비주얼라이저)은 이 GPU에서 그려요. 분석 중에는 피아노 창을 닫거나 최소화하면 더 빨라요.') : t('MeloFi 화면(피아노 비주얼라이저)은 {vendor} 내장 그래픽에서 그려서 분석과 겹치지 않아요.', { vendor: this.gpuInfo.screen.vendor })) : null,
+        this.gpuInfo.screen ? h('span', {}, this.gpuInfo.screen.vendor === 'NVIDIA' ? t('이 GPU에서 MeloFi 피아노 화면도 함께 그려요. 분석하는 동안 피아노 창을 닫거나 최소화하면 더 빨라져요.') : t('MeloFi 화면(피아노 비주얼라이저)은 {vendor} 내장 그래픽에서 그려서 분석과 겹치지 않아요.', { vendor: this.gpuInfo.screen.vendor })) : null,
         short ? h('span', { class: 'err' }, t('MuScriptor {model}에는 약 {gb} GB가 필요해요. GPU를 쓰는 다른 프로그램을 닫거나 더 작은 모델을 골라 주세요.', { model: this.mus, gb: (need / 1024).toFixed(1) })) : null,
-        !short && g.util > 40 ? h('span', { class: 'warn' }, t('다른 작업이 GPU를 {util}% 쓰고 있어요{apps}. 그대로 시작하면 느려질 수 있어요.', { util: g.util, apps: others.length ? ` (${[...new Set(others)].join(', ')})` : '' })) : null,
+        // while MeloFi's own analysis runs, the load is ours: no warning about "other work"
+        this.busy ? h('span', {}, t('분석에 GPU 사용 중 ({util}%)', { util: g.util }))
+          : !short && g.util > 40 ? h('span', { class: 'warn' }, t('다른 앱이 GPU를 {util}% 쓰고 있어요{apps}. 그대로 시작하면 느려질 수 있어요.', { util: g.util, apps: others.length ? ` (${[...new Set(others)].join(', ')})` : '' })) : null,
         h('span', { class: 'ai-live', title: t('2초마다 새로 읽어요') }, t('실시간')));
     const done = this.stems ? (this.stems.muscriptor?.notes ? this.stems.muscriptor.model : 'off') : null;
     return h('div', { class: 'ai-step' },
@@ -579,11 +613,11 @@ export class AiSheet {
         engine ? row(t('채보 방식'), h('span', { class: 'ai-opt-ctl' },
           sel(this.mus, [['off', t('Basic Pitch · 분리한 악기마다, 사용 제한 없음')], ['small', t('MuScriptor small · 가장 빠름')], ['medium', t('MuScriptor medium · 균형')], ['large', t('MuScriptor large · 가장 정확, 느림')]], setMus),
           this.mus !== 'off' ? h('span', { class: 'ai-nc' }, t('비상업 전용 · CC BY-NC 4.0')) : null)) : null),
-      engine && this.mus !== 'off' ? h('p', { class: 'dim' }, t('곡 전체에서 피아노·기타·베이스·현악·관악·신스·보컬·드럼 등 약 35가지 악기로 나눠 받아 적어요. 결과를 상업적으로 쓸 수는 없어요.')) : null,
+      engine && this.mus !== 'off' ? h('p', { class: 'dim' }, t('곡 전체에서 피아노, 기타, 베이스, 현악, 관악, 신스, 보컬, 드럼 등 약 35가지 악기를 나눠 받아 적어요. 결과를 상업적으로 쓸 수는 없어요.')) : null,
       needToken ? (() => {
         const inp = h('input', { type: 'password', class: 'cl-in', placeholder: 'hf_…', style: 'max-width:300px' });
         return h('div', {},
-          h('p', { class: 'dim' }, t('MuScriptor를 쓰려면 처음 한 번: huggingface.co/MuScriptor/muscriptor-{model} 에서 로그인한 뒤 라이선스(CC BY-NC 4.0)에 동의하고, huggingface.co/settings/tokens 에서 읽기(Read) 토큰을 만들어 넣어 주세요. 토큰은 이 PC에만 암호화해 저장해요.', { model: this.mus })),
+          h('p', { class: 'dim' }, t('MuScriptor를 처음 쓰려면 huggingface.co/MuScriptor/muscriptor-{model} 에서 로그인해 라이선스(CC BY-NC 4.0)에 동의한 뒤, huggingface.co/settings/tokens 에서 읽기(Read) 토큰을 만들어 넣어 주세요. 토큰은 이 PC에만 암호화해 저장해요.', { model: this.mus })),
           h('div', { class: 'row' }, inp, h('button', { class: 'btn sm', onclick: async () => { const r = await window.melofi.stemsSetToken(inp.value); if (!r.ok) this.error = r.message; this.engine = await window.melofi.stemsStatus(); this.render(); } }, t('저장'))));
       })() : null,
       engine && this.mus !== 'off' && eng.hfToken ? h('div', { class: 'row' }, h('span', { class: 'dim' }, t('HuggingFace 토큰이 저장돼 있어요.')),
@@ -625,7 +659,7 @@ export class AiSheet {
     const total = r.times?.total;
     return h('div', { class: 'ai-step' },
       h('b', {}, t('악기별 분리 · 박자 · 채보')),
-      this.fromCache ? h('p', { class: 'dim' }, t('전에 분리해 둔 결과를 바로 불러왔어요 (채보: {how}). 다른 방식으로 다시 하려면 ← 뒤로.', { how: this.fromCache === 'off' ? 'Basic Pitch' : `MuScriptor ${this.fromCache}` })) : null,
+      this.fromCache ? h('p', { class: 'dim' }, t('전에 분리해 둔 결과를 바로 불러왔어요 (채보: {how}). 다른 방식으로 다시 하려면 ← 뒤로를 누르세요.', { how: this.fromCache === 'off' ? 'Basic Pitch' : `MuScriptor ${this.fromCache}` })) : null,
       h('div', { class: 'ai-facts' },
         fact(t('템포'), `${Math.round(r.bpm * 10) / 10} BPM`), fact(t('박자'), `${r.meter >= 2 && r.meter <= 7 ? r.meter : 4}/4`), fact(tc('music', '키'), `${PC[r.key.root]} ${r.key.mode === 'minor' ? t('마이너') : t('메이저')}`),
         fact(t('첫 마디'), t('{n}초', { n: r.first_downbeat.toFixed(2) })), fact(t('처리'), `${r.device === 'cuda' ? 'GPU' : 'CPU'}${total ? ` · ${t('{n}초', { n: Math.round(total) })}` : ''}`)),
@@ -660,17 +694,20 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
   p.sig = [r.meter >= 2 && r.meter <= 7 ? r.meter : 4, 4]; // older analyses could say 1
   p.scale = { root: r.key.root, type: r.key.mode === 'minor' ? 'minor' : 'major' };
   const db = cleanDownbeats(r.downbeats || [], r.beats || [], p.sig[0]);
+  let gridT0 = r.first_downbeat || 0; // where bar 1 starts in the recording
   // tempo per bar when the song drifts (a live band) so bars keep lining up with the recording
   if (db.length > 3) {
     // one straight line through the downbeats: a steady song keeps one tempo; the beat tracker's
-    // ~20 ms wobble per bar is not a tempo change
-    const n = db.length, xm = (n - 1) / 2, ym = db.reduce((a, t) => a + t, 0) / n;
-    let sxy = 0, sxx = 0; db.forEach((t, i) => { sxy += (i - xm) * (t - ym); sxx += (i - xm) ** 2; });
-    const barSec = sxy / sxx, worst = Math.max(...db.map((t, i) => Math.abs(t - (ym + (i - xm) * barSec))));
-    if (worst < Math.min(0.06, barSec * 0.04)) p.bpm = Math.round(((60 * p.sig[0]) / barSec) * 100) / 100;
+    // ~20 ms wobble per bar is not a tempo change, and neither are a few downbeats it put half a
+    // bar off (an intro read in the wrong phase): those stay out of the line instead of turning
+    // the whole song into per-bar tempos
+    const fit = barFit(db);
+    if (fit.steady) { p.bpm = Math.round(((60 * p.sig[0]) / fit.barSec) * 100) / 100; gridT0 = fit.t0; }
     else {
-      // a real drift (a live band): tempo per bar, smoothed over 5 bars so the wobble stays out
-      const raw = db.slice(1).map((t, i) => t - db[i]);
+      // a real drift (a live band): tempo per bar, smoothed over 5 bars so the wobble stays out;
+      // a bar far off the song's usual length is a tracker slip, not a tempo, and takes the usual
+      const raw0 = db.slice(1).map((t, i) => t - db[i]), usual = raw0.slice().sort((a, b) => a - b)[raw0.length >> 1];
+      const raw = raw0.map((d) => (Math.abs(d / usual - 1) > 0.15 ? usual : d));
       const sm = raw.map((_, i) => { const w = raw.slice(Math.max(0, i - 2), i + 3).sort((x, y) => x - y); return w[w.length >> 1]; });
       const bars = sm.map((d) => (60 * p.sig[0]) / d);
       p.bpm = Math.round(bars[0] * 100) / 100;
@@ -699,7 +736,7 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
     }
   }
   p.mode = 'song';
-  const t0 = mm.changes.length ? mm.bars[0].t : r.first_downbeat || 0;
+  const t0 = mm.changes.length ? mm.bars[0].t : gridT0;
   const tickOf = (sec) => Math.max(0, Math.round(secToTick(p, Math.max(0, sec - t0), 'song')));
   const NAMES = { vocals: t('리드 보컬'), backing: tc('stem', '코러스'), drums: t('드럼'), bass: t('베이스'), guitar: t('기타'), piano: t('피아노'), other: t('그 밖의 악기') };
   const INST = { vocals: ['synlead', 'splendid'], backing: ['chorus', 'oohs'], bass: ['fingerbass', 'ebass'], guitar: ['cleanguitar', 'acoustic'], piano: ['splendid', 'salamander'], other: ['synpad', 'strings'] };
@@ -817,6 +854,26 @@ export function meterMap(r) {
   if (!spb.length || spb.some((x) => Math.abs(x / m - 1) > 0.12)) return { meter, bars, changes: [], unsteady: true };
   const changes = bars.map((b, i) => ({ bar: i, beats: b.beats })).filter((c) => c.beats !== meter);
   return { meter, bars, changes };
+}
+
+// A straight bar grid through the downbeats that ignores the ones the tracker put off it. The bar
+// length comes from bars half a song apart (one slip barely moves it), the phase from the median,
+// then a least-squares pass over the downbeats within 15% of a bar. Steady when 80% of them sit
+// within 60 ms (or 4% of a bar) of the line. t0 = the first bar line at or after 0 s.
+export function barFit(db) {
+  const n = db.length, med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+  if (n < 4) return { steady: false };
+  const hop = Math.max(1, n >> 1);
+  let s = med(db.slice(hop).map((t, i) => (t - db[i]) / hop)), a = med(db.map((t, i) => t - s * i));
+  for (let pass = 0; pass < 2; pass++) {
+    const ix = db.map((_, i) => i).filter((i) => Math.abs(db[i] - (a + s * i)) < 0.15 * s);
+    if (ix.length < 3) break;
+    const xm = ix.reduce((q, i) => q + i, 0) / ix.length, ym = ix.reduce((q, i) => q + db[i], 0) / ix.length;
+    let sxy = 0, sxx = 0; for (const i of ix) { sxy += (i - xm) * (db[i] - ym); sxx += (i - xm) ** 2; }
+    s = sxy / sxx; a = ym - s * xm;
+  }
+  const tol = Math.min(0.06, s * 0.04), inl = db.filter((t, i) => Math.abs(t - (a + s * i)) < tol).length;
+  return { steady: s > 0 && inl >= 0.8 * n, barSec: s, t0: a - Math.floor(a / s + 1e-6) * s, inliers: inl / n };
 }
 
 export function cleanDownbeats(db, beats = [], meter = 4) {

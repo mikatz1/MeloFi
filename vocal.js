@@ -101,6 +101,7 @@ function register(ipcMain, { app }) {
   const script = (n) => path.join(TOOLS, n);
   const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
   let busy = null, child = null, dl = null;
+  module.exports.busyNow = () => busy; // the updater asks before restarting (updater.js)
 
   const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
   const stemsPy = () => (process.env.MELOFI_VOCAL_PYTHON && exists(process.env.MELOFI_VOCAL_PYTHON) ? process.env.MELOFI_VOCAL_PYTHON : exists(STEMS_PY()) ? STEMS_PY() : null);

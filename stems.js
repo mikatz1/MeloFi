@@ -43,6 +43,7 @@ function register(ipcMain, { app, findFfmpeg }) {
   const INST_SCRIPT = path.join(__dirname, 'tools', 'stems', 'instruments.py').replace('app.asar', 'app.asar.unpacked');
   const python = () => (fs.existsSync(VENV_PY()) ? VENV_PY() : null);
   let busy = null, child = null;
+  module.exports.busyNow = () => busy; // the updater asks before restarting (updater.js)
   const installer = createInstaller({ root: ROOT, models: MODELS, run, scriptDir: path.dirname(SCRIPT) });
 
   const hasGpu = async () => (await run('nvidia-smi', ['-L'])).code === 0;
@@ -168,8 +169,10 @@ function register(ipcMain, { app, findFfmpeg }) {
     try {
       const out = path.join(CACHE(), hash);
       const done = path.join(out, 'result.json');
+      // 다시 분리 (payload.fresh): the saved result of this song and way is dropped and it runs again
+      if (payload.fresh) await fsp.rm(out, { recursive: true, force: true });
       // results kept under the older one-folder-per-MuScriptor-choice names move to the song's folder
-      if (!fs.existsSync(done)) {
+      if (!fs.existsSync(done) && !payload.fresh) {
         for (const m of ['off', 'small', 'medium', 'large']) {
           const old = path.join(CACHE(), crypto.createHash('sha1').update(data).update(payload.quick ? 'q' : 'f').update(`m:${m}`).digest('hex').slice(0, 16));
           const oldRes = path.join(old, 'result.json');

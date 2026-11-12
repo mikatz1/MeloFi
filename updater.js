@@ -105,14 +105,54 @@ function register(ipcMain, { app, BrowserWindow, settingsFile, log, quiet = fals
   let updater = null;
   try { updater = require('electron-updater').autoUpdater; } catch (err) { log('warn', `electron-updater not available: ${err.message}`); }
   const enabled = () => { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).updateCheck !== false; } catch { return true; } };
+  // Only an installed copy updates itself: a copy run from elsewhere (an unpacked build folder) would
+  // download and install into the installed copy while it keeps running unchanged, and keep offering
+  // the same version. The NSIS install folder has its uninstaller next to the app.
+  const path = require('node:path');
+  const installed = !app.isPackaged || process.platform !== 'win32' || fs.existsSync(path.join(path.dirname(process.execPath), `Uninstall ${app.getName()}.exe`));
+  if (!installed) log('info', 'updates off: not running from an installed copy');
   const ctl = createUpdateController({
-    updater, currentVersion: app.getVersion(), isPackaged: app.isPackaged, enabled, log,
+    updater: installed ? updater : null, currentVersion: app.getVersion(), isPackaged: app.isPackaged, enabled, log,
     broadcast: (s) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('update:state', s); },
   });
   ipcMain.handle('update:state', () => ctl.state());
   ipcMain.handle('update:check', () => ctl.check({ manual: true }));
   ipcMain.handle('update:download', () => ctl.download());
-  ipcMain.handle('update:restart', () => ctl.restart());
+  // Restart: AI work (separation, engine install, singing, instrument matching in a window) would be
+  // cut off, so the window is told and the user chooses: after it ends, or now. And the app must come
+  // back after the install: the installer starts it through the Start-menu shortcut, which can fail
+  // quietly; a small detached watcher starts MeloFi itself if it is not running once the installer is
+  // gone (the single-instance lock keeps it from opening twice).
+  const aiBusy = async () => {
+    const main = [require('./stems.js').busyNow?.(), require('./vocal.js').busyNow?.()].find(Boolean);
+    if (main) return main;
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue;
+      try { const b = await w.webContents.executeJavaScript('window.__melofiAiBusy || null', true); if (b) return b; } catch { /* page busy or gone */ }
+    }
+    return null;
+  };
+  const relaunchWatcher = () => {
+    if (process.platform !== 'win32' || !app.isPackaged) return;
+    const exe = process.execPath.replace(/'/g, "''");
+    const ps = `Start-Sleep 4; $t = 0; while ((Get-Process -Name 'MeloFi-Setup*' -ErrorAction SilentlyContinue) -and $t -lt 300) { Start-Sleep 1; $t++ }; Start-Sleep 3; if (-not (Get-Process -Name 'MeloFi' -ErrorAction SilentlyContinue)) { Start-Process -FilePath '${exe}' -ArgumentList '--updated' }`;
+    try {
+      const { spawn } = require('node:child_process');
+      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch (err) { log('warn', `relaunch watcher: ${err.message}`); }
+  };
+  let waitIdle = null;
+  const restartNow = () => { if (ctl.state().phase !== 'ready') return false; relaunchWatcher(); return ctl.restart(); };
+  ipcMain.handle('update:restart', async (_e, opts = {}) => {
+    if (ctl.state().phase !== 'ready') return false;
+    if (opts.whenIdle) {
+      clearInterval(waitIdle);
+      waitIdle = setInterval(async () => { if (!(await aiBusy())) { clearInterval(waitIdle); waitIdle = null; restartNow(); } }, 2000);
+      return { waiting: true };
+    }
+    if (!opts.force) { const busy = await aiBusy(); if (busy) return { busy }; }
+    return restartNow();
+  });
   ipcMain.handle('update:dismiss', () => ctl.dismiss());
   if (!quiet) ctl.start();
   return ctl;

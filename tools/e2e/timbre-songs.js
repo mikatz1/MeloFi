@@ -17,7 +17,7 @@ for (const [si, dir] of (args.dirs || []).entries()) {
   const r = await readJson(`${dir}\\result.json`), inst = await readJson(`${dir}\\instruments.json`);
   if (!r || !inst) { console.log('TSONG ' + JSON.stringify({ dir, error: 'missing result or instruments' })); continue; }
   const plan = M.sections(r, inst);
-  await M.matchAll(S, r, plan, { onProgress: () => {}, normalize: args.normalize !== false, synthSearch: args.synthSearch !== false, reverb: args.reverb !== false });
+  await M.matchAll(S, r, plan, { onProgress: () => {}, normalize: args.normalize !== false, synthSearch: args.synthSearch !== false, reverb: args.reverb !== false, mix: args.mix !== false });
   const rows = [];
   for (const [k, groups] of Object.entries(plan.stems)) for (const g of groups) {
     const m = g.match || {}, best = m.cands?.[0];
@@ -31,6 +31,7 @@ for (const [si, dir] of (args.dirs || []).entries()) {
       parts: best?.parts, top: (m.cands || []).slice(0, 5).map((c) => `${c.id} ${c.acc}`), tried: m.cands?.length || 0, desc: m.desc, error: m.error,
     };
     row.room = m.room || null;
+    row.mix = best?.mix || null;
     rows.push(row);
     if (g.stray) summary.stray++;
     else if (m.vocal) summary.vocal++;

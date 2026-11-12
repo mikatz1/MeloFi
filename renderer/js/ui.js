@@ -217,6 +217,7 @@ export class UI {
       return [
         tick(app.fullscreen, M.fullscreen, () => app.action('fullscreen'), { key: 'F5' }),
         tick(v.streamMode, M.stream, () => this.s.set({ streamMode: !v.streamMode })),
+        tick(v.keyList, M.keyList, () => this.s.set({ keyList: !v.keyList })),
         { label: M.winSize, sub: [
           ...WINDOW_SIZES.map(([w, hh]) => ({ label: `${w} × ${hh}`, hint: hh === 720 ? '720p' : hh === 1080 ? '1080p' : '', act: () => this.app.setWindowSize(w, hh) })),
           { sep: true },
@@ -600,7 +601,7 @@ export class UI {
         h('span', {}, h('i', { class: 'chip', style: `background:${ink ? (k === 'rh' ? '#15130f' : '#a3271a') : (this.s.get(k === 'rh' ? 'rhColor' : 'lhColor') || HAND_COLORS[k])}` }), label)) : []));
     }
     $('#tpPlay i').className = `ic ${P.playing ? 'pause' : 'play'}`;
-    const now = P.now();
+    const now = Math.max(0, P.now()); // the lead-in before the first note reads 0:00
     if (!this.seeking) {
       $('#tpPos').textContent = fmtTime(now);
       const f = Math.min(1, now / (P.duration || 1));
@@ -829,6 +830,7 @@ export class UI {
       this.row(S.speed, this.slider(0.4, 2.2, 0.05, v.speed, (x) => `${x.toFixed(2)}×`, (x) => this.set({ speed: x }))),
       this.row(S.labels, this.seg(Object.entries(S.labelKinds), v.labels, (x) => this.s.set({ labels: x }))),
       this.row(S.noteNames, this.seg(Object.entries(S.noteNameKinds), v.noteNames, (x) => this.s.set({ noteNames: x }))),
+      this.row(S.keyList, this.toggle(v.keyList, (x) => this.s.set({ keyList: x })), S.keyListHint),
       this.row(S.range, this.seg([[88, '88'], [61, '61'], [49, '49']], v.range, (x) => this.s.set({ range: x }))),
       this.row(T.menu.zoom, this.seg([[1, '100'], [1.25, '125'], [1.5, '150'], [2, '200'], [3, '300']], v.kbZoom, (x) => this.s.set({ kbZoom: x }))),
       this.row(T.menu.noteColor, this.select(Object.entries(T.menu.noteColorKinds), v.noteColor, (x) => this.s.set({ noteColor: x }))),

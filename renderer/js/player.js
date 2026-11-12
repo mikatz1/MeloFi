@@ -37,6 +37,7 @@ export class ScorePlayer {
     this.rate = 1;
     this.timers = new Set();
     this.onChange = () => {};
+    this.leadIn = () => 0; // seconds the falling notes need to come down from the top (app sets it)
   }
 
   get ctx() { return this.app.engine.ctx; }
@@ -63,9 +64,14 @@ export class ScorePlayer {
     this.onChange();
   }
 
+  // Played from the start, the song waits until its first notes have come down from the top of
+  // the screen: time runs from -lead to 0 first (nothing sounds yet), so a song whose first note
+  // is at 0 s does not open with its notes already sitting on the keys. now() is negative then.
+  lead() { return this.events.length ? Math.max(0, (this.leadIn() || 0) - this.events[0].t) : 0; }
+
   now() {
-    if (!this.playing) return this.pos;
-    return Math.max(0, this.startPos + (this.ctx.currentTime - this.startCtx) * this.rate);
+    if (!this.playing) return this.pos === 0 ? -this.lead() : this.pos;
+    return this.startPos + (this.ctx.currentTime - this.startCtx) * this.rate;
   }
 
   play() {
@@ -73,7 +79,7 @@ export class ScorePlayer {
     if (this.pos >= this.duration) this.pos = 0;
     if (this.ctx.state !== 'running') this.ctx.resume();
     this.startCtx = this.ctx.currentTime + 0.06;
-    this.startPos = this.pos;
+    this.startPos = this.pos === 0 ? -this.lead() : this.pos;
     this.idx = this.lower(this.events, this.pos);
     this.pidx = this.lower(this.pedals, this.pos);
     // pedal state at the seek point

@@ -143,7 +143,7 @@ contextBridge.exposeInMainWorld('melofi', {
   updateState: () => ipcRenderer.invoke('update:state'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateDownload: () => ipcRenderer.invoke('update:download'),
-  updateRestart: () => ipcRenderer.invoke('update:restart'),
+  updateRestart: (opts) => ipcRenderer.invoke('update:restart', opts), // { force, whenIdle }
   updateDismiss: () => ipcRenderer.invoke('update:dismiss'),
   onUpdateState: (cb) => ipcRenderer.on('update:state', (_e, s) => cb(s)),
   reportInfo: () => ipcRenderer.invoke('report:info'),

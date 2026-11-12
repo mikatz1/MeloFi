@@ -1511,6 +1511,9 @@ export class Stage {
 
   // Note bars for this frame, the same list for both renderers:
   // rising bars for what was played, or (falling mode) a loaded score's notes coming down to the keys.
+  // seconds a falling note takes from the top of the screen to the key line
+  fallSeconds() { return this.top / (this.H * 0.21 * this.opts.speed); }
+
   barShapes() {
     const { top, H, dpr } = this;
     const speed = H * 0.21 * this.opts.speed;
