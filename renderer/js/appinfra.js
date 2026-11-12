@@ -10,7 +10,7 @@ const CSS = `
   border: 1px solid var(--line-2, #30323a); border-radius: 3px; box-shadow: 0 6px 22px #0009; font: 12px/1.4 var(--ui, sans-serif); user-select: none; }
 .mf-upd .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mf-upd .t small { color: var(--dim, #8b8983); margin-left: 6px; }
-.mf-upd button { height: 22px; padding: 0 9px; border: 1px solid var(--line-2, #30323a); border-radius: 2px; background: #0d0e12; color: inherit; font: inherit; }
+.mf-upd button { height: 22px; padding: 0 9px; border: 1px solid var(--line-2, #30323a); border-radius: 2px; background: var(--s-ctl-2, #0d0e12); color: inherit; font: inherit; }
 .mf-upd button:hover { border-color: var(--accent, #e0a440); }
 .mf-upd button.go { background: var(--accent, #e0a440); border-color: var(--accent, #e0a440); color: #0b0b0b; }
 .mf-upd button.x { width: 22px; padding: 0; border-color: transparent; background: none; color: var(--dim, #8b8983); }
@@ -21,16 +21,16 @@ const CSS = `
   padding: 14px 16px 12px; background: var(--panel, #131418); border: 1px solid var(--line-2, #30323a); border-radius: 3px; box-shadow: 0 12px 40px #000a; }
 .mf-rep h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .mf-rep p { margin: 0; color: var(--dim, #8b8983); }
-.mf-rep textarea { height: 84px; resize: vertical; padding: 6px 8px; background: #0b0c0f; color: inherit; border: 1px solid var(--line-2, #30323a); border-radius: 2px; font: inherit; user-select: text; }
+.mf-rep textarea { height: 84px; resize: vertical; padding: 6px 8px; background: var(--s-well, #0b0c0f); color: inherit; border: 1px solid var(--line-2, #30323a); border-radius: 2px; font: inherit; user-select: text; }
 .mf-rep textarea:focus { outline: none; border-color: var(--accent, #e0a440); }
 .mf-rep .lbl { margin-top: 2px; color: var(--dim, #8b8983); font-size: 11.5px; }
-.mf-rep pre { margin: 0; padding: 6px 8px; overflow: auto; background: #0b0c0f; border: 1px solid var(--line, #24252b); border-radius: 2px;
-  font: 11px/1.45 var(--mono, monospace); color: #bdbab3; white-space: pre-wrap; word-break: break-all; user-select: text; }
+.mf-rep pre { margin: 0; padding: 6px 8px; overflow: auto; background: var(--s-well, #0b0c0f); border: 1px solid var(--line, #24252b); border-radius: 2px;
+  font: 11px/1.45 var(--mono, monospace); color: var(--s-body-2, #bdbab3); white-space: pre-wrap; word-break: break-all; user-select: text; }
 .mf-rep pre.sys { max-height: 120px; }
 .mf-rep pre.err { max-height: 170px; min-height: 40px; }
 .mf-rep .row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .mf-rep .row .sp { flex: 1; }
-.mf-rep .row button { height: 26px; padding: 0 12px; border: 1px solid var(--line-2, #30323a); border-radius: 2px; background: #0d0e12; color: inherit; font: inherit; }
+.mf-rep .row button { height: 26px; padding: 0 12px; border: 1px solid var(--line-2, #30323a); border-radius: 2px; background: var(--s-ctl-2, #0d0e12); color: inherit; font: inherit; }
 .mf-rep .row button:hover { border-color: var(--accent, #e0a440); }
 .mf-rep .row button.go { background: var(--accent, #e0a440); border-color: var(--accent, #e0a440); color: #0b0b0b; }
 .mf-rep .row button.link { border-color: transparent; background: none; color: var(--dim, #8b8983); padding: 0 4px; }

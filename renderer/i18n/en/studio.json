@@ -364,5 +364,8 @@
   "패턴 길이": "Pattern length",
   "{n}마디": "{n} {n|bar|bars}",
   "스윙: 짝수 16분음표를 뒤로 밀어 그루브 주기": "Swing: push every second 16th back for groove",
-  "스윙": "Swing"
+  "스윙": "Swing",
+  "테마": "Theme",
+  "다크": "Dark",
+  "화이트": "White"
 }

@@ -4,6 +4,7 @@ import { h } from './dom.js';
 import { STAGES, PROGRESSIONS, GROOVES, DEFAULTS, build } from '../riffmachine.js';
 import { PPQ, STEP, barTicks, pattern } from '../model.js';
 import { t, N_ } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 export class RiffWizard {
   constructor(studio) {
@@ -82,11 +83,12 @@ export class RiffWizard {
 
   draw() {
     const notes = this.notes(), g = this.cv.getContext('2d'), W = this.cv.width, H = this.cv.height;
-    g.fillStyle = '#121317'; g.fillRect(0, 0, W, H);
+    const P = studioPalette();
+    g.fillStyle = P.riffBg; g.fillRect(0, 0, W, H);
     if (!notes.length) return;
     const end = Math.max(...notes.map((x) => x.t + x.d), 16 * STEP), lo = Math.min(...notes.map((x) => x.n)) - 2, hi = Math.max(...notes.map((x) => x.n)) + 2;
     const xs = W / end, ys = H / (hi - lo + 1);
-    g.fillStyle = '#23242b';
+    g.fillStyle = P.riffGrid;
     for (let b = 0; b * 16 * STEP < end; b++) g.fillRect(Math.round(b * 16 * STEP * xs), 0, 1, H);
     for (const x of notes) {
       g.globalAlpha = 0.45 + 0.55 * (x.v / 127);

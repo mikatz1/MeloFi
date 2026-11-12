@@ -3,9 +3,17 @@
 // pitch line snapping to the grid…). Everything is drawn on one canvas, so it costs nothing when
 // hidden, follows the studio's accent colour and freezes on a still frame for reduced motion.
 import { t, N_ } from '../../i18n/i18n.js';
+import { studioTheme } from './theme.js';
 
 const W = 300, H = 132;
-const C = { bg: '#121318', panel: '#191a20', grid: '#1f2027', line: '#2b2c33', txt: '#d6d3cc', dim: '#77756e', blue: '#7fb0ff', green: '#9fd67a', pink: '#e77fb3', purple: '#c8a2ff', teal: '#5fd8d0', red: '#e5534b', white: '#ece9e2' };
+// the demo's colours follow the studio's theme (set in Demo.show)
+const DARK = { bg: '#121318', panel: '#191a20', grid: '#1f2027', line: '#2b2c33', txt: '#d6d3cc', dim: '#77756e', blue: '#7fb0ff', green: '#9fd67a', pink: '#e77fb3', purple: '#c8a2ff', teal: '#5fd8d0', red: '#e5534b', white: '#ece9e2', cursor: '#ece9e2',
+  btn: '#26272e', btnHi: '#3a3b43', item: '#23242b', stepB: '#2e2f37', key: '#2a2b32', head: '#1d1e24', lane: '#17181d', mute: '#4a4b52', grey: '#8b8983', roll: '#16171c', rowB: '#131418', rowW: '#1a1b21', keyB: '#1b1c22', keyW: '#d9d6cf',
+  gridS: '#22232a', gridB: '#30313a', panelOn: '#22232b', well: '#0b0c0f', bg2: '#101115', recOff: '#5a2a28', pianoB: '#17181c', pianoW: '#e9e6df', pianoInk: '#7a776f', beat: '#ece9e2', beatOff: '#2a2b32' };
+const WHITE = { ...DARK, bg: '#f4f4f6', panel: '#e6e7ea', grid: '#dcdde0', line: '#b4b6bb', txt: '#26272b', dim: '#5d5f64', blue: '#4f8fe8', green: '#4f9e3c', pink: '#d0508f', purple: '#8a62d8', teal: '#22a49b', red: '#d0383e', white: '#1b1c1f',
+  btn: '#d6d7db', btnHi: '#a9abb0', item: '#dfe0e3', stepB: '#c8cace', key: '#f7f7f8', head: '#e1e2e5', lane: '#eeeff1', mute: '#aeb0b5', grey: '#a3a5aa', roll: '#e2e3e6', rowB: '#e9eaed', rowW: '#f4f4f6', keyB: '#2a2b30', keyW: '#fbfbfc',
+  gridS: '#d3d4d8', gridB: '#9c9ea4', panelOn: '#f8f1e4', well: '#a9abb0', bg2: '#f4f4f6', recOff: '#e3b9b7', pianoB: '#2a2b30', pianoW: '#ffffff', pianoInk: '#5d5f64', beat: '#c3c5ca', beatOff: '#d6d7db' };
+const C = { ...DARK };
 let A = '#e8a15d'; // accent, read from the page when a demo starts
 
 // ---------- helpers ----------
@@ -28,12 +36,12 @@ function cursor(g, x, y, down = 0) {
   if (down > 0) { g.beginPath(); g.arc(x, y, 6 + 10 * down, 0, Math.PI * 2); g.strokeStyle = `rgba(232,161,93,${0.6 * (1 - down)})`; g.lineWidth = 2; g.stroke(); }
   g.save(); g.translate(x, y); g.scale(down > 0 && down < 0.4 ? 0.9 : 1, down > 0 && down < 0.4 ? 0.9 : 1);
   g.beginPath(); g.moveTo(0, 0); g.lineTo(0, 15); g.lineTo(4, 11.5); g.lineTo(7, 18); g.lineTo(9.5, 17); g.lineTo(6.5, 10.5); g.lineTo(11.5, 10.5); g.closePath();
-  g.fillStyle = C.white; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.2; g.stroke(); g.restore();
+  g.fillStyle = C.cursor; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.2; g.stroke(); g.restore();
 }
 function keycap(g, x, y, label, down, w = 0) {
   const ww = w || Math.max(26, label.length * 7.5 + 14), dy = down ? 2 : 0;
-  rr(g, x, y + 4, ww, 26, 5, '#0b0c0f');
-  rr(g, x, y + dy, ww, 26, 5, down ? A : '#2a2b32', down ? null : '#3a3b43');
+  rr(g, x, y + 4, ww, 26, 5, C.well);
+  rr(g, x, y + dy, ww, 26, 5, down ? A : C.key, down ? null : C.btnHi);
   text(g, label, x + ww / 2, y + 13 + dy, { color: down ? '#1b1308' : C.white, size: 12, weight: 600, align: 'center', font: 'Consolas, "Cascadia Mono", monospace' });
   return ww;
 }
@@ -50,20 +58,20 @@ function stepRow(g, x, y, w, h, on, color, lit = 16, head = -1) {
   const cw = w / 16;
   for (let i = 0; i < 16; i++) {
     const isOn = on.has(i) && i < lit;
-    const base = Math.floor(i / 4) % 2 ? '#26272e' : '#2e2f37';
+    const base = Math.floor(i / 4) % 2 ? C.btn : C.stepB;
     rr(g, x + i * cw + 1, y, cw - 2, h, 2, isOn ? color : base);
     if (i === head) rr(g, x + i * cw + 1, y, cw - 2, h, 2, 'rgba(255,255,255,0.18)');
   }
 }
 function rollBg(g, x, y, w, h, rows) {
-  rr(g, x, y, w, h, 3, '#16171c');
+  rr(g, x, y, w, h, 3, C.roll);
   const rh = h / rows;
   for (let r = 0; r < rows; r++) {
     const black = [1, 3, 6, 8, 10].includes((rows - 1 - r) % 12);
-    g.fillStyle = black ? '#131418' : '#1a1b21'; g.fillRect(x + 16, y + r * rh, w - 16, rh - 0.5);
-    g.fillStyle = black ? '#1b1c22' : '#d9d6cf'; g.fillRect(x, y + r * rh, 14, rh - 0.5);
+    g.fillStyle = black ? C.rowB : C.rowW; g.fillRect(x + 16, y + r * rh, w - 16, rh - 0.5);
+    g.fillStyle = black ? C.keyB : C.keyW; g.fillRect(x, y + r * rh, 14, rh - 0.5);
   }
-  for (let b = 0; b <= 8; b++) { g.fillStyle = b % 4 ? '#22232a' : '#30313a'; g.fillRect(x + 16 + b * (w - 16) / 8, y, 1, h); }
+  for (let b = 0; b <= 8; b++) { g.fillStyle = b % 4 ? C.gridS : C.gridB; g.fillRect(x + 16 + b * (w - 16) / 8, y, 1, h); }
   return { rh, cw: (w - 16) / 8, x0: x + 16 };
 }
 function note(g, x, y, w, h, color, a = 1) { g.globalAlpha = a; rr(g, x, y, w, h, 2, color); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x + w - 2, y + 1, 2, h - 2); g.globalAlpha = 1; }
@@ -87,11 +95,11 @@ function clip(g, x, y, w, h, color, label, kind = 'notes', seed = 1, prog = 1) {
   else for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x + 4 + i * (w - 8) / 6, y + 14 + ((i * 7 + seed * 3) % (h - 18)), (w - 8) / 8, 2.5); }
   g.restore();
 }
-function track(g, y, h, name) { rr(g, 6, y, 46, h - 2, 2, '#1d1e24'); text(g, name, 10, y + h / 2 - 1, { color: C.dim, size: 9 }); g.fillStyle = '#17181d'; g.fillRect(54, y, W - 60, h - 2); }
+function track(g, y, h, name) { rr(g, 6, y, 46, h - 2, 2, C.head); text(g, name, 10, y + h / 2 - 1, { color: C.dim, size: 9 }); g.fillStyle = C.lane; g.fillRect(54, y, W - 60, h - 2); }
 function playhead(g, x, y0, y1) { g.fillStyle = A; g.fillRect(x, y0, 1.5, y1 - y0); }
-function panel(g, x, y, w, h, title, on = false) { rr(g, x, y, w, h, 4, on ? '#22232b' : C.panel, on ? A : C.line); if (title) text(g, title, x + 7, y + 9, { color: on ? A : C.dim, size: 9, weight: 600 }); }
+function panel(g, x, y, w, h, title, on = false) { rr(g, x, y, w, h, 4, on ? C.panelOn : C.panel, on ? A : C.line); if (title) text(g, title, x + 7, y + 9, { color: on ? A : C.dim, size: 9, weight: 600 }); }
 function knob(g, x, y, r, v, label) {
-  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = '#26272e'; g.fill(); g.strokeStyle = '#3a3b43'; g.stroke();
+  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = C.btn; g.fill(); g.strokeStyle = C.btnHi; g.stroke();
   g.beginPath(); g.arc(x, y, r + 3, Math.PI * 0.75, Math.PI * (0.75 + 1.5 * v)); g.strokeStyle = A; g.lineWidth = 2; g.stroke(); g.lineWidth = 1;
   const a = Math.PI * (0.75 + 1.5 * v); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8); g.strokeStyle = C.white; g.lineWidth = 2; g.stroke(); g.lineWidth = 1;
   if (label) text(g, label, x, y + r + 11, { color: C.dim, size: 9, align: 'center' });
@@ -123,7 +131,7 @@ const D = {
     const bars = [[100, 56, 80], [128, 30, 106], [156, 70, 66]];
     bars.forEach(([x, y, h], i) => { const k = out(seg(p, 0.05 + i * 0.08, 0.35 + i * 0.08)); rr(g, x, y + h * (1 - k), 18, h * k, 9, C.white); });
     rr(g, 94, 112, 86 * out(seg(p, 0.35, 0.6)), 6, 3, A);
-    for (let i = 0; i < 13; i++) { const on = p > 0.55 + i * 0.025; g.beginPath(); g.arc(205 + (i % 7) * 12, 64 + Math.floor(i / 7) * 14, 4, 0, Math.PI * 2); g.fillStyle = on ? A : '#2e2f37'; g.fill(); }
+    for (let i = 0; i < 13; i++) { const on = p > 0.55 + i * 0.025; g.beginPath(); g.arc(205 + (i % 7) * 12, 64 + Math.floor(i / 7) * 14, 4, 0, Math.PI * 2); g.fillStyle = on ? A : C.stepB; g.fill(); }
     text(g, N_('13강'), 205, 102, { color: C.dim, size: 10 });
   } },
   layout: { dur: 6, draw(g, p) {
@@ -174,7 +182,7 @@ const D = {
     text(g, 'BPM', 90, 92, { color: C.dim, size: 11, align: 'center' });
     const beat = (p * 4 * (bpm / 90)) % 2, a = Math.sin(beat * Math.PI) * 0.5;
     g.save(); g.translate(215, 108); g.rotate(a); g.fillStyle = C.line; g.fillRect(-1.5, -72, 3, 72); rr(g, -8, -60, 16, 10, 2, A); g.restore();
-    rr(g, 190, 104, 50, 14, 3, '#26272e');
+    rr(g, 190, 104, 50, 14, 3, C.btn);
   } },
   rollDraw: { dur: 5.5, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 10);
@@ -192,7 +200,7 @@ const D = {
     if (k === 1) for (let i = 0; i < Math.floor(sub * 8); i++) note(g, R.x + i * 32, R.y + 12, 28, 10, A);
     else if (k === 0) { if (sub > 0.3) note(g, 120, 100, 50, 10, A); }
     else if (k === 2) { note(g, 120, 100, 50, 10, A, 1 - sub); }
-    else if (k === 3) { note(g, 120, 100, 50, 10, sub > 0.3 ? '#4a4b52' : A); }
+    else if (k === 3) { note(g, 120, 100, 50, 10, sub > 0.3 ? C.mute : A); }
     else if (k === 4) { note(g, 100, 100, 44, 10, A); note(g, 148, 100, 44, 10, A); if (sub < 0.5) { g.fillStyle = C.white; g.fillRect(146, 94, 1, 22); } }
     else { note(g, 90, 100, 40, 10, A); note(g, 150, 96, 40, 10, A); rr(g, 84, 90, 112 * out(sub), 26, 2, null, A); }
   } },
@@ -200,7 +208,7 @@ const D = {
     const R = rollBg(g, 10, 8, 280, 116, 12);
     const inC = [0, 2, 4, 5, 7, 9, 11], k = out(seg(p, 0.15, 0.5));
     for (let r = 0; r < 12; r++) { const pc = 11 - r; if (inC.includes(pc)) { g.fillStyle = `rgba(232,161,93,${0.16 * k})`; g.fillRect(R.x0, 8 + r * R.rh, 264, R.rh - 0.5); } else { g.fillStyle = `rgba(0,0,0,${0.35 * k})`; g.fillRect(R.x0, 8 + r * R.rh, 264, R.rh - 0.5); } }
-    rr(g, 200, 14, 80, 20, 3, '#26272e', C.line); text(g, N_('C  메이저'), 240, 24, { color: p > 0.1 ? A : C.dim, size: 10, align: 'center' });
+    rr(g, 200, 14, 80, 20, 3, C.btn, C.line); text(g, N_('C  메이저'), 240, 24, { color: p > 0.1 ? A : C.dim, size: 10, align: 'center' });
   } },
   chord: { dur: 3.5, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 12);
@@ -221,9 +229,9 @@ const D = {
     for (let i = 0; i < 12; i++) {
       const settle = out(seg(p, 0.2 + i * 0.02, 0.45 + i * 0.02)), rnd = hash(i + Math.floor(p * 8));
       const row = Math.round(lerp(rnd * 11, [8, 6, 4, 6, 7, 5, 3, 5, 8, 6, 4, 2][i], settle));
-      note(g, R.x0 + i * 22 + 2, 8 + row * R.rh + 1, 18, R.rh - 2, settle > 0.95 ? A : '#8b8983');
+      note(g, R.x0 + i * 22 + 2, 8 + row * R.rh + 1, 18, R.rh - 2, settle > 0.95 ? A : C.grey);
     }
-    steps.forEach((s, i) => { rr(g, 18 + i * 70, 112, 64, 14, 7, i <= st ? A : '#26272e'); text(g, s, 50 + i * 70, 119, { color: i <= st ? '#1b1308' : C.dim, size: 9, weight: 600, align: 'center' }); });
+    steps.forEach((s, i) => { rr(g, 18 + i * 70, 112, 64, 14, 7, i <= st ? A : C.btn); text(g, s, 50 + i * 70, 119, { color: i <= st ? '#1b1308' : C.dim, size: 9, weight: 600, align: 'center' }); });
   } },
   ghost: { dur: 3.6, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 12);
@@ -237,17 +245,17 @@ const D = {
     panel(g, 10 + 100 * k, 10, 280 - 100 * k, 112, N_('채널 랙'));
     g.save(); g.beginPath(); g.rect(10, 10, 96 * k, 112); g.clip();
     panel(g, 10, 10, 94, 112, N_('브라우저'), true);
-    ['Drums 128', 'Bass loop', 'Chords Am', 'Lead hook', 'Vox chop'].forEach((n, i) => { rr(g, 16, 26 + i * 18, 82, 14, 2, '#23242b'); text(g, n, 20, 33 + i * 18, { color: C.txt, size: 9 }); });
+    ['Drums 128', 'Bass loop', 'Chords Am', 'Lead hook', 'Vox chop'].forEach((n, i) => { rr(g, 16, 26 + i * 18, 82, 14, 2, C.item); text(g, n, 20, 33 + i * 18, { color: C.txt, size: 9 }); });
     g.restore();
     keycap(g, 214, 92, 'Alt+F8', p > 0.15 && p < 0.3, 60);
   } },
   dragDrop: { dur: 5, draw(g, p) {
     panel(g, 6, 8, 80, 116, N_('브라우저'), true);
-    ['Drums', 'Bass', 'Chords'].forEach((n, i) => { rr(g, 12, 24 + i * 18, 68, 14, 2, i === 0 && p > 0.15 && p < 0.6 ? '#3a3b43' : '#23242b'); text(g, n, 16, 31 + i * 18, { color: C.txt, size: 9 }); });
-    g.fillStyle = '#17181d'; g.fillRect(92, 8, 202, 116);
+    ['Drums', 'Bass', 'Chords'].forEach((n, i) => { rr(g, 12, 24 + i * 18, 68, 14, 2, i === 0 && p > 0.15 && p < 0.6 ? C.btnHi : C.item); text(g, n, 16, 31 + i * 18, { color: C.txt, size: 9 }); });
+    g.fillStyle = C.lane; g.fillRect(92, 8, 202, 116);
     for (let i = 0; i < 3; i++) { g.fillStyle = C.line; g.fillRect(92, 44 + i * 30, 202, 1); }
     const k = io(seg(p, 0.2, 0.6)), x = lerp(46, 110, k), y = lerp(31, 22, k);
-    if (p > 0.2 && p < 0.62) { g.globalAlpha = 0.8; rr(g, x - 30, y - 7, 70, 14, 2, '#3a3b43'); text(g, 'Drums', x - 26, y, { color: C.white, size: 9 }); g.globalAlpha = 1; }
+    if (p > 0.2 && p < 0.62) { g.globalAlpha = 0.8; rr(g, x - 30, y - 7, 70, 14, 2, C.btnHi); text(g, 'Drums', x - 26, y, { color: C.white, size: 9 }); g.globalAlpha = 1; }
     if (p >= 0.62) clip(g, 100, 12, 180, 30, A, 'Drums', 'kick', 3, out(seg(p, 0.62, 0.8)));
     path(g, p, [[0, 60, 110], [0.15, 40, 31, true], [0.6, 120, 24], [0.85, 200, 110]]);
   } },
@@ -258,7 +266,7 @@ const D = {
   } },
   starter: { dur: 6, draw(g, p) {
     const genres = [N_('트랩'), N_('하우스'), N_('로파이'), N_('케이팝')];
-    genres.forEach((n, i) => { rr(g, 10 + i * 70, 8, 62, 18, 9, i === 1 && p > 0.12 ? A : '#26272e'); text(g, n, 41 + i * 70, 17, { color: i === 1 && p > 0.12 ? '#1b1308' : C.txt, size: 10, weight: 600, align: 'center' }); });
+    genres.forEach((n, i) => { rr(g, 10 + i * 70, 8, 62, 18, 9, i === 1 && p > 0.12 ? A : C.btn); text(g, n, 41 + i * 70, 17, { color: i === 1 && p > 0.12 ? '#1b1308' : C.txt, size: 10, weight: 600, align: 'center' }); });
     const parts = [['Drums', A, 'kick'], ['Bass', C.blue], ['Chords', C.green], ['Lead', C.pink]];
     parts.forEach(([n, col, kind], i) => { track(g, 32 + i * 24, 24, n); const k = out(seg(p, 0.2 + i * 0.08, 0.3 + i * 0.08)); const shuffled = i === 3 && p > 0.72; if (k > 0) clip(g, 58, 33 + i * 24, 230, 20, shuffled ? C.purple : col, shuffled ? N_('Lead (셔플)') : n, kind || 'wave', shuffled ? 9 : i + 1, shuffled ? out(seg(p, 0.72, 0.85)) : k); });
     path(g, p, [[0, 150, 128], [0.1, 110, 17, true], [0.55, 200, 128], [0.68, 150, 110, true], [0.95, 220, 128]]);
@@ -284,12 +292,12 @@ const D = {
     const cut = p > 0.3; const gap = cut ? 4 * out(seg(p, 0.3, 0.4)) : 0;
     clip(g, 58, 32, cut ? 70 : 140, 29, A, N_('패턴')); if (cut) clip(g, 130 + gap, 32, 68, 29, A, N_('패턴'));
     if (p > 0.2 && p < 0.32) { g.fillStyle = C.white; g.fillRect(128, 28, 1.5, 38); }
-    clip(g, 58, 66, 140, 29, p > 0.7 ? '#4a4b52' : C.blue, p > 0.7 ? N_('뮤트됨') : N_('패턴'));
+    clip(g, 58, 66, 140, 29, p > 0.7 ? C.mute : C.blue, p > 0.7 ? N_('뮤트됨') : N_('패턴'));
     keycap(g, 220, 34, 'C', p > 0.15 && p < 0.3, 28); keycap(g, 220, 68, 'T', p > 0.6 && p < 0.72, 28);
   } },
   songmode: { dur: 6, draw(g, p) {
     const song = p > 0.5;
-    rr(g, 10, 8, 104, 22, 4, '#1d1e24'); rr(g, song ? 62 : 12, 10, 50, 18, 3, A);
+    rr(g, 10, 8, 104, 22, 4, C.head); rr(g, song ? 62 : 12, 10, 50, 18, 3, A);
     text(g, 'PAT', 37, 19, { color: song ? C.dim : '#1b1308', size: 10, weight: 700, align: 'center' }); text(g, 'SONG', 87, 19, { color: song ? '#1b1308' : C.dim, size: 10, weight: 700, align: 'center' });
     keycap(g, 124, 6, 'L', p > 0.45 && p < 0.55, 28);
     [A, C.blue, C.green].forEach((c, i) => { track(g, 40 + i * 28, 28, [N_('비트'), N_('베이스'), N_('코드')][i]); for (let b = 0; b < 5; b++) if (b >= i) clip(g, 58 + b * 46, 41 + i * 28, 44, 24, c, ''); });
@@ -300,12 +308,12 @@ const D = {
   picker: { dur: 5.5, draw(g, p, t, o) {
     panel(g, 8, 8, 120, 116, N_('채널 랙'));
     const added = p > 0.62;
-    ['Kick', 'Clap', 'Hat', 'Piano', ...(added ? [o.preset ? 'Super Saw' : 'Strings'] : [])].forEach((n, i) => { const k = i === 4 ? out(seg(p, 0.62, 0.75)) : 1; g.globalAlpha = k; rr(g, 14, 24 + i * 19, 108, 15, 2, i === 4 ? '#3a3b43' : '#23242b'); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); g.globalAlpha = 1; });
+    ['Kick', 'Clap', 'Hat', 'Piano', ...(added ? [o.preset ? 'Super Saw' : 'Strings'] : [])].forEach((n, i) => { const k = i === 4 ? out(seg(p, 0.62, 0.75)) : 1; g.globalAlpha = k; rr(g, 14, 24 + i * 19, 108, 15, 2, i === 4 ? C.btnHi : C.item); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); g.globalAlpha = 1; });
     const win = io(seg(p, 0.1, 0.3)) * (1 - seg(p, 0.55, 0.62));
     if (win > 0) {
       g.globalAlpha = win; panel(g, 140, 8 + (1 - win) * 10, 150, 116, o.preset ? N_('신스 프리셋') : N_('플러그인 피커'), true);
       const items = o.preset ? ['Bass · Reese', 'Lead · Super Saw', 'Pad · Warm', 'Pluck · Bell'] : ['Piano', 'Strings', 'Brass', 'Choir'];
-      items.forEach((n, i) => { const sel = i === 1 && p > 0.35; rr(g, 146, 26 + i * 22, 138, 18, 2, sel ? A : '#23242b'); text(g, n, 152, 35 + i * 22, { color: sel ? '#1b1308' : C.txt, size: 9.5 }); });
+      items.forEach((n, i) => { const sel = i === 1 && p > 0.35; rr(g, 146, 26 + i * 22, 138, 18, 2, sel ? A : C.item); text(g, n, 152, 35 + i * 22, { color: sel ? '#1b1308' : C.txt, size: 9.5 }); });
       g.globalAlpha = 1;
     }
     keycap(g, 92, 96, 'F8', p > 0.04 && p < 0.12, 30);
@@ -317,7 +325,7 @@ const D = {
   } },
   channelWin: { dur: 5, draw(g, p) {
     panel(g, 8, 8, 120, 116, N_('채널 랙'));
-    ['Kick', 'Clap', 'Piano'].forEach((n, i) => { rr(g, 14, 24 + i * 19, 108, 15, 2, i === 2 && p > 0.1 ? '#3a3b43' : '#23242b'); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); });
+    ['Kick', 'Clap', 'Piano'].forEach((n, i) => { rr(g, 14, 24 + i * 19, 108, 15, 2, i === 2 && p > 0.1 ? C.btnHi : C.item); text(g, n, 18, 31.5 + i * 19, { color: C.txt, size: 9 }); });
     const open = out(seg(p, 0.2, 0.35)), drag = io(seg(p, 0.5, 0.8));
     if (open > 0) {
       const x = lerp(120, 150, drag), y = lerp(30, 20, drag);
@@ -330,7 +338,7 @@ const D = {
   fx: { dur: 5, draw(g, p) {
     panel(g, 8, 8, 100, 116, 'Piano');
     const added = p > 0.35;
-    ['1  EQ', added ? '2  Reverb' : N_('2  (비어 있음)'), N_('3  (비어 있음)')].forEach((n, i) => { rr(g, 14, 24 + i * 18, 88, 14, 2, i === 1 && added ? A : '#23242b'); text(g, n, 18, 31 + i * 18, { color: i === 1 && added ? '#1b1308' : C.dim, size: 9 }); });
+    ['1  EQ', added ? '2  Reverb' : N_('2  (비어 있음)'), N_('3  (비어 있음)')].forEach((n, i) => { rr(g, 14, 24 + i * 18, 88, 14, 2, i === 1 && added ? A : C.item); text(g, n, 18, 31 + i * 18, { color: i === 1 && added ? '#1b1308' : C.dim, size: 9 }); });
     // a hit and its tail: dry first, then with a long reverb tail
     const wet = out(seg(p, 0.35, 0.55));
     g.strokeStyle = A; g.beginPath();
@@ -367,7 +375,7 @@ const D = {
   } },
   arm: { dur: 2.5, draw(g, p, t) {
     panel(g, 100, 10, 100, 112, 'Vocal');
-    const on = p > 0.2; g.beginPath(); g.arc(150, 92, 10, 0, Math.PI * 2); g.fillStyle = on ? C.red : '#26272e'; g.fill();
+    const on = p > 0.2; g.beginPath(); g.arc(150, 92, 10, 0, Math.PI * 2); g.fillStyle = on ? C.red : C.btn; g.fill();
     if (on) { g.beginPath(); g.arc(150, 92, 10 + 6 * ((t * 1.5) % 1), 0, Math.PI * 2); g.strokeStyle = `rgba(229,83,75,${1 - (t * 1.5) % 1})`; g.stroke(); }
     const lvl = on ? 0.3 + 0.6 * Math.abs(Math.sin(t * 7) * Math.sin(t * 3.1)) : 0; rr(g, 140, 70 - lvl * 44, 20, lvl * 44, 2, C.green);
     text(g, on ? N_('녹음 대기') : '', 150, 115, { color: C.red, size: 9, align: 'center' });
@@ -375,7 +383,7 @@ const D = {
   } },
   record: { dur: 4, draw(g, p, t) {
     keycap(g, 10, 10, 'R', p < 0.1, 28);
-    g.beginPath(); g.arc(56, 23, 6, 0, Math.PI * 2); g.fillStyle = p < 0.9 && Math.floor(t * 2) % 2 ? C.red : '#5a2a28'; g.fill();
+    g.beginPath(); g.arc(56, 23, 6, 0, Math.PI * 2); g.fillStyle = p < 0.9 && Math.floor(t * 2) % 2 ? C.red : C.recOff; g.fill();
     track(g, 46, 50, 'Vocal');
     clip(g, 58, 48, 230, 44, C.red, N_('녹음'), 'wave', 5, seg(p, 0.08, 0.9));
     playhead(g, 58 + seg(p, 0.08, 0.9) * 230, 44, 98);
@@ -390,18 +398,18 @@ const D = {
   } },
   keyboard: { dur: 3.5, draw(g, p) {
     const whites = 14, ww = 280 / whites, seq = [0, 2, 4, 5, 4, 2, 0, 7], hit = seq[Math.floor(p * seq.length)];
-    for (let i = 0; i < whites; i++) rr(g, 10 + i * ww, 20, ww - 1.5, 92, 2, i === hit ? A : '#e9e6df');
-    for (let i = 0; i < whites; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) rr(g, 10 + (i + 0.68) * ww, 20, ww * 0.64, 56, 2, '#17181c');
-    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K'].forEach((k, i) => text(g, k, 10 + (i + 0.5) * ww, 102, { color: i === hit ? '#1b1308' : '#7a776f', size: 9, align: 'center' }));
+    for (let i = 0; i < whites; i++) rr(g, 10 + i * ww, 20, ww - 1.5, 92, 2, i === hit ? A : C.pianoW);
+    for (let i = 0; i < whites; i++) if ([0, 1, 3, 4, 5].includes(i % 7)) rr(g, 10 + (i + 0.68) * ww, 20, ww * 0.64, 56, 2, C.pianoB);
+    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K'].forEach((k, i) => text(g, k, 10 + (i + 0.5) * ww, 102, { color: i === hit ? '#1b1308' : C.pianoInk, size: 9, align: 'center' }));
   } },
   metro: { dur: 2.4, draw(g, p) {
     const beat = Math.floor(p * 4);
-    for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(70 + i * 40, 52, i === beat ? 13 : 10, 0, Math.PI * 2); g.fillStyle = i === beat ? (i === 0 ? A : C.white) : '#2a2b32'; g.fill(); text(g, String(i + 1), 70 + i * 40, 52, { color: i === beat ? '#1b1308' : C.dim, size: 11, weight: 700, align: 'center' }); }
+    for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(70 + i * 40, 52, i === beat ? 13 : 10, 0, Math.PI * 2); g.fillStyle = i === beat ? (i === 0 ? A : C.beat) : C.beatOff; g.fill(); text(g, String(i + 1), 70 + i * 40, 52, { color: i === beat ? '#1b1308' : C.dim, size: 11, weight: 700, align: 'center' }); }
     keycap(g, 86, 92, 'Ctrl+M', p < 0.12, 58); keycap(g, 156, 92, 'Ctrl+P', false, 58);
   } },
   quantize: { dur: 4, draw(g, p) {
     const R = rollBg(g, 10, 8, 280, 116, 8), k = io(seg(p, 0.35, 0.6));
-    [[0.2, 5], [1.85, 3], [3.15, 4], [4.8, 2], [6.1, 3]].forEach(([b, r]) => { const grid = Math.round(b); note(g, R.x0 + lerp(b, grid, k) * R.cw + 2, 8 + r * R.rh + 1, R.cw - 4, R.rh - 2, k > 0.95 ? A : '#8b8983'); });
+    [[0.2, 5], [1.85, 3], [3.15, 4], [4.8, 2], [6.1, 3]].forEach(([b, r]) => { const grid = Math.round(b); note(g, R.x0 + lerp(b, grid, k) * R.cw + 2, 8 + r * R.rh + 1, R.cw - 4, R.rh - 2, k > 0.95 ? A : C.grey); });
     keycap(g, 196, 100, 'Ctrl+Alt+Q', p > 0.25 && p < 0.38, 86);
   } },
   export: { dur: 5, draw(g, p) {
@@ -409,17 +417,17 @@ const D = {
     [['WAV', 'Ctrl+R'], ['MP3', 'Ctrl+Shift+R'], ['MIDI', 'Ctrl+Shift+M']].forEach(([n, key], i) => {
       const k = out(seg(p, 0.15 + i * 0.18, 0.35 + i * 0.18)); if (k <= 0) return;
       const x = lerp(140, 166, k), y = 14 + i * 38; g.globalAlpha = k;
-      rr(g, x, y, 34, 30, 3, '#26272e', C.line); text(g, n, x + 17, y + 15, { color: C.white, size: 9, weight: 700, align: 'center' });
+      rr(g, x, y, 34, 30, 3, C.btn, C.line); text(g, n, x + 17, y + 15, { color: C.white, size: 9, weight: 700, align: 'center' });
       text(g, key, x + 42, y + 15, { color: C.dim, size: 9.5, font: 'Consolas, monospace' }); g.globalAlpha = 1;
     });
   } },
   stems: { dur: 5, draw(g, p) {
     const parts = [['Drums', A], ['Bass', C.blue], ['Chords', C.green], ['Lead', C.pink]];
     const k = io(seg(p, 0.25, 0.6));
-    parts.forEach(([n, col], i) => { const y = lerp(40 + i * 3, 10 + i * 29, k), x = lerp(20, 20, k); clip(g, x, y, 150, 24, col, n, 'wave', i + 2); if (k > 0.9) { rr(g, 190, y + 2, 92, 20, 3, '#26272e', C.line); text(g, `${n}.wav`, 198, y + 12, { color: C.txt, size: 9.5 }); } });
+    parts.forEach(([n, col], i) => { const y = lerp(40 + i * 3, 10 + i * 29, k), x = lerp(20, 20, k); clip(g, x, y, 150, 24, col, n, 'wave', i + 2); if (k > 0.9) { rr(g, 190, y + 2, 92, 20, 3, C.btn, C.line); text(g, `${n}.wav`, 198, y + 12, { color: C.txt, size: 9.5 }); } });
   } },
   windows: { dur: 6, draw(g, p) {
-    rr(g, 6, 6, 288, 120, 4, '#101115', C.line);
+    rr(g, 6, 6, 288, 120, 4, C.bg2, C.line);
     const k = io(seg(p, 0.15, 0.5)) * (1 - io(seg(p, 0.75, 0.95)));
     const P = [[N_('피아노 롤'), [126, 24, 162, 96], [22, 30, 150, 70]], [N_('플레이리스트'), [126, 24, 162, 96], [120, 14, 168, 64]], [N_('믹서'), [126, 24, 162, 96], [150, 66, 136, 56]]];
     panel(g, 12, 24, 108, 96, N_('채널 랙'));
@@ -431,7 +439,7 @@ const D = {
     const s = 1 + 0.12 * Math.sin(p * Math.PI * 2);
     g.save(); g.translate(150, 66); g.scale(s, s); g.translate(-150, -66);
     panel(g, 40, 20, 220, 92, '');
-    rr(g, 48, 28, 60, 14, 3, c); rr(g, 114, 28, 40, 14, 3, '#26272e'); rr(g, 160, 28, 40, 14, 3, '#26272e');
+    rr(g, 48, 28, 60, 14, 3, c); rr(g, 114, 28, 40, 14, 3, C.btn); rr(g, 160, 28, 40, 14, 3, C.btn);
     stepRow(g, 48, 56, 204, 14, new Set([0, 4, 8, 12]), c); stepRow(g, 48, 76, 204, 14, new Set([4, 12]), c);
     g.restore();
   } },
@@ -464,6 +472,7 @@ export class Demo {
     this.c.hidden = !d;
     if (!d) return null;
     A = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || A;
+    Object.assign(C, studioTheme() === 'white' ? WHITE : DARK);
     const t0 = performance.now();
     const frame = (now) => {
       // the first frame's time stamp can be a little before t0: never run a demo at a negative time

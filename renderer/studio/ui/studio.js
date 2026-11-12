@@ -33,10 +33,13 @@ import { takeInput, alignTake, audioOffsetSec, inputConstraints } from '../../js
 import { finish, encode, fmtLufs, fmtDb } from '../export-audio.js';
 import { TARGETS } from '../meter.js';
 import { MasteringWindow } from './mastering.js';
+import { STUDIO_THEMES, setStudioTheme, studioTheme, invalidatePalette } from './theme.js';
 import { T } from '../../js/strings.js';
 import { t, tc, tdyn, N_, langChoices, onLangChange, translateDom, locale } from '../../i18n/i18n.js';
 
 const SNAPS = [['bar', N_('마디')], [PPQ, '1/4'], [PPQ / 2, '1/8'], [STEP, '1/16'], [STEP / 2, '1/32'], [PPQ / 6, N_('1/16 셋잇단')], [1, N_('없음')]];
+// the studio's two colour themes as the menus name them
+const themeName = (k) => (k === 'white' ? t('화이트') : t('다크'));
 // 16 px line icons for the toolbar's window shortcuts (drawn in currentColor)
 const svg = (body) => `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="square">${body}</svg>`;
 const ICONS = {
@@ -131,6 +134,7 @@ export class Studio {
     }
     this.isOpen = true;
     document.body.classList.add('studio-open');
+    this.applyTheme();
     this.el.hidden = false;
     this.renderAll();
     requestAnimationFrame(() => { this.roll.resize(); this.playlist.resize(); this.roll.focusNotes(); });
@@ -148,6 +152,7 @@ export class Studio {
     this.isOpen = false;
     this.el.hidden = true;
     document.body.classList.remove('studio-open');
+    this.applyTheme(); // the piano window: back to its own colours
     clearInterval(this.autoTimer);
     autosave(this._proj);
     this.dirty = false;
@@ -903,18 +908,40 @@ export class Studio {
   }
 
   // FL Studio's "customize" lesson: size, accent colour, how tall tracks and rows are, panel width
+  look() { return { zoom: 100, accent: '', trackH: 0, rowH: 0, theme: 'dark', ...(this.app.settings.get('studioLook') || {}) }; }
+
   applyLook() {
-    const L = { zoom: 100, accent: '', trackH: 0, rowH: 0, ...(this.app.settings.get('studioLook') || {}) };
+    const L = this.look();
     if (this.app.studioWindow) window.melofi.setZoom?.(L.zoom / 100); // the studio's own window scales as a whole
     if (L.accent) document.documentElement.style.setProperty('--accent', L.accent); else document.documentElement.style.removeProperty('--accent');
     if (L.trackH && this.playlist) this.playlist.trackH = L.trackH;
     if (L.rowH && this.roll) this.roll.rowH = L.rowH;
+    this.applyTheme();
     requestAnimationFrame(() => { this.roll?.resize(); this.playlist?.resize(); });
   }
 
+  // 테마 (dark / white): on the page only while the composer is shown, so the piano window keeps its own look
+  applyTheme() {
+    setStudioTheme(this.look().theme, this.isOpen || this.app.studioWindow);
+    invalidatePalette(); // the accent may have changed too
+    const white = studioTheme() === 'white';
+    if (this.keysOpen) window.melofi.keysTheme?.(white ? 'white' : 'dark');
+    window.melofi.setTitleBarColors?.(white ? { color: '#d5d6d9', symbolColor: '#3a3b40', background: '#ebecee' } : { color: '#0d0e12', symbolColor: '#8d8b85', background: '#08090d' });
+    if (!this.el || !this.isOpen) return;
+    this.roll?.draw(); this.playlist?.draw();
+    if (this._chs && !this._chs.el.hidden) this._chs.render();
+    for (const w of [this._nt, this._rw]) if (w?.el && !w.el.hidden) w.draw?.(); // only the ones already made
+  }
+
+  setTheme(theme) {
+    this.app.settings.set({ studioLook: { ...(this.app.settings.get('studioLook') || {}), theme } });
+    this.applyTheme();
+  }
+
   async lookSheet() {
-    const L = { zoom: 100, accent: '', trackH: this.playlist.trackH, rowH: this.roll.rowH, ...(this.app.settings.get('studioLook') || {}) };
+    const L = { ...this.look(), trackH: this.playlist.trackH, rowH: this.roll.rowH, ...(this.app.settings.get('studioLook') || {}) };
     const v = await form(t('화면 꾸미기'), [
+      { key: 'theme', label: t('테마'), type: 'select', value: L.theme, options: STUDIO_THEMES.map((k) => [k, themeName(k)]) },
       { key: 'zoom', label: t('화면 크기 (%)'), type: 'select', value: L.zoom, options: [80, 90, 100, 110, 125, 140].map((z) => [z, `${z}%`]) },
       { key: 'accent', label: t('강조 색'), type: 'color', value: L.accent || getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e8a15d' },
       { key: 'trackH', label: t('플레이리스트 트랙 높이'), type: 'number', value: L.trackH, min: 28, max: 120 },
@@ -922,7 +949,8 @@ export class Studio {
       { key: 'reset', label: t('기본값으로 되돌리기'), type: 'check', value: false },
     ], { note: t('색상은 작곡 스튜디오에만 적용됩니다. 패널 너비는 채널 랙 오른쪽 경계를 드래그해 조절합니다.') });
     if (!v) return;
-    this.app.settings.set({ studioLook: v.reset ? null : { zoom: v.zoom, accent: v.accent, trackH: v.trackH, rowH: v.rowH } });
+    // the theme is chosen in the same sheet, so going back to the defaults keeps it
+    this.app.settings.set({ studioLook: v.reset ? (v.theme === 'dark' ? null : { theme: v.theme }) : { zoom: v.zoom, accent: v.accent, trackH: v.trackH, rowH: v.rowH, theme: v.theme } });
     if (v.reset) { this.playlist.trackH = 46; this.roll.rowH = 14; }
     this.applyLook();
   }
@@ -1124,7 +1152,7 @@ export class Studio {
       window.melofi.onKeysClosed(() => { this.keysOpen = false; this.renderToolbar(); });
     }
     this.keysOpen = !this.keysOpen;
-    if (this.keysOpen) window.melofi.openKeysWindow(); else window.melofi.closeKeysWindow();
+    if (this.keysOpen) window.melofi.openKeysWindow({ theme: studioTheme() }); else window.melofi.closeKeysWindow();
     this.renderToolbar();
   }
 
@@ -1430,6 +1458,8 @@ export class Studio {
         { ...act('loop', t('반복 구간')), check: !!proj.loopOn, disabled: !proj.loop },
         { sep: true },
         { label: t('단축키 설정…'), act: () => this.shortcutsSheet() },
+        { group: t('테마') },
+        ...STUDIO_THEMES.map((k) => ({ label: themeName(k), check: this.look().theme === k, act: () => this.setTheme(k) })),
         { group: t('언어') }, // Language: follows the OS unless chosen (docs/i18n.md)
         ...langChoices().map(([k, label]) => ({ label, check: (this.app.settings.get('lang') || 'system') === k, act: () => this.app.settings.set({ lang: k }) })),
       ],

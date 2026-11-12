@@ -1,0 +1,441 @@
+/* MeloFi Studio colour themes.
+   :root holds the dark theme's values (the colours the studio has always had); html[data-studio-theme="white"]
+   swaps them for the white theme. Studio sets the attribute only while the composer is shown, so the piano
+   keeps its own look. Canvases read the --cv-* tokens through studioPalette() (studio/ui/theme.js). */
+:root {
+  --accent-ink: var(--accent);          /* the accent used as text: on white it is darkened to stay readable */
+  --s-edge: #000;                       /* hard separators between panels */
+  --s-emboss: rgba(255,255,255,.04);
+  --s-head: #ece9e2;                    /* titles, headings */
+  --s-hi: #e9e6df;                      /* bright marks: play glyph, peak lines, slider thumbs */
+  --s-peak: #d8d4cc;
+  --s-text-2: #d6d3cc;
+  --s-body: #c9c6bf;                    /* longer reading text */
+  --s-body-2: #bdbab3;
+  --s-rec-dim: #b45a5d;
+  --s-on-text: #0b0b0b;                 /* text on a lit (inverted) segment */
+  --s-ctl: #0f1013;                     /* buttons, selects */
+  --s-ctl-2: #0d0e12;
+  --s-ctl-hover-line: #43454e;
+  --s-field: #121318;                   /* inputs inside the studio */
+  --s-input: #0f1014;
+  --s-input-2: #0d0e11;
+  --s-well: #0b0c0f;                    /* LCDs, meters, scopes, logs */
+  --s-groove: #0b0c0f;                  /* fader tracks */
+  --s-raised: #1b1c22;                  /* popups, cards, slots */
+  --s-hover: #2a2c34;
+  --s-row-hover: #1b1c22;
+  --s-row-hover-2: #18191e;
+  --s-chrome: #202127;                  /* floating window heads */
+  --s-sel-row: #1d1e25;
+  --s-tab-on: #1d1e24;
+  --s-btn-2: #1a1b21;
+  --s-mini: #22232a;
+  --s-box: #15161a;
+  --s-card: #141519;
+  --s-card-2: #121317;
+  --s-card-3: #15161b;
+  --s-card-line: #2a2c33;
+  --s-strip: #17181d;
+  --s-strip-bus: #17191d;
+  --s-strip-master: #1b1a17;
+  --s-led: #25262c;
+  --s-led-line: #3a3c45;
+  --s-step: #2a2b33;
+  --s-step-alt: #22232a;
+  --s-step-line: #2c2e36;
+  --s-graph: #1a1b20;
+  --s-graph-mid: #3a3b42;
+  --s-off: #3a3b42;
+  --s-knob-hi: #3a3c45;
+  --s-knob-lo: #1b1c22;
+  --s-knob-line: #0c0d10;
+  --s-cap-hi: #d8d5ce;
+  --s-cap-lo: #8b8983;
+  --s-cap-shadow: rgba(0,0,0,.6);
+  --s-mute-on: #6b2f31;
+  --s-solo-on: #6b5320;
+  --s-arm-ink: #ff6b6b;
+  --s-split: #0c0d10;
+  --s-split-hover: #2a2b31;
+  --s-folder: #6b6a66;
+  --s-line-hi: #4a4c55;
+  --s-line-hi-2: #46474e;
+  --s-pop-line: #3a3b42;
+  --s-slot-line: #24252c;
+  --s-stem-line: #2f3037;
+  --s-demo-line: #26272e;
+  --s-track: #2a2b32;
+  --s-track-2: #24262c;
+  --s-dot: #34353d;
+  --s-dot-done: #6b5a43;
+  --s-vk-w: #dcd9d2;
+  --s-vk-w-line: #0f1013;
+  --s-vk-b: #1d1e23;
+  --s-keys-bg: #0f1013;
+  --s-kw-line: #2c2d33;                 /* the on-screen keyboard window (keys.html) */
+  --s-kw-w: #e9e6df;
+  --s-kw-w-line: #1a1b20;
+  --s-ok-ink: #7bd66e;
+  --s-ok-ink-2: #9fc79a;
+  --s-ok-line: #3c5a3a;
+  --s-ok-line-2: #5f8f5a;
+  --s-good-ink: #8fc0a9;
+  --s-warn-ink: #e0b46a;
+  --s-warn-line: #6b5320;
+  --s-err-ink: #e5786c;
+  --s-err-bg: #1d1414;
+  --s-note-bg: #1a1914;
+  --s-cur-row: #1b1a16;
+  --s-log-ink: #a9b3a4;
+  --s-tag-ink: #a8a59e;
+  --s-danger-ink: #e5898c;
+  --s-danger-line: #5a2a2c;
+  --s-x-hover: #1f2026;
+  --s-bar-hover: #1b1c21;               /* the title bar's menus and readout */
+  --s-readout: #08090b;
+  --s-fs-hover: #16171c;
+  --s-beat-off: #2d2f36;
+  --s-row-line: #1b1c21;
+  --s-row-line-2: #1d1e23;
+  --s-row-line-3: #1c1d22;
+  --s-range: #2c2e35;
+  --s-thumb-line: #000;
+  --s-switch: #2a2c33;
+  --s-toast: #1a1b20;
+  --s-scrim: rgba(4,4,6,.62);
+  --s-scrim-2: rgba(4,4,6,.5);
+  --s-scrim-tour: rgba(4,4,6,.6);
+  --s-scrim-render: rgba(6,7,10,.6);
+  --s-shadow: rgba(0,0,0,.6);
+  --s-shadow-2: rgba(0,0,0,.5);
+  --s-pop-shadow: rgba(0,0,0,.55);
+  --cv-ms-mix: #c9c4b8;
+  --cv-ms-target: #3f6f4a;
+  --cv-ms-ref: #7fb0ff;
+
+  /* canvases: piano roll */
+  --cv-bg: #101115;
+  --cv-row: #1a1b21;
+  --cv-row-black: #15161b;
+  --cv-row-out: #0d0e12;
+  --cv-root-line: #2a2c34;
+  --cv-root-line-scale: #3a3420;
+  --cv-past: rgba(0,0,0,0.35);
+  --cv-loop-shade: rgba(224,164,64,0.06);
+  --cv-grid-bar: #3a3c46;
+  --cv-grid-beat: #2a2c34;
+  --cv-grid-step: #1f2027;
+  --cv-ghost: rgba(255,255,255,0.07);
+  --cv-note-a0: 0.55;                   /* note opacity = a0 + a1 * velocity */
+  --cv-note-a1: 0.45;
+  --cv-note-line: none;                 /* outline around notes (white theme) */
+  --cv-note-edge: rgba(0,0,0,0.35);
+  --cv-note-mark: rgba(0,0,0,0.6);
+  --cv-note-ink: rgba(0,0,0,0.65);
+  --cv-mute-note: #8b8983;
+  --cv-sel-note: #ffffff;
+  --cv-sel-mark: #333;
+  --cv-sel-ink: #222;
+  --cv-chord-ghost: rgba(224,164,64,0.35);
+  --cv-playhead: #e0a440;
+  --cv-key-w: #d9d6cf;
+  --cv-key-b: #22232a;
+  --cv-key-lit: #e0a440;
+  --cv-key-out: rgba(0,0,0,0.35);
+  --cv-key-ink-w: #2a2a2a;
+  --cv-key-ink-b: #d9d6cf;
+  --cv-ruler: #16171c;
+  --cv-ruler-ink: #8b8983;
+  --cv-lane: #0c0d10;
+  --cv-lane-line: #24252b;
+  --cv-lane-ink: #5d5c58;
+  --cv-lane-shade: none;                /* drawn over lane bars (white theme) */
+  /* playlist */
+  --cv-track: #18191e;
+  --cv-track-alt: #15161b;
+  --cv-loop-on: rgba(224,164,64,0.07);
+  --cv-loop-off: rgba(255,255,255,0.03);
+  --cv-pl-beat: #1c1d23;
+  --cv-pl-bar: #272830;
+  --cv-pl-bar4: #34363f;
+  --cv-clip-mute: #4a4b52;
+  --cv-clip-a: 0.85;
+  --cv-clip-band: rgba(0,0,0,0.28);
+  --cv-clip-ink: #fff;
+  --cv-clip-sel: #fff;
+  --cv-clip-notes: rgba(0,0,0,0.55);
+  --cv-clip-wave: rgba(0,0,0,0.5);
+  --cv-auto-line: #e8e0ff;
+  --cv-auto-point: #fff;
+  --cv-head: #1d1e24;
+  --cv-head-ink: #b8b5ae;
+  --cv-head-ink-mute: #5d5c58;
+  --cv-ms-off: #26272e;
+  --cv-ms-ink: #8b8983;
+  --cv-ms-ink-on: #fff;
+  --cv-mute-on: #6b2f31;
+  --cv-solo-on: #6b5320;
+  --cv-marker-lane: #131418;
+  --cv-marker: #8fc0a9;
+  --cv-tempo: #e0a440;
+  --cv-sig: #9fb6e8;
+  --cv-loop-bar-on: #7a5a22;
+  --cv-loop-bar-off: #3a3530;
+  --cv-loop-drag: rgba(224,164,64,0.25);
+  --cv-scroll: #0d0e11;
+  --cv-thumb: #3d3f48;
+  --cv-thumb-on: #6a6c76;
+  /* meters, scopes, waveforms */
+  --cv-well: #0b0c0f;
+  --cv-well-fade: rgba(11,12,15,0.35);
+  --cv-well-line: #24252b;
+  --cv-well-grid: #1f2026;
+  --cv-well-ink: #4a4b52;
+  --cv-well-zero: #2a2b31;
+  --cv-trace: #e0a440;
+  --cv-wave-off: #3a3b40;
+  --cv-target-band: #2f4a36;
+  --cv-riff-bg: #121317;
+  --cv-riff-grid: #23242b;
+  /* Newtone */
+  --cv-nt-bg: #131418;
+  --cv-nt-row: #1b1c22;
+  --cv-nt-row-black: #17181d;
+  --cv-nt-row-out: #141519;
+  --cv-nt-key-b: #2a2b31;
+  --cv-nt-ink-w: #3b3a36;
+  --cv-nt-ink-b: #9a978f;
+  --cv-nt-line: rgba(160,170,190,0.45);
+  --cv-nt-note: rgba(120,150,210,0.55);
+  --cv-nt-motion: rgba(255,255,255,0.7);
+  --cv-nt-ink: #fff;
+}
+
+/* ---------- white ---------- */
+html[data-studio-theme="white"] {
+  color-scheme: light;
+  --ink: #d5d6d9;
+  --panel: #ebecee;
+  --panel-2: #e1e2e5;
+  --line: #c4c6ca;
+  --line-2: #a7a9ae;
+  --text: #1b1c1f;
+  --dim: #4a4c51;
+  --faint: #595b60;
+  --rec: #d0383e;
+  --accent-ink: color-mix(in srgb, var(--accent) 52%, #000);
+
+  --s-edge: #a3a5aa;
+  --s-emboss: rgba(255,255,255,.55);
+  --s-head: #111214;
+  --s-hi: #1b1c1f;
+  --s-peak: #1b1c1f;
+  --s-text-2: #26272b;
+  --s-body: #2c2d31;
+  --s-body-2: #36373b;
+  --s-rec-dim: #b2383d;
+  --s-on-text: #ffffff;
+  --s-ctl: #f7f7f8;
+  --s-ctl-2: #f7f7f8;
+  --s-ctl-hover-line: #7f8187;
+  --s-field: #ffffff;
+  --s-input: #ffffff;
+  --s-input-2: #ffffff;
+  --s-well: #fafafb;
+  --s-groove: #a9abb0;
+  --s-raised: #f8f8f9;
+  --s-hover: #dfe1e5;
+  --s-row-hover: #dfe0e3;
+  --s-row-hover-2: #e5e6e9;
+  --s-chrome: #d9dadd;
+  --s-sel-row: #d7d9de;
+  --s-tab-on: #f7f7f8;
+  --s-btn-2: #f4f4f5;
+  --s-mini: #f1f1f3;
+  --s-box: #e5e6e9;
+  --s-card: #e5e6e9;
+  --s-card-2: #f4f4f6;
+  --s-card-3: #f4f4f6;
+  --s-card-line: #b4b6bb;
+  --s-strip: #e3e4e7;
+  --s-strip-bus: #dfe2e7;
+  --s-strip-master: #ebe5d9;
+  --s-led: #f4f4f5;
+  --s-led-line: #9c9ea3;
+  --s-step: #d2d3d7;
+  --s-step-alt: #c3c5c9;
+  --s-step-line: #b3b5ba;
+  --s-graph: #d8d9dd;
+  --s-graph-mid: #b2b4b9;
+  --s-off: #b2b4b9;
+  --s-knob-hi: #ffffff;
+  --s-knob-lo: #c3c5c9;
+  --s-knob-line: #8c8e94;
+  --s-cap-hi: #ffffff;
+  --s-cap-lo: #b8babe;
+  --s-cap-shadow: rgba(0,0,0,.3);
+  --s-mute-on: #c4464b;
+  --s-solo-on: #8a6516;
+  --s-arm-ink: #ffffff;
+  --s-split: #cfd0d4;
+  --s-split-hover: #b4b6bb;
+  --s-folder: #6a6c71;
+  --s-line-hi: #7f8187;
+  --s-line-hi-2: #7f8187;
+  --s-pop-line: #b4b6bb;
+  --s-slot-line: #c4c6ca;
+  --s-stem-line: #b4b6bb;
+  --s-demo-line: #c4c6ca;
+  --s-track: #cfd0d4;
+  --s-track-2: #cfd0d4;
+  --s-dot: #c4c6ca;
+  --s-dot-done: #b48a4a;
+  --s-vk-w: #ffffff;
+  --s-vk-w-line: #8c8e94;
+  --s-vk-b: #2a2b30;
+  --s-keys-bg: #d5d6d9;
+  --s-kw-line: #b4b6bb;
+  --s-kw-w: #ffffff;
+  --s-kw-w-line: #8c8e94;
+  --s-ok-ink: #2a7535;
+  --s-ok-ink-2: #2a7535;
+  --s-ok-line: #8dbb8d;
+  --s-ok-line-2: #4f8f4f;
+  --s-good-ink: #21705a;
+  --s-warn-ink: #855500;
+  --s-warn-line: #d1ac66;
+  --s-err-ink: #b1261e;
+  --s-err-bg: #f6e3e3;
+  --s-note-bg: #f4ebdb;
+  --s-cur-row: #f1e8d6;
+  --s-log-ink: #33402f;
+  --s-tag-ink: #4a4c51;
+  --s-danger-ink: #b1261e;
+  --s-danger-line: #d79ea0;
+  --s-x-hover: #d7d8dc;
+  --s-bar-hover: #c6c8cc;
+  --s-readout: #f2f2f4;
+  --s-fs-hover: #c6c8cc;
+  --s-beat-off: #b4b6bb;
+  --s-row-line: #d6d7da;
+  --s-row-line-2: #d6d7da;
+  --s-row-line-3: #d6d7da;
+  --s-range: #b7b9be;
+  --s-thumb-line: #6a6c71;
+  --s-switch: #c1c3c7;
+  --s-toast: #f8f8f9;
+  --s-scrim: rgba(40,42,48,.32);
+  --s-scrim-2: rgba(40,42,48,.26);
+  --s-scrim-tour: rgba(30,32,38,.4);
+  --s-scrim-render: rgba(40,42,48,.32);
+  --s-shadow: rgba(0,0,0,.22);
+  --s-shadow-2: rgba(0,0,0,.2);
+  --s-pop-shadow: rgba(0,0,0,.2);
+  --cv-ms-mix: #3a3b40;
+  --cv-ms-target: #3c8a52;
+  --cv-ms-ref: #2f6fd0;
+
+  --cv-bg: #e2e3e6;
+  --cv-row: #f4f4f6;
+  --cv-row-black: #e9eaed;
+  --cv-row-out: #d9dade;
+  --cv-root-line: #b4b6bb;
+  --cv-root-line-scale: #d0ad66;
+  --cv-past: rgba(0,0,0,0.09);
+  --cv-loop-shade: rgba(224,164,64,0.12);
+  --cv-grid-bar: #9c9ea4;
+  --cv-grid-beat: #c2c4c9;
+  --cv-grid-step: #dcdde0;
+  --cv-ghost: rgba(0,0,0,0.09);
+  --cv-note-a0: 0.8;
+  --cv-note-a1: 0.2;
+  --cv-note-line: rgba(0,0,0,0.42);
+  --cv-note-edge: rgba(0,0,0,0.3);
+  --cv-note-mark: rgba(0,0,0,0.6);
+  --cv-note-ink: rgba(0,0,0,0.78);
+  --cv-mute-note: #a3a5aa;
+  --cv-sel-note: #24262c;
+  --cv-sel-mark: #d8d8d8;
+  --cv-sel-ink: #ffffff;
+  --cv-chord-ghost: rgba(224,164,64,0.45);
+  --cv-playhead: #d0700a;
+  --cv-key-w: #fbfbfc;
+  --cv-key-b: #2a2b30;
+  --cv-key-lit: #e0a440;
+  --cv-key-out: rgba(0,0,0,0.18);
+  --cv-key-ink-w: #2a2a2a;
+  --cv-key-ink-b: #e6e6e6;
+  --cv-ruler: #d5d6d9;
+  --cv-ruler-ink: #45474c;
+  --cv-lane: #f1f1f3;
+  --cv-lane-line: #c4c6ca;
+  --cv-lane-ink: #595b60;
+  --cv-lane-shade: rgba(0,0,0,0.32);
+  --cv-track: #eeeff1;
+  --cv-track-alt: #e6e7ea;
+  --cv-loop-on: rgba(224,164,64,0.13);
+  --cv-loop-off: rgba(0,0,0,0.035);
+  --cv-pl-beat: #d8d9dc;
+  --cv-pl-bar: #bfc1c6;
+  --cv-pl-bar4: #9c9ea4;
+  --cv-clip-mute: #aeb0b5;
+  --cv-clip-a: 0.92;
+  --cv-clip-band: rgba(0,0,0,0.42);
+  --cv-clip-ink: #fff;
+  --cv-clip-sel: #1b1c1f;
+  --cv-clip-notes: rgba(0,0,0,0.6);
+  --cv-clip-wave: rgba(0,0,0,0.55);
+  --cv-auto-line: #2a2342;
+  --cv-auto-point: #1b1c1f;
+  --cv-head: #e1e2e5;
+  --cv-head-ink: #1b1c1f;
+  --cv-head-ink-mute: #595b60;
+  --cv-ms-off: #f4f4f5;
+  --cv-ms-ink: #45474c;
+  --cv-ms-ink-on: #fff;
+  --cv-mute-on: #c4464b;
+  --cv-solo-on: #8a6516;
+  --cv-marker-lane: #e7e8eb;
+  --cv-marker: #21705a;
+  --cv-tempo: #a56300;
+  --cv-sig: #3b5c9c;
+  --cv-loop-bar-on: #e0a440;
+  --cv-loop-bar-off: #b9b3a8;
+  --cv-loop-drag: rgba(224,164,64,0.3);
+  --cv-scroll: #dcdde0;
+  --cv-thumb: #a9abb0;
+  --cv-thumb-on: #7c7e84;
+  --cv-well: #fafafb;
+  --cv-well-fade: rgba(250,250,251,0.35);
+  --cv-well-line: #d3d4d8;
+  --cv-well-grid: #e3e4e7;
+  --cv-well-ink: #5d5f64;
+  --cv-well-zero: #c4c6ca;
+  --cv-trace: #c46a08;
+  --cv-wave-off: #c2c4c9;
+  --cv-target-band: #d3e8d7;
+  --cv-riff-bg: #f4f4f6;
+  --cv-riff-grid: #d3d4d8;
+  --cv-nt-bg: #ebecee;
+  --cv-nt-row: #f7f7f8;
+  --cv-nt-row-black: #ededf0;
+  --cv-nt-row-out: #e0e1e4;
+  --cv-nt-key-b: #2a2b30;
+  --cv-nt-ink-w: #3b3a36;
+  --cv-nt-ink-b: #c9c6bf;
+  --cv-nt-line: rgba(50,60,85,0.45);
+  --cv-nt-note: rgba(70,110,190,0.5);
+  --cv-nt-motion: rgba(0,0,0,0.55);
+  --cv-nt-ink: #0e1d3a;
+}
+
+/* white: pieces that need more than a colour swap */
+html[data-studio-theme="white"] .vk.b { color: #c9c6bf; }
+html[data-studio-theme="white"] .st-pop button.on { background: #f3e7cf; box-shadow: inset 2px 0 0 var(--accent); }
+html[data-studio-theme="white"] .fx-p.k { background: radial-gradient(circle at 50% 35%, #fbfbfc, #dfe0e3 70%); border-color: #c4c6ca; } /* the parameter cell shares the knob's class */
+html[data-studio-theme="white"] .tour-hand::before { filter: drop-shadow(0 1px 0 #000) drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
+html[data-studio-theme="white"] .sq.on { box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
+html[data-studio-theme="white"] .led.on { border-color: #3f8a36; }
+html[data-studio-theme="white"] .mx-meter, html[data-studio-theme="white"] .tb-out { background: #2a2b30; border-color: #8c8e94; }
+html[data-studio-theme="white"] .mx-meter::after, html[data-studio-theme="white"] .tb-out::after { background: #f2f2f2; }

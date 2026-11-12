@@ -10,6 +10,7 @@ import { clamp, noteLabel, isBlackKey } from './dom.js';
 import { PPQ, STEP, barTicks, pattern, channel, notesOf, patternTicks, inScale, snapToScale, SCALES } from '../model.js';
 import { kitNames } from '../../js/drums.js';
 import { t, N_ } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 const KEYS_W = 54, RULER_H = 20, LANE_H = 64;
 
@@ -109,8 +110,8 @@ export class Roll {
     const g = this.x, W = this.w, H = this.h;
     if (!W || !this.ch) return;
     const proj = this.S.proj, pat = this.pat, len = patternTicks(proj, pat), bt = barTicks(proj), beat = (PPQ * 4) / proj.sig[1];
-    const sc = this.scale;
-    g.fillStyle = '#101115'; g.fillRect(0, 0, W, H);
+    const sc = this.scale, P = studioPalette();
+    g.fillStyle = P.bg; g.fillRect(0, 0, W, H);
     const gh = this.gridH;
     g.save();
     g.beginPath(); g.rect(KEYS_W, RULER_H, W - KEYS_W, gh); g.clip();
@@ -118,23 +119,23 @@ export class Roll {
     for (let n = this.top; n > this.top - gh / this.rowH - 1; n--) {
       const y = this.nToY(n);
       const out = sc && !inScale(sc, n);
-      g.fillStyle = out ? '#0d0e12' : isBlackKey(n) && !sc ? '#15161b' : '#1a1b21';
+      g.fillStyle = out ? P.rowOut : isBlackKey(n) && !sc ? P.rowBlack : P.row;
       g.fillRect(KEYS_W, y, W - KEYS_W, this.rowH);
-      if (sc ? ((n - sc.root) % 12 + 12) % 12 === 0 : n % 12 === 0) { g.fillStyle = sc ? '#3a3420' : '#2a2c34'; g.fillRect(KEYS_W, y + this.rowH - 1, W - KEYS_W, 1); }
+      if (sc ? ((n - sc.root) % 12 + 12) % 12 === 0 : n % 12 === 0) { g.fillStyle = sc ? P.rootLineScale : P.rootLine; g.fillRect(KEYS_W, y + this.rowH - 1, W - KEYS_W, 1); }
     }
     const endX = this.tToX(len);
-    if (endX < W) { g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(endX, RULER_H, W - endX, gh); }
+    if (endX < W) { g.fillStyle = P.past; g.fillRect(endX, RULER_H, W - endX, gh); }
     // channel loop length (step sequencer loops shorter than the pattern)
-    if (this.ch.loopSteps > 0) { const lx = this.tToX(this.ch.loopSteps * STEP); if (lx < W) { g.fillStyle = 'rgba(224,164,64,0.06)'; g.fillRect(lx, RULER_H, Math.max(0, endX - lx), gh); } }
+    if (this.ch.loopSteps > 0) { const lx = this.tToX(this.ch.loopSteps * STEP); if (lx < W) { g.fillStyle = P.loopShade; g.fillRect(lx, RULER_H, Math.max(0, endX - lx), gh); } }
     const t0 = Math.floor(this.scrollT / this.snap) * this.snap;
     for (let t = t0; this.tToX(t) < W; t += this.snap) {
       const x = Math.round(this.tToX(t)) + 0.5;
-      g.fillStyle = t % bt === 0 ? '#3a3c46' : t % beat === 0 ? '#2a2c34' : '#1f2027';
+      g.fillStyle = t % bt === 0 ? P.gridBar : t % beat === 0 ? P.gridBeat : P.gridStep;
       g.fillRect(x, RULER_H, 1, gh);
     }
     for (const ch of this.ghosts ? proj.channels : []) {
       if (ch.id === proj.selected) continue;
-      g.fillStyle = 'rgba(255,255,255,0.07)';
+      g.fillStyle = P.ghost;
       for (const nt of pat.notes[ch.id] || []) {
         const x = this.tToX(nt.t), y = this.nToY(nt.n);
         if (x > W || x + nt.d * this.pxPerTick < KEYS_W) continue;
@@ -146,21 +147,22 @@ export class Roll {
       const x = this.tToX(nt.t), y = this.nToY(nt.n), w = Math.max(3, nt.d * this.pxPerTick - 1);
       if (x > W || x + w < KEYS_W) continue;
       const s = this.sel.has(nt);
-      g.globalAlpha = nt.mute ? 0.22 : 0.55 + 0.45 * (nt.v / 127);
-      g.fillStyle = s ? '#ffffff' : nt.mute ? '#8b8983' : col;
+      g.globalAlpha = nt.mute ? 0.22 : P.noteA0 + P.noteA1 * (nt.v / 127);
+      g.fillStyle = s ? P.selNote : nt.mute ? P.muteNote : col;
       g.fillRect(x, y + 1, w, this.rowH - 2);
       g.globalAlpha = 1;
-      g.fillStyle = 'rgba(0,0,0,0.35)';
+      if (P.noteLine && !s) { g.strokeStyle = P.noteLine; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 1.5, w - 1, this.rowH - 3); }
+      g.fillStyle = P.noteEdge;
       g.fillRect(x + w - 2, y + 1, 2, this.rowH - 2);
       if (nt.slide) { // slide notes: a ramp marker
-        g.fillStyle = s ? '#333' : 'rgba(0,0,0,0.6)';
+        g.fillStyle = s ? P.selMark : P.noteMark;
         g.beginPath(); g.moveTo(x + 2, y + this.rowH - 2); g.lineTo(x + Math.min(w, 12), y + 2); g.lineTo(x + Math.min(w, 12), y + this.rowH - 2); g.fill();
       } else if (nt.porta) { // portamento notes: a glide line into the note
-        g.strokeStyle = s ? '#333' : 'rgba(0,0,0,0.6)'; g.lineWidth = 1.5;
+        g.strokeStyle = s ? P.selMark : P.noteMark; g.lineWidth = 1.5;
         g.beginPath(); g.moveTo(x + 2, y + this.rowH - 3); g.quadraticCurveTo(x + 6, y + 2, x + Math.min(w, 12), y + 3); g.stroke();
       }
       if (w > 26 && this.rowH >= 12) {
-        g.fillStyle = s ? '#222' : 'rgba(0,0,0,0.65)';
+        g.fillStyle = s ? P.selInk : P.noteInk;
         g.font = '10px "Segoe UI", sans-serif';
         g.fillText(noteLabel(nt.n), x + (nt.slide || nt.porta ? 14 : 3), y + this.rowH - 4);
       }
@@ -168,17 +170,17 @@ export class Roll {
     // chord tool: ghost of the chord under the mouse
     if (this.tool === 'chord' && this.hoverPos && !this.drag) {
       const [hx, hy] = this.hoverPos, t = this.snapT(this.xToT(hx));
-      g.fillStyle = 'rgba(224,164,64,0.35)';
+      g.fillStyle = P.chordGhost;
       for (const n of this.chordNotes(this.fitN(this.yToN(hy)))) g.fillRect(this.tToX(t), this.nToY(n) + 1, this.lastLen * this.pxPerTick, this.rowH - 2);
     }
     if (this.drag?.kind === 'box') {
       const { x0, y0, x1, y1 } = this.drag;
-      g.strokeStyle = '#e0a440'; g.setLineDash([4, 3]);
+      g.strokeStyle = P.playhead; g.setLineDash([4, 3]);
       g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
       g.setLineDash([]);
     }
     const T = this.S.playheadIn(pat);
-    if (T != null) { const x = this.tToX(T); g.fillStyle = '#e0a440'; g.fillRect(x, RULER_H, 1.5, gh); }
+    if (T != null) { const x = this.tToX(T); g.fillStyle = P.playhead; g.fillRect(x, RULER_H, 1.5, gh); }
     g.restore();
 
     // keyboard
@@ -188,40 +190,44 @@ export class Roll {
       if (y > RULER_H + gh) break;
       const black = isBlackKey(n);
       const lit = this.S.liveHeld?.has(n);
-      g.fillStyle = lit ? '#e0a440' : black ? '#22232a' : '#d9d6cf';
+      g.fillStyle = lit ? P.keyLit : black ? P.keyB : P.keyW;
       g.fillRect(0, y, KEYS_W - 1, this.rowH - (black ? 0 : 1));
-      if (sc && !inScale(sc, n)) { g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(KEYS_W - 8, y, 7, this.rowH - 1); }
+      if (sc && !inScale(sc, n)) { g.fillStyle = P.keyOut; g.fillRect(KEYS_W - 8, y, 7, this.rowH - 1); }
       const lab = names ? names[n] : n % 12 === 0 ? noteLabel(n) : null;
       if (lab && this.rowH >= 10) {
-        g.fillStyle = black ? '#d9d6cf' : '#2a2a2a';
+        g.fillStyle = black ? P.keyInkB : P.keyInkW;
         g.font = '9.5px "Segoe UI", sans-serif';
         g.fillText(lab, 3, y + this.rowH - 3);
       }
     }
-    g.fillStyle = '#101115'; g.fillRect(0, RULER_H + gh, KEYS_W, H);
-    g.fillStyle = '#16171c'; g.fillRect(0, 0, W, RULER_H);
-    g.fillStyle = '#8b8983'; g.font = '10px "Cascadia Mono", Consolas, monospace';
+    g.fillStyle = P.bg; g.fillRect(0, RULER_H + gh, KEYS_W, H);
+    g.fillStyle = P.ruler; g.fillRect(0, 0, W, RULER_H);
+    g.fillStyle = P.rulerInk; g.font = '10px "Cascadia Mono", Consolas, monospace';
     for (let b = Math.floor(this.scrollT / bt); this.tToX(b * bt) < W; b++) {
       const x = this.tToX(b * bt);
       if (x >= KEYS_W - 1) { g.fillRect(x, 12, 1, 8); g.fillText(String(b + 1), x + 3, 12); }
     }
     // property lane
     const vy = RULER_H + gh, lane = this.lane;
-    g.fillStyle = '#0c0d10'; g.fillRect(KEYS_W, vy, W - KEYS_W, LANE_H);
-    g.fillStyle = '#24252b'; g.fillRect(KEYS_W, vy, W - KEYS_W, 1);
-    if (lane !== 'v') { g.fillStyle = '#24252b'; g.fillRect(KEYS_W, vy + LANE_H / 2, W - KEYS_W, 1); }
-    g.fillStyle = '#5d5c58'; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(t(LANES[lane]), 6, vy + 14);
+    g.fillStyle = P.lane; g.fillRect(KEYS_W, vy, W - KEYS_W, LANE_H);
+    g.fillStyle = P.laneLine; g.fillRect(KEYS_W, vy, W - KEYS_W, 1);
+    if (lane !== 'v') { g.fillStyle = P.laneLine; g.fillRect(KEYS_W, vy + LANE_H / 2, W - KEYS_W, 1); }
+    g.fillStyle = P.laneInk; g.font = '9.5px "Segoe UI", sans-serif'; g.fillText(t(LANES[lane]), 6, vy + 14);
     for (const nt of this.list) {
       const x = this.tToX(nt.t);
       if (x < KEYS_W || x > W) continue;
-      g.fillStyle = this.sel.has(nt) ? '#ffffff' : col;
-      if (lane === 'v') {
-        const hh = (nt.v / 127) * (LANE_H - 10);
-        g.fillRect(x, vy + LANE_H - 4 - hh, 3, hh); g.fillRect(x - 1, vy + LANE_H - 4 - hh, 5, 2);
-      } else {
-        const val = lane === 'pan' ? nt.pan || 0 : (nt.fine || 0) / 100;
-        const mid = vy + LANE_H / 2, hh = val * (LANE_H / 2 - 6);
-        g.fillRect(x, Math.min(mid, mid - hh), 3, Math.max(1, Math.abs(hh))); g.fillRect(x - 1, mid - hh - 1, 5, 2);
+      const sel = this.sel.has(nt);
+      // white theme: the channel's colour is shaded a little so light colours stand out on the light lane
+      for (const fill of sel || !P.laneShade ? [sel ? P.selNote : col] : [col, P.laneShade]) {
+        g.fillStyle = fill;
+        if (lane === 'v') {
+          const hh = (nt.v / 127) * (LANE_H - 10);
+          g.fillRect(x, vy + LANE_H - 4 - hh, 3, hh); g.fillRect(x - 1, vy + LANE_H - 4 - hh, 5, 2);
+        } else {
+          const val = lane === 'pan' ? nt.pan || 0 : (nt.fine || 0) / 100;
+          const mid = vy + LANE_H / 2, hh = val * (LANE_H / 2 - 6);
+          g.fillRect(x, Math.min(mid, mid - hh), 3, Math.max(1, Math.abs(hh))); g.fillRect(x - 1, mid - hh - 1, 5, 2);
+        }
       }
     }
   }

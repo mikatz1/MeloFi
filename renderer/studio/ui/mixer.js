@@ -5,6 +5,7 @@ import { FX_TYPES, FX_ORDER, FX_PRESETS, fxDefaults, fmtParam } from '../fx.js';
 import { uid, newBus } from '../model.js';
 import { LoudnessMeter } from '../meter.js';
 import { t } from '../../i18n/i18n.js';
+import { studioPalette } from './theme.js';
 
 const panFmt = (v) => (Math.abs(v) < 0.02 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
 
@@ -230,8 +231,9 @@ export class Mixer {
     const g = cv.getContext('2d'), W = cv.width, H = cv.height;
     const an = E.spec, bins = this.bins && this.bins.length === an.frequencyBinCount ? this.bins : (this.bins = new Float32Array(an.frequencyBinCount));
     an.getFloatFrequencyData(bins);
-    g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, W, H);
-    g.fillStyle = '#24252b';
+    const P = studioPalette();
+    g.fillStyle = P.well; g.fillRect(0, 0, W, H);
+    g.fillStyle = P.wellLine;
     for (const fq of [100, 1000, 10000]) { const x = (Math.log(fq / 20) / Math.log(1000)) * W; g.fillRect(x, 0, 1, H); }
     g.beginPath();
     const sr = E.ctx.sampleRate;
@@ -240,6 +242,6 @@ export class Mixer {
       const db = Math.max(-100, bins[i]), y = H - ((db + 100) / 90) * H;
       if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
     }
-    g.strokeStyle = '#e0a440'; g.lineWidth = d; g.stroke();
+    g.strokeStyle = P.trace; g.lineWidth = d; g.stroke();
   }
 }

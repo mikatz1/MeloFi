@@ -226,6 +226,22 @@ await check('tour: every lesson and step', async () => {
   return `${list.length} lessons, ${steps} steps`;
 });
 
+// colour themes (the contrast check of the white theme with screenshots is tools/e2e/theme-e2e.js)
+await check('studio: white theme and back', async () => {
+  const th = await imp('studio/ui/theme.js');
+  const tt = window.__i18n?.t || ((s) => s);
+  const opts = S.menuItems('options', { clientX: 0, clientY: 0 });
+  const white = opts.find((it) => it.label === tt('화이트')), dark = opts.find((it) => it.label === tt('다크'));
+  if (!white || !dark) throw new Error('theme items missing from 옵션');
+  white.act(); await sleep(60);
+  if (th.studioTheme() !== 'white' || th.studioPalette().bg === '#101115') throw new Error('white not applied');
+  for (const t of ['roll', 'playlist', 'mixer', 'live']) { S.setTab(t); await sleep(60); }
+  S.setTab('playlist');
+  dark.act(); await sleep(60);
+  if (document.documentElement.dataset.studioTheme || th.studioPalette().bg !== '#101115') throw new Error('dark not restored');
+  if (A.settings.get('studioLook')?.theme !== 'dark') throw new Error('not saved');
+});
+
 await check('studio: close', async () => { S.setProject(TEMPLATES.empty.make()); S.close(); await sleep(200); });
 
 console.log('E2E-BEGIN\n' + R.join('\n') + '\nE2E-END');
