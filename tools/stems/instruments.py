@@ -79,6 +79,12 @@ def main():
     model = ASTForAudioClassification.from_pretrained(MODEL).to(dev).eval()
     if dev == "cuda":
         model = model.half()
+    try:  # MELOFI_GPU_CAP (test runs): a ceiling on the card's memory and load
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import gpu_cap
+        gpu_cap.limit_memory(torch); gpu_cap.throttle(model, torch)
+    except ImportError:
+        pass
     names = model.config.id2label
     idx = {n: i for i, n in names.items()}
     cats = {c: [idx[n] for n in labels if n in idx] for c, labels in CATEGORIES.items()}

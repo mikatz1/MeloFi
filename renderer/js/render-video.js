@@ -105,7 +105,12 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
     fastStart: false,
     firstTimestampBehavior: 'offset',
   });
-  const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { failed = e; } });
+  // frames handed to the encoder / frames it has finished. encodeQueueSize does not count the copy each
+  // VideoFrame(canvas) makes in the GPU process: when frames are drawn faster than they are encoded,
+  // full-size copies pile up there (measured: 8 GB in 40 s of a 2K canvas render). A cap of 24 frames in
+  // flight never waits while the encoder keeps up, and bounds that pile (~350 MB at 1440p) when it doesn't.
+  let vIn = 0, vOut = 0;
+  const venc = new VideoEncoder({ output: (c, m) => { vOut++; muxer.addVideoChunk(c, m); }, error: (e) => { failed = e; } });
   venc.configure(vcfg);
   const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => { failed = e; } });
   aenc.configure(acfg);
@@ -170,7 +175,9 @@ export async function renderVideo(app, { height = 2160, fps = 60 } = {}, ui = {}
       const frame = new VideoFrame(canvas, { timestamp: Math.round(tf * 1e6), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: f % (fps * 2) === 0 });
       frame.close();
-      while (venc.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 1));
+      vIn++;
+      const w0 = performance.now(); // never wait forever: an encoder that holds frames back still moves on
+      while (vIn - vOut > 24 && !failed && performance.now() - w0 < 2000) await new Promise((r) => setTimeout(r, 1));
       if (f % 15 === 0) {
         const el = (performance.now() - t0) / 1000;
         progress('video', f / frames, el * (frames - f) / Math.max(1, f));

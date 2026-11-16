@@ -6,38 +6,11 @@ import { h, popup } from './dom.js';
 import { encode } from '../export-audio.js';
 import { newProject, newChannel, newPattern, newTrack, uid, STEP, secToTick, barTicks, PPQ } from '../model.js';
 import { addMedia } from '../media.js';
-import { sections, candidates, rangeText, renderCandidate, highlightStart, buildAssigned, matchAll, candKind, candName, CATS, STEM_NAMES } from './midiconvert.js';
 import { t, tc, N_, tdyn } from '../../i18n/i18n.js';
 
 // the window's pages, one at a time: a finished page slides away and is reached again only with 뒤로
-const STEPS = [['file', N_('파일')], ['options', N_('분리 방식')], ['run', N_('분리')], ['result', N_('결과')], ['midi', N_('MIDI 변환')]];
-
-// the automatic mixing's settings for a candidate, in words (the % column's tooltip)
-function mixText(S, mx) {
-  const pct = (v) => `${Math.round(v)}%`, sg = (v) => `${v > 0 ? '+' : ''}${v}dB`, fq = (f) => (f >= 1000 ? `${(f / 1000).toFixed(1)}kHz` : `${f}Hz`);
-  const bits = [];
-  const bands = [];
-  for (const p of mx.eq || []) {
-    if (p.low) bands.push(`${fq(p.lowF)}↓ ${sg(p.low)}`);
-    if (p.mid) bands.push(`${fq(p.midF)} ${sg(p.mid)}`);
-    if (p.high) bands.push(`${fq(p.highF)}↑ ${sg(p.high)}`);
-  }
-  if (bands.length) bits.push(t('EQ {bands}', { bands: bands.join(', ') }));
-  bits.push(t('리버브 {n}', { n: pct(mx.send * 100) }));
-  if (mx.env) bits.push(t('어택 ×{a} · 릴리스 ×{r}', { a: mx.env.a, r: mx.env.r }));
-  if (mx.layer) bits.push(t('레이어 {name} {n}', { name: candName(S, mx.layer.id), n: pct(mx.layer.w * 100) }));
-  return t('이 구간에 맞춰 믹스를 조정했어요. 조정 전 {acc}, {what}', { acc: pct(mx.acc0), what: bits.join(' · ') });
-}
-
-// a measured sound in words (timbre.describe), for the parts MeloFi has no close match for
-function soundText(d) {
-  if (!d) return '';
-  const shape = d.attack > 0.06 ? t('천천히 부풀며 시작하는 소리(현·관악기·패드 계열)') : d.shape === 'sustained' ? t('길게 이어지는 소리') : t('뜯거나 두드려 잦아드는 소리');
-  const colour = d.colour.startsWith('bright') ? t('밝고 배음이 많아요') : d.colour.startsWith('dark') ? t('어둡고 배음이 적어요') : t('밝기는 중간이에요');
-  return `${shape}, ${colour}${d.breath.startsWith('noisy') ? t(', 숨 · 활 · 찌그러짐 같은 잡음이 섞여 있어요') : ''}${d.hollow ? t(', 홀수 배음 위주의 속 빈 소리예요') : ''}.`;
-}
-
-const PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const PC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']; // key names on the result page
+const STEPS = [['file', N_('파일')], ['options', N_('분리 방식')], ['run', N_('분리')], ['result', N_('결과')]];
 
 export class AiSheet {
   constructor(studio) {
@@ -82,7 +55,7 @@ export class AiSheet {
     this.S.app.ui.close();
     this.el.hidden = false;
     this.engine = await window.melofi.stemsStatus();
-    if (!this.busy) this.step = this.stems ? (this.step === 'midi' ? 'midi' : 'result') : this.audio && this.engine.ready ? 'options' : 'file';
+    if (!this.busy) this.step = this.stems ? 'result' : this.audio && this.engine.ready ? 'options' : 'file';
     this.render();
     this.checkGpu();
     this.startGpuWatch();
@@ -265,160 +238,6 @@ export class AiSheet {
   // ---------- stems -> MIDI with an instrument per section ----------
   get cacheDir() { const f = Object.values(this.stems?.stems || {})[0]; return f ? f.replace(/[\\/]stems[\\/][^\\/]+$/, '') : null; }
 
-  async addInstruments() {
-    this.busy = 'stems'; this.progress = 0; this.stemLabel = t('악기 인식 구성 요소 설치 중…'); this.render();
-    const r = await window.melofi.stemsAddInstruments();
-    this.busy = null;
-    if (!r.ok) this.error = r.message;
-    this.engine = await window.melofi.stemsStatus();
-    this.render();
-  }
-
-  async recognize() {
-    this.busy = 'analyse'; this.progress = 0; this.stage = null; this.stemLabel = t('악기를 알아보는 중…'); this.error = null;
-    this.cancelMatch = false; // 취소 while recognising or comparing
-    const cancelled = () => { this.busy = null; this.cancelMatch = false; this.addLog(t('MIDI 변환을 취소했어요.')); this.render(); };
-    this.addLog(t('악기 인식 시작 (AST · AudioSet)'));
-    this.render();
-    const r = await window.melofi.stemsInstruments(this.cacheDir);
-    if (this.cancelMatch) return cancelled();
-    this.busy = null;
-    if (!r.ok) { this.error = r.message; this.render(); return; }
-    this.inst = r.result;
-    const plan = sections(this.stems, this.inst);
-    // every section is compared with MeloFi's instruments and synth presets by ear (timbre.js):
-    // the candidates play the section's own notes and are measured against the separated sound
-    this.busy = 'analyse'; this.progress = 0; this.stemLabel = t('어울리는 악기를 찾는 중…'); this.render();
-    this.addLog(t('음색 비교를 시작해요. 구간마다 후보 악기로 같은 음표를 연주해 원음과 비교해요.'));
-    const t0 = performance.now();
-    try {
-      await matchAll(this.S, this.stems, plan, { onProgress: (p, label) => { if (this.cancelMatch) throw new Error('cancelled'); this.progress = p; this.stemLabel = label ? t('음색 비교 중 · {what}', { what: label }) : t('음색 비교 중…'); this.renderProgress(); if (this.barEl) this.barEl.style.width = `${Math.round(p * 100)}%`; } });
-    } catch (err) { if (this.cancelMatch) return cancelled(); this.addLog(t('음색 비교 실패: {why}', { why: err.message })); }
-    this.busy = null;
-    this.plan = plan;
-    // the best match for every group, unless the user picked one already; stray parts stay out
-    this.choice ||= {};
-    for (const [k, groups] of Object.entries(this.plan.stems)) for (const g of groups) {
-      const key = `${k}:${g.cat}`;
-      if (!(key in this.choice)) this.choice[key] = g.stray ? null : candidates(this.S, k, g)[0]?.id || null;
-    }
-    const n = Object.values(this.plan.stems).flat().filter((g) => !g.stray).length;
-    this.addLog(t('음색 비교가 끝났어요 ({s}초). 구간 {n}개 중 {good}개가 90% 이상 맞아요.', { s: Math.round((performance.now() - t0) / 1000), n, good: Object.values(this.plan.stems).flat().filter((g) => !g.stray && (g.match?.cands?.[0]?.acc || 0) >= 90).length }));
-    this.render();
-  }
-
-  // the stem itself from the start of the group's first section
-  async previewOriginal(k, g) {
-    const id = `o-${k}-${g.cat}`;
-    if (this.playing === id) return this.stopPreview();
-    await this.preview(id, this.stems.stems[k], highlightStart(this.stems, k, g, this.plan.bars)); // the busy part, not a quiet start
-  }
-
-  async previewCandidate(k, g) {
-    const instId = this.choice[`${k}:${g.cat}`], id = `c-${k}-${g.cat}`;
-    if (!instId) return;
-    if (this.playing === id) return this.stopPreview();
-    this.stopPreview();
-    this.playing = id; this.error = null; this.render();
-    try {
-      // an instrument not downloaded yet has no samples to play: fetch it first
-      const meta = this.S.app.instruments.find((i) => i.id === instId);
-      if (meta && !meta.installed) {
-        if (!meta.downloadable) throw new Error(t('{name}이(가) 이 PC에 없어 미리 들을 수 없어요.', { name: meta.name }));
-        this.S.app.ui.toast(t('{name}을(를) 받고 있어요. 다 받으면 바로 들려드릴게요.', { name: meta.name }), { ms: 3000 });
-        const r = await this.S.app.downloadInstrument(instId, { quiet: true });
-        if (!r?.ok && !this.S.app.instruments.find((i) => i.id === instId)?.installed) throw new Error(t('{name}을(를) 받지 못했어요', { name: meta.name }));
-        if (this.playing !== id) return;
-        this.render(); // the "(받기)" mark goes
-      }
-      const mix = await renderCandidate(this.S, this.stems, k, g, instId, this.plan.bars);
-      if (this.playing !== id) return;
-      const c = this.S.app.engine.ctx, b = c.createBuffer(2, mix.left.length, mix.rate);
-      b.copyToChannel(mix.left, 0); b.copyToChannel(mix.right, 1);
-      const src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start();
-      src.onended = () => { if (this.playing === id) this.stopPreview(); };
-      this.srcEl = src;
-    } catch (err) { this.error = t('들어보지 못했어요: {why}', { why: err.message }); this.playing = null; this.render(); }
-  }
-
-  async buildMidi() {
-    const S = this.S;
-    this.busy = 'build'; this.render();
-    try {
-      // chosen instruments that are not downloaded yet come down first
-      const want = [...new Set(Object.values(this.choice).filter(Boolean))].filter((id) => { const m = S.app.instruments.find((i) => i.id === id); return m && !m.installed && m.downloadable; });
-      for (const [i, id] of want.entries()) {
-        this.stemLabel = t('악기 받는 중… {name} ({i}/{n})', { name: S.instName(id), i: i + 1, n: want.length }); this.renderProgress?.();
-        await S.app.downloadInstrument(id, { quiet: true });
-      }
-      const proj = await buildAssigned(this.stems, this.plan, this.choice, this.file.name, S, { audio: this.keepAudio !== false });
-      S.setProject(proj);
-      S.setTab('playlist');
-      this.close();
-      S.app.ui.toast(t('악기를 지정해 MIDI로 바꾼 프로젝트를 만들었습니다'));
-    } catch (err) { this.error = t('MIDI 프로젝트를 만들지 못했습니다: {why}', { why: err.message }); }
-    this.busy = null; this.render();
-  }
-
-  midiView() {
-    const eng = this.engine || {};
-    const head = h('b', {}, t('MIDI로 변환 · 악기 자동 지정'));
-    if (!eng.instruments) {
-      return h('div', { class: 'ai-step' }, head,
-        h('p', {}, t('분리한 트랙을 구간별로 듣고 어울리는 악기를 골라 MIDI로 바꿔요. 먼저 악기 인식 도구(약 10MB)를 설치해야 하고, 처음 실행할 때 모델(약 350MB)을 더 받아요.')),
-        h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn', disabled: !!this.busy, onclick: () => this.addInstruments() }, t('악기 인식 설치'))));
-    }
-    if (!this.plan) {
-      return h('div', { class: 'ai-step' }, head,
-        h('p', {}, t('트랙마다 어떤 악기인지 알아보고 마디 단위로 나눈 뒤, MeloFi 악기와 신스 프리셋으로 같은 음표를 연주해 원음과 비교해요. 곡당 1~3분쯤 걸려요.')),
-        h('div', { class: 'row' }, h('span', { class: 'sp' }), h('button', { class: 'btn primary', disabled: !!this.busy, onclick: () => this.recognize() }, t('악기 알아보기'))));
-    }
-    const rows = [], strays = [], missing = [];
-    const pct = (v) => `${Math.round(v)}%`;
-    const row = (k, g, stray) => {
-      const key = `${k}:${g.cat}`, cands = candidates(this.S, k, g), cur = this.choice[key], best = cands[0];
-      const measured = best?.acc != null;
-      const sel = h('select', { class: 'mc-sel', onchange: (e) => { this.choice[key] = e.target.value || null; if (this.playing?.startsWith('c-')) this.stopPreview(); else this.render(); } },
-        ...cands.map((c, i) => h('option', { value: c.id, selected: c.id === cur },
-          measured ? `${pct(c.acc)} · ${c.name} (${c.kind})${c.mix ? (c.mix.layer ? t(' · 믹스 맞춤 + {name}', { name: candName(this.S, c.mix.layer.id) }) : t(' · 믹스 맞춤')) : ''}${i === 0 ? ' ★' : ''}${c.installed ? '' : c.downloadable ? t(' · 받기') : ''}`
-            : `${c.recommended ? t('★ 추천 · ') : ''}${c.name}${i === 0 || cands[i - 1].cat !== c.cat ? ` — ${t('{cat}: 인식 {n}%', { cat: t(CATS[c.cat][0]), n: Math.round(c.share * 100) })}` : ''}${c.installed ? '' : c.downloadable ? t(' (받기)') : ''}`)),
-        h('option', { value: '', selected: !cur }, t('넣지 않음')));
-      const pick = cands.find((c) => c.id === cur);
-      const why = pick?.parts ? (pick.parts.n != null ? t('배음 {h} · 스펙트럼 {c} · 소리 모양 {e} · 잡음 {n}', { h: pct(pick.parts.h ?? 0), c: pct(pick.parts.c ?? 0), e: pct(pick.parts.e ?? 0), n: pct(pick.parts.n) }) : t('배음 {h} · 스펙트럼 {c} · 소리 모양 {e}', { h: pct(pick.parts.h ?? 0), c: pct(pick.parts.c ?? 0), e: pct(pick.parts.e ?? 0) })) : '';
-      const oId = `o-${k}-${g.cat}`, cId = `c-${k}-${g.cat}`;
-      const label = measured ? best.kind : t(CATS[g.label][0]);
-      const tip = stray ? t('{why}: 다른 악기 소리가 섞였거나 잘못 알아들었을 가능성이 커서 기본 선택에서 뺐어요.', { why: g.heard <= 2 ? t('곡 전체에서 {n}번만 들려요', { n: g.heard }) : t('음표가 {n}개뿐이에요', { n: g.notes }) })
-        : g.match?.vocal ? t('노래는 악기가 아니에요: 가사와 목소리는 보컬 합성으로 옮기는 게 맞아서 음색 비교를 하지 않았어요. 멜로디만 악기로 듣고 싶으면 골라 주세요')
-        : g.match?.unmeasured ? t('이 구간은 음이 또렷하지 않아 음색을 재지 못했어요') : '';
-      const el = h('div', { class: `mc-row${stray ? ' thin' : ''}`, title: tip },
-        h('span', { class: 'mc-cat' }, stray ? `${tc('stem', STEM_NAMES[k])} · ` : '', label, stray ? h('small', {}, t(' · 음표 {n}', { n: g.notes })) : null),
-        h('span', { class: 'mc-range', title: rangeText(g.secs) }, rangeText(g.secs)),
-        sel,
-        h('span', { class: `mc-acc${measured && best.acc >= 90 ? ' ok' : ''}`, title: why ? t('고른 악기와 원음의 닮은 정도: {why}', { why }) + (pick?.mix ? `
-${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : '—'),
-        h('button', { class: `btn sm ghost${this.playing === oId ? ' on' : ''}`, title: t('분리한 원음 듣기'), onclick: () => this.previewOriginal(k, g) }, this.playing === oId ? t('■ 원음') : t('▶ 원음')),
-        h('button', { class: `btn sm ghost${this.playing === cId ? ' on' : ''}`, disabled: !cur, title: t('고른 악기로 이 구간의 음표 듣기 (8초)'), onclick: () => this.previewCandidate(k, g) }, this.playing === cId ? t('■ 악기') : t('▶ 악기')));
-      if (!stray && measured && best.acc < 90) missing.push(h('li', {}, t('{stem} {range}: 가장 비슷한 {name}도 {acc}예요. {sound}', { stem: tc('stem', STEM_NAMES[k]), range: rangeText(g.secs), name: best.name, acc: pct(best.acc), sound: soundText(g.match.desc) })));
-      return el;
-    };
-    for (const [k, groups] of Object.entries(this.plan.stems)) {
-      const valid = groups.filter((g) => !g.stray);
-      if (valid.length) rows.push(h('div', { class: 'mc-stem' }, tc('stem', STEM_NAMES[k] || k)));
-      for (const g of valid) rows.push(row(k, g, false));
-      for (const g of groups.filter((x) => x.stray)) strays.push(row(k, g, true));
-    }
-    if (strays.length) rows.push(h('div', { class: 'mc-stem dim' }, t('한두 번만 들리는 소리예요. 잡음이거나 잘못 알아들은 소리일 수 있어요.')), ...strays);
-    return h('div', { class: 'ai-step' }, head,
-      h('p', { class: 'dim' }, t('MeloFi 악기와 신스 프리셋이 구간마다 그 음표를 직접 연주해 원음과 비교한 닮은 정도예요. 배음, 스펙트럼, 소리 모양, 잡음을 따져 가장 닮은 악기를 골라 뒀으니 원음과 들어 보고 바꿔 주세요.')),
-      h('div', { class: 'mc-table' }, ...rows),
-      missing.length ? h('details', { class: 'mc-missing' }, h('summary', {}, t('90%에 못 미치는 구간이 {n}개 있어요. MeloFi에 아직 없는 악기일 수 있어요.', { n: missing.length })), h('ul', {}, ...missing)) : null,
-      h('div', { class: 'row' },
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.keepAudio !== false, onchange: (e) => { this.keepAudio = e.target.checked; } }), t(' 분리한 원음도 넣기 (음소거, 비교용)')),
-        h('span', { class: 'sp' }),
-        h('button', { class: 'btn', disabled: !!this.busy, title: t('악기를 다시 알아봐요'), onclick: () => { this.plan = null; this.render(); } }, t('다시 알아보기')),
-        h('button', { class: 'btn primary', disabled: !!this.busy || !Object.values(this.choice).some(Boolean), onclick: () => this.buildMidi() }, t('이 악기들로 MIDI 프로젝트 만들기'))));
-  }
-
   // ---------- saving the separated tracks (right-click a track) ----------
   // fmt: 'flac' (the separated file itself) | 'wav24' | 'wav16' | 'mp3'
   async stemFile(file, fmt) {
@@ -472,11 +291,17 @@ ${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : 
     const S = this.S;
     this.busy = 'build'; this.render();
     try {
-      const proj = await fromStems(this.stems, null, this.file.name, S, { audio: this.useAudio, midi: this.useMidi });
+      // the separated tracks as audio; MIDI is made later, per track, from the project (stemconvert.js)
+      const proj = await fromStems(this.stems, null, this.file.name, S, { audio: true, midi: false });
       S.setProject(proj);
       S.setTab('playlist');
       this.close();
-      S.app.ui.toast(t('분리한 트랙으로 프로젝트를 만들었습니다'));
+      const quiet = proj.stemsRef?.quiet || [];
+      S.app.ui.toast(quiet.length ? t('분리한 트랙으로 프로젝트를 만들었어요. 소리가 거의 없는 트랙 {n}개는 넣지 않았어요.', { n: quiet.length }) : t('분리한 트랙으로 프로젝트를 만들었어요.'), { ms: 5000 });
+      // then every track gets its instruments right away, in the background (the corner card shows
+      // it and can cancel). With MuScriptor's notes the parts of one track (an orchestra in "그 밖의
+      // 악기") become channels of their own. The lead vocal waits for 보컬로 변환….
+      S.stemConvert.convertAll({ auto: true });
     } catch (err) { this.error = t('프로젝트를 만들지 못했습니다: {why}', { why: err.message }); }
     this.busy = null; this.render();
   }
@@ -495,7 +320,7 @@ ${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : 
   // the page before this one (the run page is skipped: it is only a progress view)
   back() {
     if (this.busy) return;
-    const to = { options: 'file', run: 'options', result: 'options', midi: 'result' }[this.step];
+    const to = { options: 'file', run: 'options', result: 'options' }[this.step];
     if (!to) return;
     this.stopPreview(); this.error = null; this.step = to; this.render();
   }
@@ -507,7 +332,7 @@ ${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : 
       h('button', { class: 'btn sm ghost ai-back', disabled: at === 0 || !!this.busy, onclick: () => this.back() }, t('← 뒤로')),
       h('ol', { class: 'ai-steps' }, ...STEPS.map(([k, label], i) => h('li', { class: i === at ? 'on' : i < at ? 'done' : '' }, h('i', {}, i < at ? '✓' : String(i + 1)), t(label)))));
     const page = this.step === 'file' ? this.fileView() : this.step === 'options' ? this.optionsView() : this.step === 'run' ? this.runView()
-      : this.step === 'result' ? this.stemsView() : this.midiView();
+      : this.stemsView();
     const parts = [head, page];
     // busy on another page than the run page (installing, recognising instruments): progress under it
     if (this.busy && this.step !== 'run') parts.push(this.busyView());
@@ -668,12 +493,9 @@ ${mixText(this.S, pick.mix)}` : '') : '' }, pick?.acc != null ? pct(pick.acc) : 
       r.muscriptor?.error ? h('p', { class: 'cl-msg err' }, t('MuScriptor를 실행하지 못했어요: {why}', { why: r.muscriptor.error })) : null,
       Object.keys(r.drum_parts || {}).length ? h('div', { class: 'ai-stems sub' }, ...Object.entries(r.drum_parts).map(([k, file]) => chip(`d-${k}`, DRUMS[k] || k, file))) : null,
       h('div', { class: 'row' },
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.useAudio, onchange: (e) => { this.useAudio = e.target.checked; this.render(); } }), t(' 분리한 오디오 트랙')),
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.useMidi, onchange: (e) => { this.useMidi = e.target.checked; this.render(); } }), t(' 채보한 MIDI 채널')),
         h('span', { class: 'sp' }),
-        h('button', { class: 'btn', disabled: !!this.busy || (!this.useAudio && !this.useMidi), onclick: () => this.openStems() }, t('분리한 트랙으로 프로젝트 만들기')),
-        h('button', { class: 'btn primary', disabled: !!this.busy, title: t('구간마다 악기를 골라 MIDI로 바꾸기'), onclick: () => { this.stopPreview(); this.step = 'midi'; this.render(); } }, t('MIDI로 변환 →'))),
-      h('p', { class: 'dim' }, t('트랙을 우클릭하면 파일로 저장할 수 있어요 (FLAC · WAV · MP3). 오디오와 MIDI를 함께 넣으면 MIDI 채널은 음소거된 상태로 들어가요. 분리: {sep} / 박자: {beats} / 채보: {notes}', { sep: `${r.models.vocals} · ${r.models.instruments}${r.models.drum_parts ? ` · ${r.models.drum_parts}` : ''}`, beats: r.models.beats, notes: r.models.notes })));
+        h('button', { class: 'btn primary', disabled: !!this.busy, onclick: () => this.openStems() }, t('프로젝트로 열기'))),
+      h('p', { class: 'dim' }, t('트랙을 우클릭하면 파일로 저장할 수 있어요 (FLAC · WAV · MP3). 프로젝트로 연 뒤 트랙을 우클릭하면 MIDI나 보컬로 바꿀 수 있어요. 분리: {sep} / 박자: {beats} / 채보: {notes}', { sep: `${r.models.vocals} · ${r.models.instruments}${r.models.drum_parts ? ` · ${r.models.drum_parts}` : ''}`, beats: r.models.beats, notes: r.models.notes })));
   }
 }
 
@@ -687,6 +509,27 @@ const pickInst = (S, want, fallback) => {
 // The engine's result -> a project: the song's tempo map (one tempo per bar from the downbeats when
 // the tempo moves), each stem as an audio clip on its own track, and each stem's notes as a MIDI
 // channel (muted when the audio is there too) in 8-bar patterns.
+// A separated track that is next to silent all through: 90% of its half-second stretches under
+// -45 dBFS. Measured on real separations: empty stems sit at -50 to -240 dB there, ones with any
+// real part above -35 (a string piece: drums -99, piano and vocals silent, the orchestra in
+// "other" at -19).
+export async function stemIsQuiet(bytes, limit = -45) {
+  try {
+    const ctx = new OfflineAudioContext(1, 1, 22050);
+    const b = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    const L = b.getChannelData(0), R = b.numberOfChannels > 1 ? b.getChannelData(1) : L, w = Math.round(b.sampleRate / 2);
+    const db = [];
+    for (let a = 0; a + w <= L.length; a += w) {
+      let s = 0;
+      for (let i = a; i < a + w; i++) { const v = 0.5 * (L[i] + R[i]); s += v * v; }
+      db.push(10 * Math.log10(s / w + 1e-24));
+    }
+    if (!db.length) return true;
+    db.sort((x, y) => x - y);
+    return db[Math.floor(db.length * 0.9)] < limit;
+  } catch { return false; } // when in doubt the track stays
+}
+
 export async function fromStems(r, f, fileName, S, { audio = true, midi = true } = {}) {
   const p = newProject();
   p.name = t('{name} (분리)', { name: fileName.replace(/\.[^.]+$/, '') });
@@ -696,13 +539,17 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
   const db = cleanDownbeats(r.downbeats || [], r.beats || [], p.sig[0]);
   let gridT0 = r.first_downbeat || 0; // where bar 1 starts in the recording
   // tempo per bar when the song drifts (a live band) so bars keep lining up with the recording
+  const mm = meterMap(r);
   if (db.length > 3) {
     // one straight line through the downbeats: a steady song keeps one tempo; the beat tracker's
     // ~20 ms wobble per bar is not a tempo change, and neither are a few downbeats it put half a
     // bar off (an intro read in the wrong phase): those stay out of the line instead of turning
     // the whole song into per-bar tempos
     const fit = barFit(db);
-    if (fit.steady) { p.bpm = Math.round(((60 * p.sig[0]) / fit.barSec) * 100) / 100; gridT0 = fit.t0; }
+    // (tempo sections first: the downbeats were evened out to the most common bar length above, so
+    // a 100 BPM section in a 200 BPM song looks steady to the line)
+    if (mm.tempoChanges) { /* tempo sections: below, with the bars they were found in */ }
+    else if (fit.steady) { p.bpm = Math.round(((60 * p.sig[0]) / fit.barSec) * 100) / 100; gridT0 = fit.t0; }
     else {
       // a real drift (a live band): tempo per bar, smoothed over 5 bars so the wobble stays out;
       // a bar far off the song's usual length is a tracker slip, not a tempo, and takes the usual
@@ -717,16 +564,26 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
   // time signature changes (변박): bars whose beat count differs from the song's meter become
   // time-signature markers at their bar lines. The tempo then comes from the beats (bar lengths
   // differ), and notes stay where they were played: markers only move the bar lines.
-  const mm = meterMap(r);
+  if (mm.tempoChanges) {
+    // tempo sections: one tempo per section from its bars, so each bar line lands where it is played
+    const bpmOf = (b) => Math.round((60 / b.spb) * 10) / 10;
+    p.bpm = bpmOf(mm.bars[0]);
+    // (the tempo map counts bars of the first signature: with signature changes a bar's place is
+    // the beats before it over the first bar's beats)
+    const first = mm.changes.length ? mm.bars[0].beats : p.sig[0];
+    let beats = 0;
+    const at = mm.bars.map((b) => { const x = beats / first; beats += mm.changes.length ? b.beats : p.sig[0]; return x; });
+    p.tempos = mm.bars.map((b, i) => ({ bar: Math.round(at[i] * 1000) / 1000, bpm: bpmOf(b) })).filter((x, i, a) => i > 0 && Math.abs(x.bpm - a[i - 1].bpm) > 0.3);
+  }
   if (mm.changes.length) {
     // seconds per beat over the whole song from the bar lines themselves (the beat list can run at
     // double time for a stretch), so every bar line lands where the song has it on average
     const n = mm.bars.length;
-    if (n > 2) {
+    if (n > 2 && !mm.tempoChanges) {
       const beatsSum = mm.bars.slice(0, -1).reduce((a, b) => a + b.beats, 0);
       p.bpm = Math.round(((60 * beatsSum) / (mm.bars[n - 1].t - mm.bars[0].t)) * 100) / 100;
     }
-    p.tempos = [];
+    if (!mm.tempoChanges) p.tempos = [];
     p.sig = [mm.bars[0].beats, 4];
     let tick = 0, prev = mm.bars[0].beats;
     p.sigs = [];
@@ -735,8 +592,26 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
       tick += b.beats * PPQ;
     }
   }
+  // one tempo range: a song written at 300 or at 40 BPM is the same music at 150 or 80. A single
+  // tempo outside 50-240 is doubled or halved into it and the beats per bar go with it, so every
+  // bar keeps its length and its place (4/4 at 300 becomes 2/4 at 150). The range is what music is
+  // really written in: 200 BPM is an ordinary fast song (and 6/4 at 200 is not 3/4 at 100: the
+  // bar would keep its length but lose its six beats), so only tempos no one counts are folded.
+  // Left alone when the bar would not come out in whole beats, or when the song has a tempo map
+  // or meter changes.
+  if (!p.tempos?.length && !p.sigs?.length) {
+    let f = 1;
+    while (p.bpm * f >= 240) f /= 2;
+    while (p.bpm * f < 50) f *= 2;
+    const beats = p.sig[0] * f;
+    if (f !== 1 && Number.isInteger(beats) && beats >= 2 && beats <= 8) { p.bpm = Math.round(p.bpm * f * 100) / 100; p.sig = [beats, 4]; }
+  }
   p.mode = 'song';
-  const t0 = mm.changes.length ? mm.bars[0].t : gridT0;
+  const t0 = mm.changes.length || (mm.tempoChanges && p.tempos?.length) ? mm.bars[0].t : gridT0;
+  // where the separation is kept and where bar 1 is in the recording: a separated track can be
+  // converted to MIDI later, also after the project was saved and opened again (stemconvert.js)
+  const anyStem = Object.values(r.stems || {})[0];
+  if (anyStem) p.stemsRef = { dir: anyStem.replace(/[\\/]stems[\\/][^\\/]+$/, ''), t0, name: fileName };
   const tickOf = (sec) => Math.max(0, Math.round(secToTick(p, Math.max(0, sec - t0), 'song')));
   const NAMES = { vocals: t('리드 보컬'), backing: tc('stem', '코러스'), drums: t('드럼'), bass: t('베이스'), guitar: t('기타'), piano: t('피아노'), other: t('그 밖의 악기') };
   const INST = { vocals: ['synlead', 'splendid'], backing: ['chorus', 'oohs'], bass: ['fingerbass', 'ebass'], guitar: ['cleanguitar', 'acoustic'], piano: ['splendid', 'salamander'], other: ['synpad', 'strings'] };
@@ -750,9 +625,12 @@ export async function fromStems(r, f, fileName, S, { audio = true, midi = true }
     for (const k of order) {
       const bytes = await window.melofi.stemsRead(r.stems[k]);
       if (!bytes) continue;
+      // the separator always gives the same seven tracks; one that holds nothing of this song (no
+      // drums in a string piece) stays out of the project, and the separation keeps it
+      if (await stemIsQuiet(bytes)) { (p.stemsRef ||= {}).quiet = [...(p.stemsRef.quiet || []), k]; continue; }
       const hash = await addMedia(p, `${NAMES[k]}${r.stems[k].match(/\.[a-z0-9]+$/i)?.[0] || '.wav'}`, bytes);
       p.media[hash].bpm = null; // played as recorded, never stretched
-      const ch = newChannel('splendid', NAMES[k], p.channels.length, { kind: 'audio', vol: 0.8, send: 0 });
+      const ch = newChannel('splendid', NAMES[k], p.channels.length, { kind: 'audio', vol: 0.8, send: 0, stem: k }); // stem: which separated track this is (MIDI 변환)
       p.channels.push(ch);
       const tr = p.playlist.tracks.length;
       p.playlist.tracks.push({ ...newTrack(tr), name: NAMES[k] });
@@ -838,7 +716,7 @@ export function meterMap(r) {
     if (b.beats <= 1) { if (out.length) out.at(-1).beats += b.beats; continue; }
     if (b.beats % meter === 0 && b.beats > meter && b.beats <= meter * 3) {
       const span = (bars[i + 1]?.t ?? db.at(-1)) - b.t, k = b.beats / meter;
-      for (let s = 0; s < k; s++) out.push({ t: b.t + (span * s) / k, beats: meter });
+      for (let s = 0; s < k; s++) out.push({ t: b.t + (span * s) / k, beats: meter, split: true });
       continue;
     }
     out.push({ ...b });
@@ -846,14 +724,82 @@ export function meterMap(r) {
   bars = out;
   // the last bar runs into the song's end (the tracker has no downbeat after it): played as the meter
   if (bars.length) bars.at(-1).beats = meter;
+  // A half-time (or double-time) section: the drums play half as many beats, the tracker counts
+  // two beats in a bar that is as long as every other bar. That is how the bar is counted, not a
+  // tempo: a bar of the song's usual length with half or twice the meter's beats is the meter.
+  // (Read as a tempo change, a 150 BPM song got a 75 BPM stretch and everything after it moved
+  // six bars.)
+  {
+    const lens = bars.slice(0, -1).map((b, i) => bars[i + 1].t - b.t).sort((x, y) => x - y), usual = lens[lens.length >> 1];
+    if (usual) bars.forEach((b, i) => {
+      const len = i + 1 < bars.length ? bars[i + 1].t - b.t : usual;
+      if ((b.beats * 2 === meter || b.beats === meter * 2) && Math.abs(len / usual - 1) <= 0.08) b.beats = meter;
+    });
+  }
   // trust the counts only when the beat length is the same all through: where the tracker switches
   // to double time for a stretch, a 4/4 bar reads as two "bars" of four short beats and the counts
   // say nothing about the meter. Then no changes (the song keeps one signature, as before).
-  const spb = bars.slice(0, -1).map((b, i) => (bars[i + 1].t - b.t) / b.beats).sort((a, b) => a - b);
-  const m = spb[spb.length >> 1];
-  if (!spb.length || spb.some((x) => Math.abs(x / m - 1) > 0.12)) return { meter, bars, changes: [], unsteady: true };
+  // A song can also change tempo for whole sections (200 BPM, then 100, then 3/4 at 150): the beat
+  // length is then the same within each section. Sections of three bars or more count; a lone bar
+  // off its section is a tracker slip and takes the section's beat.
+  const ts = tempoSections(bars);
+  if (!ts) return { meter, bars, changes: [], unsteady: true };
+  // a bar whose beats are not as long as its section's is a tracker slip (an extra beat squeezed
+  // into a bar of the usual length), not a bar in another meter: it is played as the meter
+  for (const i of ts.slipAt) bars[i].beats = meter;
+  bars.forEach((b, i) => { b.spb = ts.spb[i]; });
+  const tempoChanges = ts.spb.some((x, i) => i && Math.abs(x / ts.spb[i - 1] - 1) > 0.03);
+  // the beat counts say something about the meter only when (almost) every bar's beats are as long
+  // as its section's: a pickup bar may differ, more slips and they say nothing
+  if (ts.slips > Math.max(1, 0.03 * bars.length)) return { meter, bars, changes: [], unsteady: true, tempoChanges };
   const changes = bars.map((b, i) => ({ bar: i, beats: b.beats })).filter((c) => c.beats !== meter);
-  return { meter, bars, changes };
+  return { meter, bars, changes, tempoChanges };
+}
+
+// seconds per beat of every bar, constant within each tempo section (a drifting section, a live
+// band, keeps a 5-bar running median instead); null when the bars make no sections
+export function tempoSections(bars) {
+  const n = bars.length;
+  if (n < 2) return null;
+  const med = (a) => { const q = a.slice().sort((x, y) => x - y); return q[q.length >> 1]; };
+  const raw = bars.map((b, i) => (i + 1 < n ? (bars[i + 1].t - b.t) / b.beats : null));
+  raw[n - 1] = raw[n - 2];
+  const near = (a, b) => Math.abs(a / b - 1) <= 0.06;
+  // a new tempo section: 12% or more off the current one and four bars agreeing on it (a beat
+  // tracker's wobble and its double-time stretches make shorter and smaller ones)
+  const level = (i, ref) => i + 3 < n && Math.abs(raw[i] / ref - 1) >= 0.12 && [1, 2, 3].every((d) => !bars[i + d - 1].split && Math.abs(raw[i + d] / raw[i] - 1) <= 0.05);
+  const secs = [{ start: 0, vals: [raw[0]], slips: [] }];
+  // a ramp (accelerando, ritardando): three bars or more each moving the same way by 2% or more
+  const step = (i) => (raw[i] && raw[i - 1] ? raw[i] / raw[i - 1] - 1 : 0);
+  // a ramp: four bars or more each moving the same way by 2% or more, 15% or more in all
+  const ramp = (i) => i + 3 < n && [0, 1, 2, 3].every((d) => !bars[i + d].split && Math.abs(step(i + d)) > 0.02 && Math.sign(step(i + d)) === Math.sign(step(i))) && Math.abs(raw[i + 3] / raw[i - 1] - 1) >= 0.15;
+  for (let i = 1; i < n; i++) {
+    const cur = secs.at(-1), ref = med(cur.vals.slice(-4));
+    if (cur.ramp) {
+      // a ramp goes on while each bar moves on the same way; where it stops a section starts
+      if (Math.abs(step(i)) > 0.015 && Math.sign(step(i)) === cur.dir) { cur.vals.push(raw[i]); continue; }
+      secs.push({ start: i, vals: [raw[i]], slips: [] });
+      continue;
+    }
+    if (near(raw[i], ref)) { cur.vals.push(raw[i]); continue; }
+    // a new level only when the next two bars agree with it
+    // (bars this map cut out of a longer one are no evidence: a tracker running at double time for
+    // a stretch makes them)
+    if (level(i, ref)) secs.push({ start: i, vals: [raw[i]], slips: [] });
+    else if (ramp(i)) secs.push({ start: i, vals: [raw[i]], slips: [], ramp: true, dir: Math.sign(step(i)) });
+    else { cur.vals.push(ref); cur.slips.push(i); }
+  }
+  const slips = secs.reduce((a, x) => a + x.slips.length, 0);
+  if (slips > 0.1 * n) return null;
+  const out = new Array(n);
+  for (const [k, sec] of secs.entries()) {
+    const end = secs[k + 1]?.start ?? n, v = sec.vals, m = med(v);
+    const drift = !sec.ramp && v.length >= 6 && (Math.max(...v) - Math.min(...v)) / m > 0.08;
+    for (let i = sec.start; i < end; i++) {
+      out[i] = sec.ramp ? v[i - sec.start] : drift ? med(v.slice(Math.max(0, i - sec.start - 2), i - sec.start + 3)) : m;
+    }
+  }
+  return { spb: out, slips, slipAt: secs.flatMap((x) => x.slips) };
 }
 
 // A straight bar grid through the downbeats that ignores the ones the tracker put off it. The bar
@@ -892,19 +838,19 @@ export function cleanDownbeats(db, beats = [], meter = 4) {
 }
 
 // MuScriptor instrument -> [Korean name, MeloFi instrument, fallback]
-const MUS = {
+export const MUS = {
   acoustic_piano: [N_('피아노'), 'splendid', 'salamander'], electric_piano: [N_('일렉트릭 피아노'), 'rhodes', 'wurlitzer'],
   chromatic_percussion: [N_('건반 타악기'), 'vibraphone', 'glockenspiel'], organ: [N_('오르간'), 'organ', 'drawbar'],
   acoustic_guitar: [N_('어쿠스틱 기타'), 'acoustic', 'cleanguitar'], clean_electric_guitar: [N_('일렉 기타 (클린)'), 'cleanguitar', 'acoustic'],
   distorted_electric_guitar: [N_('일렉 기타 (디스토션)'), 'electric', 'cleanguitar'], acoustic_bass: [N_('어쿠스틱 베이스'), 'upright', 'contrabass'],
-  electric_bass: [N_('일렉 베이스'), 'fingerbass', 'ebass'], violin: [N_('바이올린'), 'violin', 'strings'], viola: [N_('비올라'), 'violin', 'strings'],
+  electric_bass: [N_('일렉 베이스'), 'fingerbass', 'ebass'], violin: [N_('바이올린'), 'violin', 'strings'], viola: [N_('비올라'), 'viola', 'violin'],
   cello: [N_('첼로'), 'cello', 'strings'], contrabass: [N_('콘트라베이스'), 'contrabass', 'upright'], orchestral_harp: [N_('하프'), 'harp', 'splendid'],
-  timpani: [N_('팀파니'), 'contrabass', 'cello'], string_ensemble: [N_('현악 합주'), 'strings', 'synpad'], synth_strings: [N_('신스 스트링'), 'synpad', 'strings'],
+  timpani: [N_('팀파니'), 'timpani', 'contrabass'], string_ensemble: [N_('현악 합주'), 'strings', 'synpad'], synth_strings: [N_('신스 스트링'), 'synpad', 'strings'],
   voice: [N_('보컬'), 'vocal', 'synlead'], orchestra_hit: [N_('오케스트라 히트'), 'brassstab', 'synbrass'], trumpet: [N_('트럼펫'), 'trumpet', 'synbrass'],
-  trombone: [N_('트롬본'), 'trombone', 'synbrass'], tuba: [N_('튜바'), 'trombone', 'synbrass'], french_horn: [N_('호른'), 'horn', 'synbrass'],
-  brass_section: [N_('금관 합주'), 'synbrass', 'trumpet'], soprano_and_alto_sax: [N_('알토 색소폰'), 'altosax', 'tenorsax'], tenor_sax: [N_('테너 색소폰'), 'tenorsax', 'altosax'],
-  baritone_sax: [N_('바리톤 색소폰'), 'tenorsax', 'altosax'], oboe: [N_('오보에'), 'oboe', 'clarinet'], english_horn: [N_('잉글리시 호른'), 'oboe', 'clarinet'],
-  bassoon: [N_('바순'), 'clarinet', 'oboe'], clarinet: [N_('클라리넷'), 'clarinet', 'oboe'], flutes: [N_('플루트'), 'flute', 'recorder'],
+  trombone: [N_('트롬본'), 'trombone', 'synbrass'], tuba: [N_('튜바'), 'tuba', 'trombone'], french_horn: [N_('호른'), 'horn', 'synbrass'],
+  brass_section: [N_('금관 합주'), 'synbrass', 'trumpet'], soprano_and_alto_sax: [N_('소프라노·알토 색소폰'), 'altosax', 'tenorsax'], tenor_sax: [N_('테너 색소폰'), 'tenorsax', 'altosax'],
+  baritone_sax: [N_('바리톤 색소폰'), 'baritonesax', 'tenorsax'], oboe: [N_('오보에'), 'oboe', 'clarinet'], english_horn: [N_('잉글리시 호른'), 'englishhorn', 'oboe'],
+  bassoon: [N_('바순'), 'bassoon', 'clarinet'], clarinet: [N_('클라리넷'), 'clarinet', 'oboe'], flutes: [N_('플루트'), 'flute', 'recorder'],
   synth_lead: [N_('신스 리드'), 'synlead', 'supersaw'], synth_pad: [N_('신스 패드'), 'synpad', 'strings'], drums: [N_('드럼'), 'acousticdrums', 'drums808'],
 };
 

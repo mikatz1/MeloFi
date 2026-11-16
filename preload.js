@@ -49,6 +49,11 @@ contextBridge.exposeInMainWorld('melofi', {
   // headless tests only (main registers these when MELOFI_SHOT is set)
   testEval: (which, code) => ipcRenderer.invoke('test:eval', which, code),
   testShot: (which, name) => ipcRenderer.invoke('test:shot', which, name),
+  testWrite: (name, data) => ipcRenderer.invoke('test:write', name, data),
+  testRead: (name) => ipcRenderer.invoke('test:read', name),
+  testDialogLog: (clear) => ipcRenderer.invoke('test:dialogLog', clear),
+  testMetrics: () => ipcRenderer.invoke('test:metrics'),
+  testDialogAnswer: (answer) => ipcRenderer.invoke('test:dialogAnswer', answer),
   keysNote: (m) => ipcRenderer.send('keys:note', m),
   onKeysNote: (cb) => ipcRenderer.on('keys:note', (_e, m) => cb(m)),
   onKeysClosed: (cb) => ipcRenderer.on('keys:closed', () => cb()),
@@ -73,6 +78,7 @@ contextBridge.exposeInMainWorld('melofi', {
   setTitleBarColors: (o) => ipcRenderer.invoke('win:titleBarColors', o),
   setWindowSize: (w, h) => ipcRenderer.invoke('win:setSize', w, h),
   studioSave: (json, name, p) => ipcRenderer.invoke('studio:save', json, name, p),
+  studioNextVersion: (p) => ipcRenderer.invoke('studio:nextVersion', p),
   studioOpen: () => ipcRenderer.invoke('studio:open'),
   studioOpenMidi: () => ipcRenderer.invoke('studio:openMidi'),
   studioAutosave: (json) => ipcRenderer.invoke('studio:autosave', json),
@@ -80,6 +86,7 @@ contextBridge.exposeInMainWorld('melofi', {
   onFullscreen: (cb) => ipcRenderer.on('win:fullscreen', (_e, on) => cb(on)),
   saveRecording: (payload) => ipcRenderer.invoke('recording:save', payload),
   downloadInstrument: (id) => ipcRenderer.invoke('instruments:download', id),
+  fetchSamples: (id, names) => ipcRenderer.invoke('instruments:fetchSome', id, names),
   cancelDownload: (id) => ipcRenderer.invoke('instruments:cancel', id),
   removeInstrument: (id) => ipcRenderer.invoke('instruments:remove', id),
   onInstrumentProgress: (cb) => ipcRenderer.on('instruments:progress', (_e, p) => cb(p)),
@@ -97,10 +104,16 @@ contextBridge.exposeInMainWorld('melofi', {
   vstUnload: (slot) => ipcRenderer.invoke('vst:unload', slot),
   vstEditor: (slot) => ipcRenderer.invoke('vst:editor', slot),
   vstGetState: (slot) => ipcRenderer.invoke('vst:getState', slot),
-  vstGain: (slot, g) => ipcRenderer.invoke('vst:gain', slot, g),
-  vstAllOff: (slot) => ipcRenderer.invoke('vst:allOff', slot),
-  vstNote: (m) => ipcRenderer.send('vst:note', m),
+  vstSetState: (slot, state) => ipcRenderer.invoke('vst:setState', slot, state),
+  vstParams: (slot) => ipcRenderer.invoke('vst:params', slot),
+  vstChain: (slot, chain) => ipcRenderer.invoke('vst:chain', slot, chain),
   vstRender: (a) => ipcRenderer.invoke('vst:render', a),
+  // live sound: the port arrives as a window message ({ melofiVstPort: { slot, nonce } }, see below)
+  vstStream: (slot, nonce) => ipcRenderer.send('vst:stream', { slot, nonce }),
+  vstStreamClose: (slot) => ipcRenderer.send('vst:streamClose', slot),
+  vstEvents: (slot, list) => ipcRenderer.send('vst:events', slot, list),
+  onVstHost: (cb) => ipcRenderer.on('vst:host', (_e, m) => cb(m)),
+  vstKill: () => ipcRenderer.invoke('vst:kill'),
   stemsStatus: () => ipcRenderer.invoke('stems:status'),
   stemsSetup: (opts) => ipcRenderer.invoke('stems:setup', opts), // { mode: 'install' | 'reinstall' | 'update' }
   stemsRun: (payload) => ipcRenderer.invoke('stems:run', payload),
@@ -108,6 +121,18 @@ contextBridge.exposeInMainWorld('melofi', {
   stemsGpu: () => ipcRenderer.invoke('stems:gpu'),
   stemsCached: (payload) => ipcRenderer.invoke('stems:cached', payload),
   stemsInstruments: (dir) => ipcRenderer.invoke('stems:instruments', dir),
+  stemsLabels: (dir) => ipcRenderer.invoke('stems:labels', dir),
+  stemsLabelsStatus: () => ipcRenderer.invoke('stems:labelsStatus'),
+  stemsLabelsSetup: () => ipcRenderer.invoke('stems:labelsSetup'),
+  stemsPiano: (dir) => ipcRenderer.invoke('stems:piano', dir),
+  stemsPianoStatus: () => ipcRenderer.invoke('stems:pianoStatus'),
+  stemsPianoSetup: () => ipcRenderer.invoke('stems:pianoSetup'),
+  stemsBass: (dir) => ipcRenderer.invoke('stems:bass', dir),
+  stemsBassStatus: () => ipcRenderer.invoke('stems:bassStatus'),
+  stemsBassSetup: () => ipcRenderer.invoke('stems:bassSetup'),
+  stemsVocalNotes: (dir) => ipcRenderer.invoke('stems:vocalNotes', dir),
+  stemsVocalNotesStatus: () => ipcRenderer.invoke('stems:vocalNotesStatus'),
+  stemsVocalNotesSetup: () => ipcRenderer.invoke('stems:vocalNotesSetup'),
   stemsAddInstruments: () => ipcRenderer.invoke('stems:addInstruments'),
   stemsSetToken: (t) => ipcRenderer.invoke('stems:setToken', t),
   stemsRead: (file) => ipcRenderer.invoke('stems:read', file),
@@ -127,6 +152,9 @@ contextBridge.exposeInMainWorld('melofi', {
   onVocalProgress: (cb) => { const f = (_e, p) => cb(p); ipcRenderer.on('vocal:progress', f); return () => ipcRenderer.removeListener('vocal:progress', f); },
   mediaGet: (hash) => ipcRenderer.invoke('media:get', hash),
   mediaPickFiles: (opts) => ipcRenderer.invoke('media:pickFiles', opts),
+  synthUserLoad: () => ipcRenderer.invoke('synthuser:load'),
+  synthUserSave: (json) => ipcRenderer.invoke('synthuser:save', json),
+  wavetableSave: (data, name) => ipcRenderer.invoke('wavetable:save', data, name),
   mediaPickFolder: () => ipcRenderer.invoke('media:pickFolder'),
   mediaAllowRoots: (list) => ipcRenderer.invoke('media:allowRoots', list),
   mediaList: (dir) => ipcRenderer.invoke('media:list', dir),
@@ -140,6 +168,14 @@ contextBridge.exposeInMainWorld('melofi', {
   dawOpenFolder: (dir) => ipcRenderer.invoke('daw:openFolder', dir),
   dawDrag: (files) => ipcRenderer.send('daw:drag', files),
   account: (op, payload) => ipcRenderer.invoke('account', op, payload),
+  // 가상 마이크: VB-CABLE status / install / tune / openPanel (vbcable.js), and its progress text
+  vbcable: (op, payload) => ipcRenderer.invoke('vbcable', op, payload),
+  onVbcableState: (cb) => ipcRenderer.on('vbcable:state', (_e, msg) => cb(msg)),
+  // melofi://piano links (Discord /piano): one waiting from start-up, and later ones
+  takeDeepLink: () => ipcRenderer.invoke('deeplink:take'),
+  onDeepLink: (cb) => ipcRenderer.on('deeplink', (_e, link) => cb(link)),
+  workshop: (op, payload) => ipcRenderer.invoke('workshop', op, payload), // 창작마당 (workshop.js)
+  openOsSettings: (which) => ipcRenderer.invoke('firstrun:openSettings', which), // 'microphone' | 'sound' (firstrun.js)
   updateState: () => ipcRenderer.invoke('update:state'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateDownload: () => ipcRenderer.invoke('update:download'),
@@ -149,6 +185,10 @@ contextBridge.exposeInMainWorld('melofi', {
   reportInfo: () => ipcRenderer.invoke('report:info'),
   reportSave: (text) => ipcRenderer.invoke('report:save', text),
   reportGithub: (text) => ipcRenderer.invoke('report:github', text),
+  reportHelper: (text) => ipcRenderer.invoke('report:helper', text), // to the Discord bug forum via MeloFi Helper
   openLogs: () => ipcRenderer.invoke('report:openLogs'),
   pathForFile: (f) => { try { return webUtils.getPathForFile(f) || ''; } catch { return ''; } },
 });
+
+// a VST stream's MessagePort (vstStream) goes on to the page, which hands it to an AudioWorklet
+ipcRenderer.on('vst:port', (e, info) => window.postMessage({ melofiVstPort: info }, '*', e.ports));

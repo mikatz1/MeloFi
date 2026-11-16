@@ -416,6 +416,11 @@ export function fixOctaves(x, rate, notes, { off = 0, runs = false, dedupe = fal
   // 3. the melody: a voted note moves when that brings it closer to its neighbours, each neighbour
   // taken where its own vote puts it
   const out = notes.map((nt) => nt.slice());
+  // most of a stem voting the same way is the instrument's colour, not the transcription: a synth
+  // bass with a weak fundamental votes "up" on every note it plays (octave errors of a
+  // transcription come one here and there). Then nothing moves.
+  const ups = [...vote.values()].filter((v) => v > 0).length, downs = vote.size - ups;
+  if (checked >= 10 && Math.max(ups, downs) >= 0.6 * checked) return { notes: out.filter((_, i) => !removed.has(i)), changed, removed: [...removed], checked, colour: ups > downs ? 'up' : 'down' };
   // runs (the bass stem only): neighbours count where their own vote puts them, so a run that is an
   // octave off together moves together. Elsewhere an instrument whose fundamental is always weak
   // would look the same, so a note moves only toward neighbours as written.

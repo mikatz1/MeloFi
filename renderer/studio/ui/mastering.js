@@ -11,6 +11,8 @@ import { measure, limit, gain as gainMix, dB } from '../master-dsp.js';
 import { LoudnessMeter, TARGETS } from '../meter.js';
 import { t, tc, N_ } from '../../i18n/i18n.js';
 import { studioPalette } from './theme.js';
+import { vstPanel } from './vstpanel.js';
+import { vstFxSlot } from '../vstfx.js';
 
 const f = (x, d = 1) => (x <= -69.5 ? '—' : x.toFixed(d));
 
@@ -202,7 +204,7 @@ export class MasteringWindow {
           { label: t('아래로'), act: () => { S.edit(() => { if (i < this.fx.length - 1) this.fx.splice(i + 1, 0, ...this.fx.splice(i, 1)); }); S.syncAudio(); this.render(); } },
           { sep: true },
           { label: t('삭제'), act: () => { S.edit(() => this.fx.splice(i, 1)); S.syncAudio(); this.render(); } },
-        ]); } }, t(FX_TYPES[x.type]?.name || x.type)),
+        ]); } }, x.type === 'vst' ? (x.vst?.name || 'VST') : t(FX_TYPES[x.type]?.name || x.type)),
       h('input', { type: 'checkbox', checked: x.on !== false, title: t('켜기 / 끄기'), onchange: () => { S.edit(() => { x.on = x.on === false; }); S.syncAudio(); this.render(); } })));
     this.chainEl.replaceChildren(
       h('div', { class: 'ms-cap' }, t('마스터 체인')),
@@ -216,6 +218,7 @@ export class MasteringWindow {
     const x = this.fx.find((q) => q.id === this.sel);
     if (!x) return h('div', { class: 'ms-ed' });
     const S = this.S, def = FX_TYPES[x.type];
+    if (x.type === 'vst') return h('div', { class: 'ms-ed' }, h('b', {}, x.vst?.name || 'VST'), vstPanel(S, { slot: vstFxSlot('master', x.id), target: (i) => `vst:master:${x.id}:${i}` }));
     return h('div', { class: 'ms-ed' }, h('b', {}, t(def.name)),
       h('div', { class: 'ms-ed-body' }, ...def.params.map((p) => {
         const val = x.params[p.key] ?? p.def;

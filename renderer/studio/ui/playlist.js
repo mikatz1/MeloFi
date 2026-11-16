@@ -291,6 +291,7 @@ export class Playlist {
       if (e.button === 2) this.trackMenu(e, t);
       return;
     }
+    if (this.tool === 'zoom') { this.zoomAt(x, e.button === 2 ? 1 / 1.5 : 1.5); return; }
     const hit = this.clipAt(x, y);
     const onTitle = hit && y < this.tToY(hit.track) + 16;
     if (e.button === 2) {
@@ -346,8 +347,19 @@ export class Playlist {
     }
     const t = this.yToT(y);
     if (t >= proj.playlist.tracks.length || this.tool === 'slice') return;
-    const p = pattern(proj);
     S.history.push();
+    // the picker's choice: an audio or automation clip is drawn as a copy of one already in the song
+    const src = S.plSource, like = src && proj.playlist.clips.find((k) => (src.kind === 'audio' ? k.media === src.media : k.auto === src.auto));
+    if (like) {
+      const c = { ...like, id: uid('k'), track: t, start: this.floorB(this.xToB(x)) };
+      delete c.mute;
+      proj.playlist.clips.push(c);
+      S.selClip = c;
+      this.drag = { kind: 'move', clip: c, x0: x, y0: y, start: c.start, track: c.track, len: c.len };
+      this.draw();
+      return;
+    }
+    const p = pattern(proj);
     const c = { id: uid('k'), pattern: p.id, track: t, start: this.floorB(this.xToB(x)), len: p.bars };
     proj.playlist.clips.push(c);
     S.selClip = c;
@@ -455,8 +467,10 @@ export class Playlist {
   clipMenu(e, c) {
     const S = this.S, proj = this.proj;
     const items = [];
+    if (c.kind === 'audio') items.push(...S.stemConvert.menuItems(proj.channels.find((x) => x.id === c.ch))); // a separated track: MIDI로 변환… / 보컬로 변환…
     if (!c.kind) {
       items.push({ label: t('패턴 편집'), act: () => S.setPattern(c.pattern, true) });
+      items.push({ label: t('이름 바꾸기…'), hint: 'F2', act: async () => { const p = pattern(proj, c.pattern); const v = await ask(t('패턴 이름'), p.name); if (v && v.trim()) S.edit(() => { p.name = v.trim(); }); } });
       items.push({ label: 'Make unique', hint: t('이 클립만 따로 수정 (고유 패턴)'), act: () => S.edit(() => { const p = pattern(proj, c.pattern); const np = JSON.parse(JSON.stringify(p)); np.id = uid('p'); np.name = `${p.name} *`; proj.patterns.push(np); c.pattern = np.id; }) });
       items.push({ label: t('패턴 길이에 맞추기'), act: () => S.edit(() => { c.len = pattern(proj, c.pattern).bars; }) });
     }
@@ -485,21 +499,45 @@ export class Playlist {
       const ap = this.autoPoint(c, ...this.pos(e));
       if (ap && ap.i >= 0) items.unshift({ label: t('이 점 지우기'), act: () => S.edit(() => { ap.a.points.splice(ap.i, 1); }) });
     }
-    items.push({ sep: true }, { label: t('복제'), hint: t('Ctrl+드래그'), act: () => S.edit(() => proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })) },
+    // FL: Select all similar clips (same pattern / audio / automation)
+    const same = (x) => x.kind === c.kind && (c.kind ? (x.media && x.media === c.media) || (x.auto && x.auto === c.auto) : x.pattern === c.pattern);
+    items.push({ sep: true }, { label: t('같은 클립 모두 선택'), act: () => { this.sel = new Set(proj.playlist.clips.filter(same)); this.draw(); } },
+      { label: c.mute ? t('음소거 해제') : t('음소거'), act: () => S.edit(() => { if (c.mute) delete c.mute; else c.mute = true; }) },
+      { label: t('복제'), hint: t('Ctrl+드래그'), act: () => S.edit(() => proj.playlist.clips.push({ ...c, id: uid('k'), start: c.start + c.len })) },
       { label: t('삭제'), act: () => S.edit(() => { proj.playlist.clips.splice(proj.playlist.clips.indexOf(c), 1); S.selClip = null; }) });
     popup(e.clientX, e.clientY, items);
   }
 
+  // the track header's menu, in FL Studio's order (Rename / color, Insert / Delete, Clone, Move, Mute all clips)
   trackMenu(e, ti) {
-    const S = this.S, proj = this.proj, tr = proj.playlist.tracks[ti];
+    const S = this.S, proj = this.proj, tr = proj.playlist.tracks[ti], T = proj.playlist.tracks;
+    const clipsOf = () => proj.playlist.clips.filter((c) => c.track === ti);
+    // move track ti to j, clips follow their tracks
+    const swap = (j) => S.edit(() => {
+      [T[ti], T[j]] = [T[j], T[ti]];
+      for (const c of proj.playlist.clips) { if (c.track === ti) c.track = j; else if (c.track === j) c.track = ti; }
+    }, true, t('트랙 옮기기'));
     popup(e.clientX, e.clientY, [
-      { label: t('이름 바꾸기…'), act: async () => { const v = await ask(t('트랙 이름'), tr.name); if (v) S.edit(() => { tr.name = v; }); } },
-      { label: t('트랙 추가'), act: () => S.edit(() => proj.playlist.tracks.splice(ti + 1, 0, newTrack(proj.playlist.tracks.length))) },
-      { label: t('트랙 삭제'), disabled: proj.playlist.tracks.length <= 1, act: () => S.edit(() => {
-        proj.playlist.tracks.splice(ti, 1);
+      ...S.stemConvert.menuItems(S.stemConvert.channelOfTrack(ti)), // a separated track: MIDI로 변환… / 보컬로 변환…
+      { label: t('이름 바꾸기…'), hint: 'F2', act: async () => { const v = await ask(t('트랙 이름'), tr.name); if (v) S.edit(() => { tr.name = v; }); } },
+      { label: t('색 바꾸기…'), act: async () => { const v = await form(t('트랙 색'), [{ key: 'c', label: t('색'), type: 'color', value: tr.color || '#5aa0e8' }]); if (v) S.edit(() => { tr.color = v.c; }); } },
+      { sep: true },
+      { label: t('트랙 넣기'), hint: t('이 트랙 아래에'), act: () => S.edit(() => { T.splice(ti + 1, 0, newTrack(T.length)); for (const c of proj.playlist.clips) if (c.track > ti) c.track++; }) },
+      { label: t('트랙 삭제'), disabled: T.length <= 1, act: () => S.edit(() => {
+        T.splice(ti, 1);
         proj.playlist.clips = proj.playlist.clips.filter((c) => c.track !== ti);
         for (const c of proj.playlist.clips) if (c.track > ti) c.track--;
       }) },
+      { label: t('복제'), hint: t('클립 포함'), act: () => S.edit(() => {
+        T.splice(ti + 1, 0, { ...tr, name: t('{name} 복사', { name: tr.name }) });
+        for (const c of proj.playlist.clips) if (c.track > ti) c.track++;
+        for (const c of clipsOf()) proj.playlist.clips.push({ ...c, id: uid('k'), track: ti + 1 });
+      }, true, t('트랙 복제')) },
+      { label: t('위로 옮기기'), disabled: ti <= 0, act: () => swap(ti - 1) },
+      { label: t('아래로 옮기기'), disabled: ti >= T.length - 1, act: () => swap(ti + 1) },
+      { sep: true },
+      { label: t('모든 클립 음소거'), disabled: !clipsOf().length, act: () => S.edit(() => { for (const c of clipsOf()) c.mute = true; }) },
+      { label: t('모든 클립 음소거 해제'), disabled: !clipsOf().some((c) => c.mute), act: () => S.edit(() => { for (const c of clipsOf()) delete c.mute; }) },
     ]);
   }
 
@@ -525,9 +563,18 @@ export class Playlist {
       { label: t('{bar}마디부터 박자표 바꾸기…', { bar: here.num + 1 }), hint: 'Shift+Alt+T', act: () => this.sigDialog(tick) },
       ...(proj.sigs || []).filter((x) => x.tick === here.start).map((x) => ({ label: t('박자표 {sig} 지우기', { sig: `${x.sig[0]}/${x.sig[1]}` }), act: () => S.edit(() => proj.sigs.splice(proj.sigs.indexOf(x), 1)) })),
       { label: t('{bar}마디에 마커 추가…', { bar: bar + 1 }), act: async () => { const v = await ask(t('마커 이름'), t('구간 {n}', { n: proj.markers.length + 1 })); if (v) S.edit(() => proj.markers.push({ bar, name: v })); } },
-      { label: t('{bar}마디부터 템포 바꾸기…', { bar: bar + 1 }), disabled: bar === 0, act: async () => { const v = await ask(t('{bar}마디부터 쓸 BPM', { bar: bar + 1 }), String(proj.bpm), { type: 'number' }); if (v && +v >= 30 && +v <= 300) S.edit(() => { proj.tempos = proj.tempos.filter((x) => x.bar !== bar); proj.tempos.push({ bar, bpm: +v }); }); } },
+      { label: t('{bar}마디부터 템포 바꾸기…', { bar: bar + 1 }), disabled: bar === 0, act: async () => { const v = await ask(t('{bar}마디부터 쓸 BPM', { bar: bar + 1 }), String(proj.bpm), { type: 'number' }); if (v && +v >= 10 && +v <= 522) S.edit(() => { proj.tempos = proj.tempos.filter((x) => x.bar !== bar); proj.tempos.push({ bar, bpm: +v }); }); } },
       { sep: true },
-      ...proj.markers.filter((m) => Math.abs(m.bar - bar) < 1).map((m) => ({ label: t('마커 "{name}" 지우기', { name: m.name }), act: () => S.edit(() => proj.markers.splice(proj.markers.indexOf(m), 1)) })),
+      // FL's marker menu: Rename, Place loop (to the next marker), Delete
+      ...proj.markers.filter((m) => Math.abs(m.bar - bar) < 1).flatMap((m) => {
+        const next = proj.markers.filter((q) => q.bar > m.bar).sort((a, b) => a.bar - b.bar)[0];
+        const end = next ? next.bar : Math.max(m.bar + 1, Math.ceil(songBars(proj)));
+        return [
+          { label: t('마커 "{name}" 이름 바꾸기…', { name: m.name }), act: async () => { const v = await ask(t('마커 이름'), m.name); if (v) S.edit(() => { m.name = v; }); } },
+          { label: t('여기부터 다음 마커까지 반복'), hint: t('{a}~{b}마디', { a: Math.floor(m.bar) + 1, b: end }), act: () => S.edit(() => { proj.loop = { start: Math.floor(m.bar), end }; proj.loopOn = true; }) },
+          { label: t('마커 "{name}" 지우기', { name: m.name }), act: () => S.edit(() => proj.markers.splice(proj.markers.indexOf(m), 1)) },
+        ];
+      }),
       ...proj.tempos.filter((x) => Math.abs(x.bar - bar) < 1).map((x) => ({ label: t('템포 변화 ({bpm}) 지우기', { bpm: x.bpm }), act: () => S.edit(() => proj.tempos.splice(proj.tempos.indexOf(x), 1)) })),
       { label: proj.loopOn ? t('반복 구간 끄기') : t('반복 구간 켜기'), disabled: !proj.loop, act: () => S.edit(() => { proj.loopOn = !proj.loopOn; }) },
     ]);
@@ -559,7 +606,10 @@ export class Playlist {
     this.draw();
   }
 
-  setTool(t) { if (['draw', 'paint', 'delete', 'mute', 'slice', 'select'].includes(t)) this.tool = t; }
+  setTool(t) { if (['draw', 'paint', 'delete', 'mute', 'slice', 'select', 'zoom'].includes(t)) this.tool = t; }
+
+  // the zoom tool (FL: Z): left-click zooms in around the click, right-click out
+  zoomAt(x, k) { const b = this.xToB(x); this.barW = clamp(this.barW * k, 8, 240); this.scrollBar = clamp(b - (x - HEAD_W) / this.barW, 0, Math.max(0, this.totalBars - this.viewBars)); this.draw(); }
 
   removeClip(c) {
     const l = this.proj.playlist.clips, i = l.indexOf(c);

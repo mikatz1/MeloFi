@@ -1,13 +1,15 @@
 // Channel settings: what the channel plays (instrument / synth editor / sample editor / slicer),
 // its rhythm (own swing, groove template, step loop length) and where it goes in the mixer.
-import { h, knob, popup } from './dom.js';
-import { SYNTH_PARAMS, SYNTH_PRESETS, synthDefaults } from '../synth.js';
+import { h, knob, popup, ask } from './dom.js';
+import { SYNTH_PARAMS, SYNTH_PRESETS, synthDefaults, CUSTOM_WAVE } from '../synth.js';
+import { userPresets, presetParams, saveUserPreset, isUserPreset } from '../synth-user.js';
 import { GROOVES } from '../transport.js';
 import { decode, onsets, gridSlices, peaks } from '../media.js';
 import { STEP, pattern, notesOf } from '../model.js';
 import { fmtParam } from '../fx.js';
 import { t, tdyn } from '../../i18n/i18n.js';
 import { studioPalette } from './theme.js';
+import { vstPanel } from './vstpanel.js';
 
 export class ChannelSheet {
   constructor(studio) {
@@ -18,7 +20,7 @@ export class ChannelSheet {
     let head;
     this.el = h('section', { id: 'chsheet', class: 'ch-float', hidden: true },
       h('div', { class: 'sheet-card ch-card' },
-        head = h('div', { class: 'sheet-head ch-drag', title: t('끌어서 옮기기') }, this.title = h('h2', {}), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
+        head = h('div', { class: 'sheet-head ch-drag', title: t('끌어서 옮기기') }, h('button', { class: 'btn sm ghost ch-menu', title: t('채널 메뉴'), onclick: (e) => this.menu(e) }, '▾'), this.title = h('h2', {}), h('button', { class: 'x', 'aria-label': t('닫기'), onclick: () => this.close() })),
         this.tabsEl = h('div', { class: 'cl-tabs ch-tabs' }),
         this.body = h('div', { class: 'ch-body' })));
     this.pos = null;
@@ -40,6 +42,20 @@ export class ChannelSheet {
   }
 
   get ch() { return this.S.proj.channels.find((c) => c.id === this.id); }
+
+  // FL's channel window menu (the arrow at its top-left): rename, route to a free mixer track, piano roll, clone, delete
+  menu(e) {
+    const S = this.S, ch = this.ch;
+    if (!ch) return;
+    popup(e.clientX, e.clientY + 10, [
+      { label: t('이름 바꾸기…'), hint: 'F2', act: async () => { await S.rename(ch); this.render(); } },
+      { label: t('새 믹서 트랙에 연결'), hint: 'Ctrl+L', act: () => S.linkToMixer(ch.id) },
+      { label: t('피아노 롤'), hint: 'F7', disabled: ch.kind === 'audio', act: () => { S.select(ch.id); S.setTab('roll'); } },
+      { sep: true },
+      { label: t('채널 복제'), hint: 'Alt+C', act: () => { S.select(ch.id, { keepTab: true }); S.runAction('clonechannel'); } },
+      { label: t('채널 삭제'), hint: 'Alt+Del', disabled: S.proj.channels.length <= 1, act: () => { this.close(); S.rack.remove(ch); } },
+    ]);
+  }
   close() { this.el.hidden = true; }
 
   show(id, tab) {
@@ -247,14 +263,11 @@ export class ChannelSheet {
 
   vst(ch) {
     const S = this.S, v = ch.vst || {};
-    const msg = h('p', { class: 'dim' });
+    const change = h('button', { class: 'btn ghost', onclick: (e) => S.vstMenu(e.clientX, e.clientY, (p) => { S.edit(() => { ch.vst = { plugin: p.id, file: p.file, name: p.name, vendor: p.vendor }; ch.name = p.name; }); S.syncAudio(); this.render(); }) }, t('플러그인 바꾸기…'));
     return h('div', { class: 'ch-inst' },
       h('p', {}, `${t('VST 플러그인:')} `, h('b', {}, v.name || t('없음')), v.vendor ? h('span', { class: 'dim' }, ` · ${v.vendor}`) : null),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', onclick: async () => { const r = await window.melofi.vstEditor(ch.id); msg.textContent = r.ok ? '' : r.error === 'no_editor' ? t('이 플러그인은 편집 창이 없습니다.') : t('창을 열지 못했습니다: {err}', { err: tdyn(r.message || r.error) }); } }, t('플러그인 창 열기')),
-        h('button', { class: 'btn ghost', onclick: (e) => S.vstMenu(e.clientX, e.clientY, (p) => { S.edit(() => { ch.vst = { plugin: p.id, file: p.file, name: p.name, vendor: p.vendor }; ch.name = p.name; }); S.syncAudio(); this.render(); }) }, t('플러그인 바꾸기…'))),
-      msg,
-      h('p', { class: 'dim' }, t('실시간 연주 및 재생은 VST 호스트에서 직접 출력됩니다. 믹서 이펙트는 내보내기 및 \'Consolidate\' 실행 시 적용되며, 플러그인 설정은 프로젝트 저장 시 함께 기록됩니다.')));
+      vstPanel(S, { slot: ch.id, target: (i) => `vst:${ch.id}:inst:${i}`, buttons: [change],
+        note: t('소리는 이 채널의 믹서 트랙을 거칩니다. 볼륨, 이펙트, 센드, 마스터가 연주할 때도 그대로 적용돼요. 플러그인 설정은 프로젝트를 저장할 때 함께 저장됩니다.') }));
   }
 
   setKind(kind) {
@@ -273,16 +286,46 @@ export class ChannelSheet {
     const S = this.S;
     const p = { ...synthDefaults(), ...ch.synth };
     const apply = () => { S.engine.channels.get(ch.id)?.src?.setParams?.(ch.synth); };
-    const presets = h('select', { onchange: (e) => { S.edit(() => { ch.synth = { ...synthDefaults(), ...SYNTH_PRESETS[e.target.value] }; ch.synthPreset = e.target.value; }); apply(); this.render(); S.preview(ch.id, 60, 100); } },
-      h('option', { value: '' }, t('프리셋 고르기…')), ...Object.keys(SYNTH_PRESETS).map((k) => h('option', { value: k, selected: ch.synthPreset === k }, t(k))));
+    const mine = Object.keys(userPresets()).sort((a, b) => a.localeCompare(b, 'ko'));
+    const presets = h('select', { onchange: (e) => { const n = e.target.value; if (!n) return; S.edit(() => { ch.synth = { ...synthDefaults(), ...presetParams(n) }; ch.synthPreset = n; }); apply(); this.render(); S.preview(ch.id, 60, 100); } },
+      h('option', { value: '' }, t('프리셋 고르기…')),
+      mine.length ? h('optgroup', { label: t('내 파형') }, ...mine.map((k) => h('option', { value: k, selected: ch.synthPreset === k }, k))) : null,
+      h('optgroup', { label: t('기본 프리셋') }, ...Object.keys(SYNTH_PRESETS).map((k) => h('option', { value: k, selected: ch.synthPreset === k }, t(k)))));
+    const saveMine = h('button', { class: 'btn sm ghost', title: t('파형과 테이블도 함께 저장해요.'), onclick: async () => {
+      const name = (await ask(t('내 프리셋 이름'), isUserPreset(ch.synthPreset) ? ch.synthPreset : ''))?.trim();
+      if (!name) return;
+      if (SYNTH_PRESETS[name]) { S.status?.(t('기본 프리셋과 같은 이름은 쓸 수 없어요.')); return; }
+      await saveUserPreset(name, ch.synth);
+      S.edit(() => { ch.synthPreset = name; }, false);
+      this.render();
+    } }, t('내 프리셋으로 저장…'));
+    const custom = [0, 1].map((k) => Math.round(p[`w${k + 1}`]) === CUSTOM_WAVE);
     const groups = [];
-    let cur = null;
+    let cur = null, osc = -1;
     for (const d of SYNTH_PARAMS) {
-      if (d.group) { cur = h('div', { class: 'sy-grp' }, h('b', {}, t(d.group))); groups.push(cur); continue; }
+      if (d.group) {
+        osc = d.group === '오실레이터 1' ? 0 : d.group === '오실레이터 2' ? 1 : -1; // i18n-ignore: group keys of SYNTH_PARAMS
+        const k = osc;
+        const head = h('b', {}, t(d.group));
+        // expert mode: draw the oscillator's own waveform or wavetable
+        const btn = k >= 0 ? h('button', { class: `sy-expert${custom[k] ? ' on' : ''}`, title: t('파형을 직접 그리거나 웨이브테이블을 만들어요.'), onclick: () => S.waveEditor.open(ch.id, k) }, t('파형 편집')) : null;
+        cur = h('div', { class: 'sy-grp' }, btn ? h('div', { class: 'sy-head' }, head, btn) : head);
+        if (d.group === '테이블 위치 모듈레이션' && !custom[0] && !custom[1]) cur.hidden = true; // i18n-ignore: group key
+        groups.push(cur);
+        continue;
+      }
+      if (d.wt && !custom[d.wt - 1]) continue; // table position: only for a user waveform
       const val = p[d.key];
       let ctl;
-      if (d.choices) ctl = h('select', { onchange: (e) => { S.edit(() => { ch.synth = { ...p, ...ch.synth, [d.key]: +e.target.value }; ch.synthPreset = null; }); apply(); } }, ...d.choices.map((c, i) => h('option', { value: i, selected: Math.round(val) === i }, t(c))));
-      else {
+      if (d.choices) {
+        ctl = h('select', { onchange: (e) => {
+          const v = +e.target.value;
+          S.edit(() => { ch.synth = { ...p, ...ch.synth, [d.key]: v }; ch.synthPreset = null; }); apply();
+          // a user waveform with nothing drawn yet: open the editor
+          if (d.choices.length - 1 === v && (d.key === 'w1' || d.key === 'w2') && !ch.synth[`wt${d.key[1]}`]) S.waveEditor.open(ch.id, +d.key[1] - 1);
+          if (d.key === 'w1' || d.key === 'w2') this.render();
+        } }, ...d.choices.map((c, i) => h('option', { value: i, selected: Math.round(val) === i }, t(c))));
+      } else {
         const out = h('em', {}, fmtParam(d, val));
         ctl = h('span', { class: 'sy-k' }, knob({ value: val, min: d.min, max: d.max, def: d.def, size: 26, title: t(d.label), fmt: (v) => fmtParam(d, v),
           onInput: (v) => { ch.synth = { ...p, ...ch.synth, [d.key]: d.step ? Math.round(v / d.step) * d.step : v }; ch.synthPreset = null; out.textContent = fmtParam(d, ch.synth[d.key]); apply(); },
@@ -290,7 +333,7 @@ export class ChannelSheet {
       }
       cur.append(h('label', { class: 'sy-p' }, h('span', {}, t(d.label)), ctl));
     }
-    return h('div', { class: 'sy' }, h('div', { class: 'row' }, presets, h('button', { class: 'btn sm', onclick: () => S.preview(ch.id, 60, 100) }, t('들어보기')),
+    return h('div', { class: 'sy' }, h('div', { class: 'row' }, presets, h('button', { class: 'btn sm', onclick: () => S.preview(ch.id, 60, 100) }, t('들어보기')), saveMine,
       h('span', { class: 'dim' }, t('노브를 돌리면서 건반을 눌러 보세요.'))), h('div', { class: 'sy-grid' }, ...groups));
   }
 

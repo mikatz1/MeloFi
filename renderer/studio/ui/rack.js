@@ -4,6 +4,7 @@ import { h, knob, popup, ask } from './dom.js';
 import { STEP, pattern, stepOn, notesOf, newChannel } from '../model.js';
 import { kitNames } from '../../js/drums.js';
 import { synthDefaults, SYNTH_PRESETS } from '../synth.js';
+import { presetParams } from '../synth-user.js';
 import { t, N_ } from '../../i18n/i18n.js';
 
 const KIND_LABEL = { synth: N_('신스'), sample: N_('샘플'), slicer: N_('슬라이서'), audio: N_('오디오'), vst: 'VST' };
@@ -43,6 +44,14 @@ export class Rack {
           }));
         }
         grid = h('div', { class: 'steps', style: `--n:${steps}`, oncontextmenu: (e) => e.preventDefault() }, ...cells);
+        // Enter / Space on a focused step (a click without a pointer) toggles it too
+        grid.addEventListener('click', (e) => {
+          const b = e.detail === 0 && e.target.closest('.sq');
+          if (!b) return;
+          const i = +b.dataset.i, want = !stepOn(pat, ch, i);
+          S.edit(() => setStep(pat, ch, i, want));
+          if (want) S.preview(ch.id, ch.stepNote);
+        });
         grid.addEventListener('pointerdown', (e) => {
           const b = e.target.closest('.sq');
           if (!b) return;
@@ -66,29 +75,97 @@ export class Rack {
         });
       }
       const count = notesOf(pat, ch.id).length;
+      // FL's piano roll preview: a channel whose notes are more than steps shows them instead of the steps
+      if (!this.graph && ch.kind !== 'audio' && notesOf(pat, ch.id).some((n) => n.n !== ch.stepNote || n.d > STEP || n.t % STEP)) grid = this.preview(ch, pat, steps);
+      const busI = proj.buses.findIndex((b) => b.id === ch.out);
       return h('div', { class: `rack-row${sel ? ' sel' : ''}`, 'data-ch': ch.id },
-        h('button', { class: `led${ch.mute ? '' : ' on'}${ch.solo ? ' solo' : ''}`, title: t('음소거 (우클릭: 솔로)'),
-          onclick: () => S.edit(() => { ch.mute = !ch.mute; }),
+        h('button', { class: `led${ch.mute ? '' : ' on'}${ch.solo ? ' solo' : ''}`, title: t('음소거 (Ctrl+클릭 · 우클릭: 솔로)'),
+          onclick: (e) => S.edit(() => { if (e.ctrlKey || e.altKey) { const was = ch.solo; for (const c of proj.channels) c.solo = false; ch.solo = !was; } else ch.mute = !ch.mute; }),
           oncontextmenu: (e) => { e.preventDefault(); S.edit(() => { const was = ch.solo; for (const c of proj.channels) c.solo = false; ch.solo = !was; }); } }),
         knob({ value: ch.pan, min: -1, max: 1, def: 0, bipolar: true, title: t('팬'), size: 18, target: `ch:${ch.id}:pan`, fmt: (v) => (Math.abs(v) < 0.02 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`),
           onInput: (v) => { ch.pan = v; S.applyStrips(); }, onChange: () => S.changed() }),
         knob({ value: ch.vol, min: 0, max: 1, def: 0.8, title: t('볼륨'), size: 18, target: `ch:${ch.id}:vol`, fmt: (v) => `${Math.round(v * 100)}%`,
           onInput: (v) => { ch.vol = v; S.applyStrips(); }, onChange: () => S.changed() }),
-        h('button', { class: 'cname', style: `--c:${ch.color}`, title: t('클릭: 선택 · 더블클릭: 채널 설정 · 우클릭: 메뉴'),
-          onclick: () => S.select(ch.id),
-          ondblclick: () => S.channelSheet.show(ch.id),
+        // FL's mixer track routing box: the mixer track this channel plays into ('-' is the master)
+        h('button', { class: 'cbus', title: t('믹서 트랙: {name} · 클릭해서 바꾸기', { name: busI >= 0 ? proj.buses[busI].name : t('마스터') }), onclick: (e) => this.busMenu(ch, e.clientX, e.clientY) }, busI >= 0 ? String(busI + 1) : '-'),
+        // FL: clicking the channel button opens (or closes) its settings; the selector on the right selects
+        h('button', { class: 'cname', style: `--c:${ch.color}`, title: t('클릭: 채널 설정 열기 / 닫기 · 우클릭: 메뉴'),
+          onclick: () => { S.select(ch.id, { keepTab: true }); this.toggleSheet(ch); },
           oncontextmenu: (e) => { e.preventDefault(); this.menu(ch, e.clientX, e.clientY); } },
         h('b', {}, ch.name), h('small', {}, count ? `${this.sub(ch)} · ${count}` : this.sub(ch))),
-        grid);
+        grid,
+        h('button', { class: `csel${sel ? ' on' : ''}`, title: t('채널 선택 (피아노 롤이 이 채널을 엽니다)'), onclick: () => S.select(ch.id) }));
     });
     this.el.replaceChildren(
       ...rows,
       h('div', { class: 'rack-foot' },
-        h('button', { class: 'btn sm', 'data-tour': 'add-channel', onclick: (e) => this.addMenu(e.clientX, e.clientY) }, t('+ 채널')),
-        h('div', { class: 'seg sm' }, h('button', { class: this.graph ? '' : 'on', onclick: () => { this.graph = null; this.render(); } }, t('스텝')),
-          ...Object.entries(GRAPH).map(([k, l]) => h('button', { class: this.graph === k ? 'on' : '', title: t('스텝마다 {l} 조절', { l: t(l) }), onclick: () => { this.graph = k; this.render(); } }, t(l)))),
-        h('span', { class: 'hint' }, this.graph ? t('막대를 위아래로 끌어 조절') : t('칸 클릭/드래그 · 이름 더블클릭: 설정'))),
+        // FL: the + at the bottom of the rack adds a channel
+        h('button', { class: 'btn sm', 'data-tour': 'add-channel', title: t('채널 추가'), onclick: (e) => this.addMenu(e.clientX, e.clientY) }, t('+ 채널')),
+        this.graph ? h('div', { class: 'seg sm' }, ...Object.entries(GRAPH).map(([k, l]) => h('button', { class: this.graph === k ? 'on' : '', title: t('스텝마다 {l} 조절', { l: t(l) }), onclick: () => { this.graph = k; this.render(); } }, t(l)))) : null,
+        h('span', { class: 'hint' }, this.graph ? t('막대를 위아래로 끌어 조절') : t('칸 클릭/드래그 · 이름 클릭: 채널 설정 · 오른쪽 막대: 선택'))),
     );
+  }
+
+  // FL's piano roll preview: the channel's notes drawn small in the step area; a click opens the piano roll
+  preview(ch, pat, steps) {
+    const S = this.S, list = notesOf(pat, ch.id), len = steps * STEP;
+    const ns = list.map((n) => n.n), lo = Math.min(...ns), hi = Math.max(...ns), span = Math.max(1, hi - lo);
+    return h('button', { class: 'steps preview', title: t('피아노 롤에서 열기'), style: `--c:${ch.color}`, onclick: () => { S.select(ch.id); S.setTab('roll'); } },
+      ...list.filter((n) => n.t < len).slice(0, 400).map((n) => h('i', { style: `left:${(n.t / len) * 100}%;width:${Math.max(0.4, (Math.min(n.d, len - n.t) / len) * 100)}%;top:${(1 - (n.n - lo) / span) * 78 + 6}%` })));
+  }
+
+  // FL: the channel button toggles the channel settings window
+  toggleSheet(ch) {
+    const cs = this.S.channelSheet;
+    if (!cs.el.hidden && cs.id === ch.id) cs.close(); else cs.show(ch.id);
+  }
+
+  // the routing box's menu: the master or any mixer track, or a new one (Ctrl+L)
+  busMenu(ch, x, y) {
+    const S = this.S, proj = S.proj;
+    popup(x, y, [
+      { group: t('믹서 트랙') },
+      { label: t('마스터'), check: !proj.buses.some((b) => b.id === ch.out), act: () => { S.edit(() => { ch.out = 'master'; }); S.syncAudio(); } },
+      ...proj.buses.map((b, i) => ({ label: `${i + 1}. ${b.name}`, check: ch.out === b.id, act: () => { S.edit(() => { ch.out = b.id; }); S.syncAudio(); } })),
+      { sep: true },
+      { label: t('새 믹서 트랙에 연결'), hint: 'Ctrl+L', act: () => S.linkToMixer(ch.id) },
+    ]);
+  }
+
+  // FL's Channel Options menu (the arrow at the top-left of the rack)
+  optionsMenu(x, y) {
+    const S = this.S, proj = S.proj, ch = proj.channels.find((c) => c.id === proj.selected) || proj.channels[0];
+    const i = proj.channels.indexOf(ch);
+    popup(x, y, [
+      { label: t('채널 추가…'), act: () => this.addMenu(x, y) },
+      { label: 'Loop Starter…', act: () => S.loopStarter(x, y) },
+      { label: t('안 쓰는 채널 선택'), act: () => S.selectUnusedChannel() },
+      { sep: true },
+      { label: t('선택한 채널 복제'), hint: 'Alt+C', act: () => S.runAction('clonechannel') },
+      { label: t('선택한 채널 삭제'), hint: 'Alt+Del', disabled: proj.channels.length <= 1, act: () => this.remove(ch) },
+      { label: t('선택한 채널 위로'), hint: 'Alt+↑', disabled: i <= 0, act: () => S.edit(() => { proj.channels.splice(i, 1); proj.channels.splice(i - 1, 0, ch); }) },
+      { label: t('선택한 채널 아래로'), hint: 'Alt+↓', disabled: i >= proj.channels.length - 1, act: () => S.edit(() => { proj.channels.splice(i, 1); proj.channels.splice(i + 1, 0, ch); }) },
+      { label: t('이름순으로 정렬'), act: () => S.edit(() => { proj.channels.sort((a, b) => a.name.localeCompare(b.name)); }) },
+      { sep: true },
+      { label: t('선택한 채널 음소거'), act: () => S.edit(() => { ch.mute = true; }) },
+      { label: t('모든 채널 음소거 해제'), act: () => S.edit(() => { for (const c of proj.channels) { c.mute = false; c.solo = false; } }) },
+      { label: t('선택한 채널을 새 믹서 트랙에'), hint: 'Ctrl+L', act: () => S.linkToMixer(ch.id) },
+      { sep: true },
+      { label: 'Graph editor', hint: 'Ctrl+K', check: !!this.graph, act: () => S.runAction('graph') },
+    ]);
+  }
+
+  // FL's channel rack title bar: options arrow, swing, pattern length, graph editor
+  header() {
+    const S = this.S, proj = S.proj, pat = pattern(proj);
+    return [
+      h('button', { class: 'btn sm rk-opt', title: t('채널 옵션'), onclick: (e) => this.optionsMenu(e.clientX, e.clientY + 10) }, '▾'),
+      h('label', { class: 'st-field st-swing', title: t('스윙: 짝수 16분음표를 뒤로 밀어 그루브 주기') }, t('스윙'),
+        knob({ value: proj.swing || 0, min: 0, max: 0.6, def: 0, size: 18, title: t('스윙'), fmt: (v) => `${Math.round((v / 0.6) * 100)}%`, onInput: (v) => { proj.swing = v; S.transport.refresh(); }, onChange: () => S.changed() })),
+      h('label', { class: 'st-field', title: t('패턴 길이') }, t('길이'), h('select', { onchange: (e) => S.edit(() => { pat.bars = +e.target.value; }) },
+        ...[1, 2, 4, 8, 16].map((b) => h('option', { value: b, selected: pat.bars === b }, t('{n}마디', { n: b }))))),
+      h('button', { class: `btn sm${this.graph ? ' on' : ''}`, title: t('Graph editor: 스텝마다 벨로시티·팬·파인 피치 (Ctrl+K)'), onclick: () => S.runAction('graph') }, 'Graph'),
+    ];
   }
 
   // bars for each step's notes; drag to set velocity / pan / fine pitch
@@ -142,7 +219,7 @@ export class Rack {
     // a MeloFi Synth preset picked in the instrument browser ("synth:<preset>")
     if (String(inst).startsWith('synth:')) {
       const name = inst.slice(6);
-      S.edit(() => { const ch = this.makeKind('synth', name, { synth: { ...synthDefaults(), ...(SYNTH_PRESETS[name] || {}) }, synthPreset: name }); S.proj.selected = ch.id; });
+      S.edit(() => { const ch = this.makeKind('synth', name, { synth: { ...synthDefaults(), ...(presetParams(name) || {}) }, synthPreset: name }); S.proj.selected = ch.id; });
       S.syncAudio();
       return;
     }
@@ -200,11 +277,15 @@ export class Rack {
     const S = this.S, proj = S.proj;
     const kit = S.isKit(ch.inst) && (ch.kind || 'inst') === 'inst';
     popup(x, y, [
+      ...S.stemConvert.menuItems(ch), // a separated track: MIDI로 변환… / 보컬로 변환…
+      // FL's channel button menu starts: Piano roll, Graph editor, Rename…
+      { label: t('피아노 롤'), hint: 'F7', disabled: ch.kind === 'audio', act: () => { S.select(ch.id); S.setTab('roll'); } },
+      { label: 'Graph editor', hint: 'Ctrl+K', disabled: ch.kind === 'audio', act: () => { S.select(ch.id, { keepTab: true }); this.graph = 'v'; this.render(); } },
       { label: t('채널 설정…'), act: () => S.channelSheet.show(ch.id) },
       ...(ch.kind === 'audio' ? [{ label: t('Newtone으로 음정 편집…'), hint: t('이 채널의 첫 오디오 클립'), disabled: !proj.playlist.clips.some((c) => c.ch === ch.id && c.kind === 'audio'), act: () => S.newtone.open(proj.playlist.clips.filter((c) => c.ch === ch.id && c.kind === 'audio').sort((a, b) => a.start - b.start)[0]) }] : []),
       ...(['inst', 'synth'].includes(ch.kind || 'inst') ? [{ label: t('악기 바꾸기…'), act: () => S.pickInstrument(x, y, (id) => {
         S.edit(() => {
-          if (String(id).startsWith('synth:')) { const n = id.slice(6); ch.kind = 'synth'; ch.inst = 'synth'; ch.synth = { ...synthDefaults(), ...(SYNTH_PRESETS[n] || {}) }; ch.synthPreset = n; } else { ch.kind = 'inst'; ch.inst = id; }
+          if (String(id).startsWith('synth:')) { const n = id.slice(6); ch.kind = 'synth'; ch.inst = 'synth'; ch.synth = { ...synthDefaults(), ...(presetParams(n) || {}) }; ch.synthPreset = n; } else { ch.kind = 'inst'; ch.inst = id; }
         });
         S.syncAudio();
       }, ch.kind === 'synth' ? `synth:${ch.synthPreset}` : ch.inst) }] : []),
@@ -212,7 +293,7 @@ export class Rack {
       ...(kit ? [{ group: t('타격할 드럼 악기') }, ...Object.entries(kitNames(S.instInfo(ch.inst))).map(([n, name]) => ({ label: name, hint: n, check: ch.stepNote === +n, act: () => S.edit(() => { ch.stepNote = +n; }) }))]
         : ch.kind === 'audio' ? [] : [{ label: t('스텝 음높이: {n}', { n: ch.stepNote }), act: async () => { const v = await ask(t('스텝 음높이 (MIDI 번호, 60 = 중앙 도)'), String(ch.stepNote), { type: 'number' }); if (v && +v >= 0 && +v <= 127) S.edit(() => { ch.stepNote = +v; }); } }]),
       { sep: true },
-      { label: t('복제'), act: () => S.edit(() => { const nc = { ...JSON.parse(JSON.stringify(ch)), id: `c${Date.now().toString(36)}`, name: `${ch.name} 2` }; proj.channels.splice(proj.channels.indexOf(ch) + 1, 0, nc); for (const p of proj.patterns) if (p.notes[ch.id]) p.notes[nc.id] = p.notes[ch.id].map((n) => ({ ...n })); }) },
+      { label: t('복제'), hint: t('노트 포함'), act: () => S.edit(() => { const nc = { ...JSON.parse(JSON.stringify(ch)), id: `c${Date.now().toString(36)}`, name: `${ch.name} 2` }; proj.channels.splice(proj.channels.indexOf(ch) + 1, 0, nc); for (const p of proj.patterns) if (p.notes[ch.id]) p.notes[nc.id] = p.notes[ch.id].map((n) => ({ ...n })); }) },
       { group: t('스텝 채우기') },
       ...[[2, t('2칸마다')], [4, t('4칸마다 (박마다)')], [8, t('8칸마다')]].map(([k, l]) => ({ label: l, act: () => S.edit(() => {
         const pat = pattern(proj), steps = pat.bars * 16, list = notesOf(pat, ch.id);
@@ -223,15 +304,31 @@ export class Rack {
         pat.notes[ch.id] = (pat.notes[ch.id] || []).filter((n) => n.n !== ch.stepNote);
         for (let i = 0; i < steps; i++) if (Math.random() < (i % 4 === 0 ? 0.55 : 0.22)) pat.notes[ch.id].push({ t: i * STEP, d: STEP, n: ch.stepNote, v: 70 + Math.round(Math.random() * 50) });
       }, true, t('무작위 리듬')) },
-      { label: t('한 칸씩 밀기 →'), act: () => S.edit(() => { const pat = pattern(proj), len = pat.bars * 16 * STEP; for (const n of notesOf(pat, ch.id)) n.t = (n.t + STEP) % len; }) },
-      { label: t('← 한 칸씩 당기기'), act: () => S.edit(() => { const pat = pattern(proj), len = pat.bars * 16 * STEP; for (const n of notesOf(pat, ch.id)) n.t = (n.t - STEP + len) % len; }) },
+      { label: t('왼쪽으로 돌리기'), hint: 'Shift+Ctrl+←', act: () => this.rotate(ch, -1) },
+      { label: t('오른쪽으로 돌리기'), hint: 'Shift+Ctrl+→', act: () => this.rotate(ch, 1) },
+      { label: t('스텝 복사'), hint: 'Ctrl+C', act: () => this.copySteps(ch) },
+      { label: t('스텝 붙여넣기'), hint: 'Ctrl+V', disabled: !this.stepClip, act: () => this.pasteSteps(ch) },
       { sep: true },
       { label: t('Consolidate (오디오로)'), hint: t('채널을 오디오 클립으로 · CPU 절약'), disabled: ch.kind === 'audio', act: () => S.freeze(ch) },
       { label: t('이 패턴의 노트 지우기'), act: () => S.edit(() => { pattern(proj).notes[ch.id] = []; }) },
-      { label: t('채널 삭제'), disabled: proj.channels.length <= 1, act: () => S.edit(() => { proj.channels.splice(proj.channels.indexOf(ch), 1); for (const p of proj.patterns) delete p.notes[ch.id]; proj.playlist.clips = proj.playlist.clips.filter((c) => c.ch !== ch.id); if (proj.selected === ch.id) proj.selected = proj.channels[0].id; }) },
+      { label: t('채널 삭제'), hint: 'Alt+Del', disabled: proj.channels.length <= 1, act: () => this.remove(ch) },
     ]);
   }
 }
+
+// rack actions shared by the menu and the keys
+Rack.prototype.remove = function (ch) {
+  const S = this.S, proj = S.proj;
+  if (proj.channels.length <= 1) return;
+  S.edit(() => { proj.channels.splice(proj.channels.indexOf(ch), 1); for (const p of proj.patterns) delete p.notes[ch.id]; proj.playlist.clips = proj.playlist.clips.filter((c) => c.ch !== ch.id); if (proj.selected === ch.id) proj.selected = proj.channels[0].id; }, true, t('채널 삭제'));
+  S.syncAudio();
+};
+Rack.prototype.rotate = function (ch, dir) {
+  const S = this.S, pat = pattern(S.proj), len = pat.bars * 16 * STEP;
+  S.edit(() => { for (const n of notesOf(pat, ch.id)) n.t = (n.t + dir * STEP + len) % len; }, true, dir > 0 ? t('오른쪽으로 돌리기') : t('왼쪽으로 돌리기'));
+};
+Rack.prototype.copySteps = function (ch) { this.stepClip = notesOf(pattern(this.S.proj), ch.id).map((n) => ({ ...n })); this.S.status(t('스텝 {n}개를 복사했어요.', { n: this.stepClip.length })); };
+Rack.prototype.pasteSteps = function (ch) { const c = this.stepClip; if (!c) return; this.S.edit(() => { pattern(this.S.proj).notes[ch.id] = c.map((n) => ({ ...n })); }, true, t('스텝 붙여넣기')); };
 
 function setStep(pat, ch, i, on) {
   const list = notesOf(pat, ch.id);

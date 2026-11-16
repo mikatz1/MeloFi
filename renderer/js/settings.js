@@ -80,6 +80,8 @@ export const DEFAULTS = {
   recKbps: 320,
   // input latency (latency.js): measured round trip per input/output pair, MIDI feel per device
   latency: { on: true, audioManual: 0, midiManual: 0, audio: {}, midi: {} },
+  // 가상 마이크로 내보내기 (vmic.js): a copy of the sound to a virtual audio cable, optionally with the mic
+  vmic: { on: false, sink: 'auto', level: 1, mic: false, micDevice: '', micLevel: 1, gate: -55, tuneAsked: false, linkGuided: false },
 };
 
 export class Settings {

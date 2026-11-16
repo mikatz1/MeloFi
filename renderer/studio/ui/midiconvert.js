@@ -5,10 +5,13 @@
 // channel of the chosen instrument for exactly the bars of that section.
 import { newProject, newChannel, newPattern, newTrack, secToTick, barTicks, STEP, uid } from '../model.js';
 import { renderMix } from '../io.js';
-import { cleanDownbeats, fromStems, meterMap } from './ai.js';
+import { cleanDownbeats, fromStems, meterMap, MUS } from './ai.js';
 import { synthDefaults, SYNTH_PRESETS, SYNTH_CATEGORIES, SYNTH_PARAMS, SynthChannel } from '../synth.js';
 import * as T from '../timbre.js';
 import { loadSome } from '../channel.js';
+import { addMedia, sampleInstrument } from '../media.js';
+import { stemInstrument, stemDrumKit } from '../stemsampler.js';
+import { encodeWav } from '../../js/recorder.js';
 import { PAD, makeImpulse } from '../../js/audio.js';
 import { FX_TYPES, fxDefaults } from '../fx.js';
 import { t, tc, N_ } from '../../i18n/i18n.js';
@@ -77,6 +80,22 @@ const barOf = (bars, t) => { let lo = 0, hi = bars.length - 1; while (lo < hi) {
 // notes of a stem as [t, d, n, v] (drums: hits as short notes)
 // (with octave errors corrected once the stem has been listened to: fixStemOctaves)
 export const stemNotes = (r, k) => (k === 'drums' ? (r.drums || []).map(([t, n, v]) => [t, 0.1, n, v]) : r.fixed?.[k] || r.notes?.[k] || []);
+
+// A stem's notes from a model made for its instrument (optional components: tools/stems/piano_notes.py,
+// bass_notes.py, vocal_notes.py) in place of the general transcription's, where the model applies
+// (the piano model: an acoustic piano; the bass model: when it finds most of the notes; the vocal
+// model: a sung lead). The general ones are kept (r.notesGeneral). Returns whether the model's
+// notes are in use; r.modelNotes[k] says so too, and the channels made from them are marked
+// non-commercial (the models' weights or training data are).
+export function useModelNotes(r, k, res) {
+  if (!(res?.used ?? res?.acoustic) || !res.notes?.length || !r.notes) return false;
+  r.notesGeneral = { ...(r.notesGeneral || {}), [k]: r.notes[k] };
+  r.notes[k] = res.notes;
+  if (r.fixed) delete r.fixed[k];
+  if (r.octaveFix) delete r.octaveFix[k];
+  (r.modelNotes ||= {})[k] = true;
+  return true;
+}
 
 // notes the transcription put an octave off, put right from the stem's spectrum (timbre.fixOctaves).
 // The corrected copy is kept on the result (r.fixed) so previews and the project use it too.
@@ -176,7 +195,7 @@ export function candidates(S, k, g) {
     const info = (id) => S.app.instruments.find((i) => i.id === id);
     const list = g.match.cands.slice(0, 8).map((c) => ({
       id: c.id, acc: c.acc, parts: c.parts, mix: c.mix || null, kind: candKind(S, c.id), name: candName(S, c.id), cat: g.label, share: 0,
-      installed: isSynthId(c.id) || !!info(c.id)?.installed, downloadable: !!info(c.id)?.downloadable,
+      installed: isSynthId(c.id) || isStemId(c.id) || !!info(c.id)?.installed, downloadable: !!info(c.id)?.downloadable,
     }));
     list[0].recommended = true;
     return list;
@@ -202,8 +221,7 @@ export const rangeText = (secs) => t('{r}마디', { r: secs.map((s) => (s.end - 
 // from just before its first note, so a quiet or empty start of the section is not what gets played.
 export function highlightStart(r, k, g, bars, seconds = 8) {
   const ranges = g.secs.map((s) => [bars[s.start], bars[s.end] ?? r.duration]);
-  const inGroup = (t) => ranges.some(([a, b]) => t >= a && t < b);
-  const notes = stemNotes(r, k).filter(([t]) => inGroup(t)).sort((x, y) => x[0] - y[0]);
+  const notes = groupNotes(r, k, g, bars).sort((x, y) => x[0] - y[0]);
   if (!notes.length) return ranges[0][0];
   let best = 0, bestScore = -1, j = 0, score = 0;
   for (let i = 0; i < notes.length; i++) {
@@ -252,11 +270,40 @@ export async function buildAssigned(r, plan, choice, fileName, S, { audio = true
   p.name = t('{name} (MIDI 변환)', { name: fileName.replace(/\.[^.]+$/, '') });
   if (!audio) p.channels = []; // (fromStems leaves a stand-in piano when it has nothing)
   for (const c of p.channels) c.mute = true; // the recording stays for comparison, silent
-  const t0 = r.first_downbeat || 0, bt = barTicks(p);
-  const tickOf = (sec) => Math.max(0, Math.round(secToTick(p, Math.max(0, sec - t0), 'song')));
+  p.patterns = [];
+  const made = assignInto(p, r, plan, choice, S);
+  if (!p.patterns.length) p.patterns = [newPattern(0)];
+  p.current = p.patterns[0].id;
+  p.selected = made[0]?.id || p.channels[0]?.id;
+  while (p.playlist.tracks.length < 8) p.playlist.tracks.push(newTrack(p.playlist.tracks.length));
+  return p;
+}
+
+// where a second of the recording is in the project: the separation's grid start (fromStems keeps
+// it in proj.stemsRef), or the stem's own audio clip when it was moved
+export function stemTicks(p, r, clip = null) {
+  const t0 = clip ? clip.offset || 0 : p.stemsRef?.t0 ?? r.first_downbeat ?? 0, base = clip ? Math.round(clip.start * barTicks(p)) : 0;
+  return (sec) => base + Math.max(0, Math.round(secToTick(p, Math.max(0, sec - t0), 'song')));
+}
+
+// The converted notes live in one set of 8-bar patterns on one playlist track ("MIDI (변환)"),
+// shared by every conversion made in the project: a channel per chosen instrument is added and its
+// notes go into those patterns (made on first use). stems: which stems of the plan to add;
+// after: the channel the new ones are put behind in the rack; tickOf: seconds -> song ticks.
+// A stem converted before is replaced (its channels carry conv: <stem>). Returns the new channels.
+export function assignInto(p, r, plan, choice, S, { stems = null, after = null, tickOf = stemTicks(p, r) } = {}) {
+  const bt = barTicks(p);
   const chans = new Map(); // `${stem}:${inst}` -> channel
-  const order = ['vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other'];
+  const order = ['vocals', 'backing', 'drums', 'bass', 'guitar', 'piano', 'other'].filter((k) => !stems || stems.includes(k));
   const owner = []; // [stem, bar] -> channel
+  // a stem converted again: its earlier channels and their notes go
+  const old = p.channels.filter((c) => c.conv && order.includes(c.conv));
+  if (old.length && old.length < p.channels.length) {
+    const ids = new Set(old.map((c) => c.id));
+    p.channels = p.channels.filter((c) => !ids.has(c.id));
+    for (const pt of p.patterns) for (const id of ids) delete pt.notes[id];
+  }
+  let n = p.channels.length;
   for (const k of order) {
     for (const g of plan.stems[k] || []) {
       const id = choice[`${k}:${g.cat}`];
@@ -264,50 +311,82 @@ export async function buildAssigned(r, plan, choice, fileName, S, { audio = true
       const cand = g.match?.cands?.find((c) => c.id === id), mx = cand?.mix;
       // a candidate mixed for its section (automatic mixing) gets a channel of its own with the
       // fitted EQ, reverb send and envelope, and its layer a second channel playing the same notes
-      const key = mx ? `${k}:${id}:${mixSeq++}` : `${k}:${id}`;
+      // (a part split off by an instrument label keeps a channel of its own even when two parts
+      // come out as the same instrument: first and second violins)
+      const key = mx ? `${k}:${id}:${mixSeq++}` : g.only ? `${k}:${id}:${g.only}` : `${k}:${id}`;
       if (!chans.has(key)) {
-        const kit = S.isKit(id), vol = k === 'drums' ? 0.85 : 0.75;
-        const name = `${tc('stem', STEM_NAMES[k])} · ${candName(S, id)}`;
+        const kit = S.isKit(id) || (isStemId(id) && k === 'drums'), vol = k === 'drums' ? 0.85 : 0.75;
+        const name0 = g.only && MUS[g.only] ? `${t(MUS[g.only][0])} · ${candName(S, id)}` : `${tc('stem', STEM_NAMES[k])} · ${candName(S, id)}`;
+        // (notes written by an instrument's own model are for non-commercial use: the channel says so)
+        const name = r.modelNotes?.[k] ? t('{name} (MIDI · 비상업)', { name: name0 }) : name0;
         if (mx) {
           // layer level: the second instrument at g times the first's power (fader: squared)
           const lg = mx.layer ? Math.sqrt(mx.layer.g) : 0, v1 = lg > 1 ? vol / lg : vol;
-          const ch = channelFor(S, id, mx.layer ? t('{name} (레이어 1)', { name }) : t('{name} (믹스 맞춤)', { name }), p.channels.length + chans.size, { vol: v1, send: mx.send, fx: mixFx(mx), ...envExtra(id, mx.env) });
+          const ch = channelFor(S, id, mx.layer ? t('{name} (레이어 1)', { name }) : t('{name} (믹스 맞춤)', { name }), n++, { vol: v1, send: mx.send, fx: mixFx(mx), conv: k, ...envExtra(id, mx.env) });
           chans.set(key, ch);
           if (mx.layer) {
-            const l = channelFor(S, mx.layer.id, t('{name} (레이어 2)', { name: `${tc('stem', STEM_NAMES[k])} · ${candName(S, mx.layer.id)}` }), p.channels.length + chans.size, { vol: Math.min(1, v1 * lg), send: mx.send, fx: mixFx(mx) });
+            const l = channelFor(S, mx.layer.id, t('{name} (레이어 2)', { name: `${tc('stem', STEM_NAMES[k])} · ${candName(S, mx.layer.id)}` }), n++, { vol: Math.min(1, v1 * lg), send: mx.send, fx: mixFx(mx), conv: k, layerOf: ch.id });
             chans.set(`${key}:layer`, l);
             ch.layer = l;
           }
-        } else chans.set(key, channelFor(S, id, name, p.channels.length + chans.size, { vol, send: kit ? 0.05 : 0.15 }));
+        } else chans.set(key, channelFor(S, id, name, n++, { vol, send: kit ? 0.05 : 0.15, conv: k }));
       }
       // the dynamics the instrument matched best at (the transcription's velocities run low)
       const vk = cand?.vel || 1, ch = chans.get(key);
-      for (const s of g.secs) for (let b = s.start; b < s.end; b++) owner.push([k, b, ch, vk, ch.layer, mx?.layer?.vel || 1]);
+      for (const s of g.secs) for (let b = s.start; b < s.end; b++) owner.push([k, b, g.only || null, ch, vk, ch.layer, mx?.layer?.vel || 1]);
     }
   }
-  const who = new Map(owner.map(([k, b, ...rest]) => [`${k}:${b}`, rest]));
+  // a bar can have more than one owner (a stem split by instrument labels): a note goes to its own
+  const who = new Map();
+  for (const [k, b, only, ...rest] of owner) { const key = `${k}:${b}`; if (!who.has(key)) who.set(key, []); who.get(key).push([only, rest]); }
+  const ownerOf = (k, b, i) => {
+    const list = who.get(`${k}:${b}`);
+    if (!list) return [];
+    const lab = r.noteLabel?.[k]?.[i];
+    return (list.find(([o]) => o && o === lab) || list.find(([o]) => !o) || list[0])[1];
+  };
   for (const ch of chans.values()) delete ch.layer;
-  p.channels.push(...chans.values());
-  const endBar = Math.max(1, Math.ceil(tickOf(r.duration) / bt));
-  const tr = p.playlist.tracks.length;
-  p.playlist.tracks.push({ ...newTrack(tr), name: t('MIDI (악기 지정)') });
-  const pats = [];
-  for (let b = 0; b < endBar; b += 8) { const len = Math.min(8, endBar - b), pat = newPattern(p.patterns.length + pats.length, len); pat.name = t('{a}~{b}마디', { a: b + 1, b: b + len }); pats.push([b, len, pat]); }
-  for (const k of order) for (const [t, d, n, v] of stemNotes(r, k)) {
-    const [ch, vk, lch, lvk] = who.get(`${k}:${barOf(plan.bars, t)}`) || [];
-    if (!ch) continue;
-    const tk = tickOf(t), slot = pats[Math.min(pats.length - 1, Math.floor(tk / bt / 8))];
-    if (!slot) continue;
-    const [b0, , pat] = slot;
-    (pat.notes[ch.id] ||= []).push({ t: tk - b0 * bt, d: Math.max(STEP / 4, tickOf(t + d) - tk), n, v: Math.min(127, Math.round(v * vk)) });
-    if (lch) (pat.notes[lch.id] ||= []).push({ t: tk - b0 * bt, d: Math.max(STEP / 4, tickOf(t + d) - tk), n, v: Math.min(127, Math.round(v * lvk)) });
+  const list = [...chans.values()];
+  if (!list.length) return list;
+  // (a stem instrument's cuts are project media: they are saved and travel with the project)
+  for (const ch of list) { const m = ch.sample?.media && [...STEM_CUTS.values()].find((x) => x.media === ch.sample.media); if (m && !p.media[m.media]) p.media[m.media] = { ...m.meta }; }
+  const at = after ? p.channels.findIndex((c) => c.id === after) : -1;
+  if (at >= 0) p.channels.splice(at + 1, 0, ...list); else p.channels.push(...list);
+  putNotes(p, order.flatMap((k) => stemNotes(r, k).map((nt, i) => {
+    const [ch, vk, lch, lvk] = ownerOf(k, barOf(plan.bars, nt[0]), i);
+    return ch ? [nt, ch, vk, lch, lvk] : null;
+  }).filter(Boolean)), tickOf, Math.max(1, Math.ceil(tickOf(r.duration) / bt)));
+  return list;
+}
+
+// notes [[t, d, n, v], channel, velocity factor, layer channel, its factor] into the conversion's
+// shared patterns (8 bars each, on the "MIDI (변환)" track; made where they are missing)
+export function putNotes(p, rows, tickOf, endBar) {
+  const bt = barTicks(p);
+  let tr = p.playlist.tracks.findIndex((x) => x.conv);
+  if (tr < 0) {
+    // the first free track, or a new one
+    tr = p.playlist.tracks.findIndex((_, i) => !p.playlist.clips.some((c) => c.track === i));
+    if (tr < 0) { tr = p.playlist.tracks.length; p.playlist.tracks.push(newTrack(tr)); }
+    p.playlist.tracks[tr] = { ...p.playlist.tracks[tr], name: t('MIDI (변환)'), conv: true };
   }
-  for (const [b0, len, pat] of pats) { if (!Object.keys(pat.notes).length) continue; p.patterns.push(pat); p.playlist.clips.push({ id: uid('k'), pattern: pat.id, track: tr, start: b0, len }); }
-  if (!p.patterns.length) p.patterns = [newPattern(0)];
-  p.current = p.patterns[0].id;
-  p.selected = [...chans.values()][0]?.id || p.channels[0]?.id;
-  while (p.playlist.tracks.length < 8) p.playlist.tracks.push(newTrack(p.playlist.tracks.length));
-  return p;
+  const slotOf = (b0) => {
+    let pat = p.patterns.find((x) => x.conv === b0 + 1);
+    // (its clip may have been deleted: the pattern is still the place for these bars)
+    if (!pat) {
+      const len = Math.max(1, Math.min(8, endBar - b0));
+      pat = { ...newPattern(p.patterns.length, len), name: t('{a}~{b}마디', { a: b0 + 1, b: b0 + len }), conv: b0 + 1 };
+      p.patterns.push(pat);
+      p.playlist.clips.push({ id: uid('k'), pattern: pat.id, track: tr, start: b0, len });
+    }
+    return pat;
+  };
+  for (const [[sec, d, n, v], ch, vk, lch, lvk] of rows) {
+    const tk = tickOf(sec), b0 = Math.floor(tk / bt / 8) * 8, pat = slotOf(b0);
+    const note = { t: tk - b0 * bt, d: Math.max(STEP / 4, tickOf(sec + d) - tk), n };
+    (pat.notes[ch.id] ||= []).push({ ...note, v: Math.max(1, Math.min(127, Math.round(v * (vk || 1)))) });
+    if (lch) (pat.notes[lch.id] ||= []).push({ ...note, v: Math.max(1, Math.min(127, Math.round(v * (lvk || 1)))) });
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -319,6 +398,38 @@ export const SYNTH_FAM_KO = { '리드': '신스 리드', '패드': '신스 패�
 const SYNTH_FAM = {};
 for (const [c, names] of Object.entries(SYNTH_CATEGORIES)) for (const n of names) SYNTH_FAM[n] = c;
 export const isSynthId = (id) => String(id).startsWith('synth:');
+// An instrument cut from the stem itself (stemsampler.js): id `stem:<stem>:<media hash>`. Its cuts
+// are project media; STEM_CUTS keeps what a channel needs to play them.
+export const isStemId = (id) => String(id).startsWith('stem:');
+const STEM_CUTS = new Map(); // id -> { media, cuts, meta, info }
+export const stemInstInfo = (id) => STEM_CUTS.get(id) || null;
+async function stemCandidate(k, notes, audio) {
+  // a stem of single notes, or a chordal one that still has enough clean single notes over its range;
+  // either way the cuts are only a candidate: they are heard against the stem like every preset
+  const si = stemInstrument(audio.x, audio.rate, notes, { maxPoly: 1, minCoverage: 0.8, minCuts: 1 });
+  if (!si || (si.poly > 0.35 && !(si.cuts.length >= 6 && si.coverage >= 0.9))) return null;
+  const tmp = { media: {} };
+  const hash = await addMedia(tmp, `${k}-stem-instrument.wav`, encodeWav({ left: si.wav.left, right: si.wav.left, rate: si.wav.rate }));
+  const id = `stem:${k}:${hash.slice(0, 10)}`;
+  STEM_CUTS.set(id, { media: hash, meta: tmp.media[hash], cuts: si.cuts.map(({ sal, ...c }) => c), info: { coverage: si.coverage, clean: si.clean, poly: si.poly, cuts: si.cuts.length } });
+  return id;
+}
+// the drums: a kit of single hits cut from the separated drum parts (stemsampler.js stemDrumKit)
+const DRUM_PART = { 36: 'kick', 38: 'snare', 42: 'hh', 45: 'toms', 51: 'ride', 49: 'crash' };
+async function stemKitCandidate(r, hits) {
+  const parts = {};
+  for (const n of new Set(hits.map((h) => h[2]))) {
+    const f = r.drum_parts?.[DRUM_PART[n]] || (DRUM_PART[n] === 'hh' ? r.drum_parts?.hihat : null);
+    if (f) { try { parts[n] = (await stemAudio(f)).x; } catch { /* that drum stays out */ } }
+  }
+  const kit = stemDrumKit(parts, 44100, hits);
+  if (!kit) return null;
+  const tmp = { media: {} };
+  const hash = await addMedia(tmp, 'drums-stem-instrument.wav', encodeWav({ left: kit.wav.left, right: kit.wav.left, rate: kit.wav.rate }));
+  const id = `stem:drums:${hash.slice(0, 10)}`;
+  STEM_CUTS.set(id, { media: hash, meta: tmp.media[hash], cuts: kit.cuts, info: { coverage: kit.coverage, cuts: kit.cuts.length } });
+  return id;
+}
 const presetOf = (id) => String(id).slice(6).replace(/~\d+$/, '');
 // synth settings fitted to a stem (synthSearch): `synth:<preset>~<n>` -> the full parameter set
 const TUNED = new Map();
@@ -329,11 +440,13 @@ const synthParams = (id) => TUNED.get(id) || { ...synthDefaults(), ...(SYNTH_PRE
 const FAM_KO = { piano: N_('피아노'), keys: N_('건반'), organ: N_('오르간'), synth: N_('신스'), guitar: N_('기타'), bass: N_('베이스'), strings: N_('현악기'), brass: N_('금관'), winds: N_('목관'), mallets: N_('건반 타악기'), vocal: N_('보컬 · 합창'), world: N_('민속 악기'), drums: N_('드럼'), fx: N_('효과음') };
 
 export function candName(S, id) {
+  if (isStemId(id)) return t('원곡 소리');
   if (isSynthId(id)) return TUNED.has(id) ? t('{name} · 이 곡에 맞춤', { name: presetOf(id) }) : presetOf(id);
   return S.app.instruments.find((i) => i.id === id)?.name || id;
 }
 // the kind of sound, concrete: "신스 리드", "현악기", ...
 export function candKind(S, id) {
+  if (isStemId(id)) return t('이 곡에서 추출한 악기');
   if (isSynthId(id)) return t(SYNTH_FAM_KO[SYNTH_FAM[presetOf(id)]] || N_('신스'));
   const m = S.app.instruments.find((i) => i.id === id);
   if (m?.family === 'synth') {
@@ -344,6 +457,11 @@ export function candKind(S, id) {
 }
 
 export function channelFor(S, id, name, i, extra = {}) {
+  if (isStemId(id)) {
+    const si = STEM_CUTS.get(id);
+    return newChannel('splendid', name, i, { kind: 'sample', stemInst: id.split(':')[1], ...(id.split(':')[1] === 'drums' ? { stepNote: 36 } : {}),
+      sample: { media: si.media, root: 60, start: 0, end: null, reverse: false, loop: false, attack: 0, release: 0.08, gain: 1, tune: 0, cuts: si.cuts }, ...extra });
+  }
   if (isSynthId(id)) {
     const pr = presetOf(id);
     return newChannel('synth', name, i, { kind: 'synth', synth: synthParams(id), synthPreset: TUNED.has(id) ? null : pr, ...extra });
@@ -398,6 +516,10 @@ const toClip = (clips, t) => { const c = clips.find((k) => t >= k.a && t < k.b);
 export async function renderNotes(S, id, notes, length, rate = 44100, { env = null, params = null } = {}) {
   const off = 0.05, vel = (v) => Math.max(1, Math.min(127, Math.round(v || 90)));
   let ctx = null;
+  if (isStemId(id)) {
+    const si = STEM_CUTS.get(id), inst = await sampleInstrument({ media: si.media, cuts: si.cuts }, rate);
+    return { x: sampledVoices(inst, notes.map(([t, d, n, v]) => [t, d, n, vel(v)]), off, length + 1, rate, env), rate, off };
+  }
   if (isSynthId(id)) {
     ctx = new OfflineAudioContext(2, Math.ceil((off + length + 1) * rate), rate);
     const ch = new SynthChannel(ctx, ctx.destination);
@@ -492,11 +614,44 @@ export function pool(S, kit) {
 
 // the notes of a group: the stem's notes inside its sections
 export function groupNotes(r, k, g, bars) {
-  return stemNotes(r, k).filter(([t]) => g.secs.some((s) => t >= bars[s.start] && t < (bars[s.end] ?? Infinity)));
+  const lab = g.only ? r.noteLabel?.[k] : null;
+  return stemNotes(r, k).filter(([t], i) => (!lab || lab[i] === g.only) && g.secs.some((s) => t >= bars[s.start] && t < (bars[s.end] ?? Infinity)));
 }
 
 // the plausible MeloFi sounds for a group, from the stem and the recognised categories
+// what the separation's own stems hold: instrument families, single instruments from other
+// families, and synth preset kinds
+const STEM_FAMS = {
+  bass: { fams: ['bass'], ids: ['contrabass', 'cello', 'tuba', 'wartuba', 'timpani', 'bassoon', 'bassclarinet', 'baritonesax'], synth: ['베이스'] }, // i18n-ignore: preset kinds
+  guitar: { fams: ['guitar', 'world'], ids: ['harp', 'folkharp', 'harp2', 'harpsichord', 'clavinet', 'clav'], synth: ['플럭'] }, // i18n-ignore
+  piano: { fams: ['piano', 'keys', 'organ', 'mallets'], ids: [], synth: ['건반', '벨·말렛', '플럭', '패드'] }, // i18n-ignore
+};
+const OWN_STEM = ['bass', 'guitar', 'piano']; // families with a stem of their own
+// the instrument families behind the recognition's categories (CATS)
+const CAT_FAMS = {
+  piano: ['piano'], epiano: ['keys', 'piano'], organ: ['organ'], harpsichord: ['keys'], synth: ['synth'], guitar_ac: ['guitar'], guitar_el: ['guitar'], plucked: ['guitar', 'world'],
+  harp: ['strings'], bass: ['bass'], upright: ['bass', 'strings'], strings: ['strings'], violin: ['strings'], cello: ['strings'], pizzicato: ['strings'], brass: ['brass'], sax: ['winds'],
+  flute: ['winds'], clarinet: ['winds'], mallet: ['mallets'], bell: ['mallets'], harmonica: ['winds'], choir: ['vocal'], voice: ['vocal'],
+};
+// labels that name one instrument (the others name a kind of sound)
+const ONE_INSTRUMENT = new Set(['violin', 'viola', 'cello', 'contrabass', 'orchestral_harp', 'timpani', 'trumpet', 'trombone', 'tuba', 'french_horn', 'soprano_and_alto_sax',
+  'tenor_sax', 'baritone_sax', 'oboe', 'english_horn', 'bassoon', 'clarinet', 'flutes']);
+// the instrument families a label (MuScriptor's categories, ai.js MUS) can be played by
+export const HINT_FAMS = {
+  acoustic_piano: ['piano'], electric_piano: ['keys', 'piano'], chromatic_percussion: ['mallets'], organ: ['organ'],
+  acoustic_guitar: ['guitar'], clean_electric_guitar: ['guitar'], distorted_electric_guitar: ['guitar'], acoustic_bass: ['bass', 'strings'], electric_bass: ['bass', 'synth'],
+  violin: ['strings'], viola: ['strings'], cello: ['strings'], contrabass: ['strings', 'bass'], orchestral_harp: ['strings'], timpani: ['mallets'],
+  string_ensemble: ['strings'], synth_strings: ['synth', 'strings'], voice: ['vocal', 'synth'], orchestra_hit: ['brass', 'synth'], trumpet: ['brass'], trombone: ['brass'],
+  tuba: ['brass'], french_horn: ['brass'], brass_section: ['brass'], soprano_and_alto_sax: ['winds'], tenor_sax: ['winds'], baritone_sax: ['winds'], oboe: ['winds'],
+  english_horn: ['winds'], bassoon: ['winds'], clarinet: ['winds'], flutes: ['winds'], synth_lead: ['synth'], synth_pad: ['synth'],
+};
 export function plausibleFor(S, k, g) {
+  if (g.hint && HINT_FAMS[g.hint]) {
+    const seed = (MUS[g.hint] || []).slice(1).filter((id) => S.app.instruments.some((i) => i.id === id));
+    const same = S.app.instruments.filter((i) => HINT_FAMS[g.hint].includes(i.family) && (i.installed || i.downloadable)).map((i) => i.id);
+    const syn = HINT_FAMS[g.hint].includes('synth') ? Object.keys(SYNTH_PRESETS).filter((name) => SYNTH_FAM[name] !== 'FX').map((name) => `synth:${name}`) : [];
+    return [...new Set([...seed, ...same, ...syn])];
+  }
   const [allowed] = STEM[k] || [MELODIC];
   const cats = [...new Set([...Object.entries(g.share || {}).filter(([, v]) => v > 0.05).map(([c]) => c), g.base || g.cat, ...allowed])];
   const ids = [];
@@ -828,7 +983,7 @@ async function fitMix(S, k, cands, { SF, P, notes, length, measureRen, raws, kit
 
 // one group. audio: the stem's samples. Returns { cands: [{ id, acc, parts, pre }] best first,
 // probes (notes measured), desc (the sound described, timbre.describe) }
-export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, plausible = [], max = 8, widen = 6, target = 90, also = [], normalize = true, synthSearch = true, reverb = true, mix = true } = {}) {
+export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, plausible = [], max = 8, widen = 6, target = 90, also = [], normalize = true, synthSearch = true, reverb = true, mix = true, stemInst = true } = {}) {
   await fingerprints();
   const kit = k === 'drums';
   const all = groupNotes(r, k, g, bars);
@@ -842,7 +997,23 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
   const poly = P.map(([t, d, n]) => all.some((o) => o[2] !== n && o[0] < t + Math.min(d, 0.2) && o[0] + o[1] > t + 0.03));
   SF.forEach((f, i) => { f.poly = poly[i]; f.bassStem = k === 'bass'; });
   // pre-screen every candidate against its fingerprint
-  const ids = pool(S, kit);
+  // a part with an instrument label is matched inside the label's families: in a stem that holds
+  // several instruments at once the stem's sound at a note is a mix of them, and the comparison
+  // alone drifts to whatever resembles the mix (a harp heard as an electric guitar)
+  const fams = !kit && g.hint ? HINT_FAMS[g.hint] : null;
+  // without a label the stem itself says a little: the separation's bass, guitar and piano stems
+  // hold those kinds of instruments, and what bleeds into them made a bass line come out as
+  // trumpets and a nylon guitar as a synth bass
+  const sf = !kit && !fams ? STEM_FAMS[k] : null;
+  const allowed = (id) => {
+    if (fams) return fams.includes(famOf(S, id));
+    if (!sf) return true;
+    if (isSynthId(id)) return sf.synth.includes(SYNTH_FAM[presetOf(id)]);
+    return sf.fams.includes(famOf(S, id)) || sf.ids.includes(id);
+  };
+  const inFam = pool(S, kit).filter(allowed);
+  const ids = inFam.length >= 3 ? inFam : pool(S, kit);
+  const synthOk = fams ? fams.includes('synth') : !sf || sf.synth.length > 0;
   const pre = new Map(ids.map((id) => [id, kit ? { z: 0, acc: 0 } : T.prescreen(SF, FP[id])]));
   const byPre = [...ids].sort((a, b) => pre.get(a).z - pre.get(b).z);
   const plaus = plausible.filter((id) => pre.has(id)).sort((a, b) => pre.get(a).z - pre.get(b).z);
@@ -902,7 +1073,14 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
       await new Promise((res) => setTimeout(res, 0));
     }
   };
-  await run([...first, ...also.filter((id) => pre.has(id))]);
+  // (the label's own instruments are always heard: seedIds, below)
+  const seedIds = g.only && MUS[g.only] ? MUS[g.only].slice(1, 2).filter((id) => pre.has(id)) : [];
+  await run([...first, ...seedIds, ...also.filter((id) => pre.has(id))]);
+  // the stem's own sound as an instrument: only where it gives clean single notes for the pitches
+  // it plays (stemsampler.js); heard and compared like every other candidate
+  if (stemInst) {
+    try { const sid = kit ? await stemKitCandidate(r, all) : await stemCandidate(k, all, audio); if (sid) await one(sid); } catch (err) { console.warn(`stem instrument ${k}: ${err?.message || err}`); }
+  }
   if (reverb) await fitRoom();
   stats.room = room;
   for (let round = 0; round < 2 && !kit; round++) {
@@ -912,7 +1090,7 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
   // a synth part: MeloFi's own synth is set to match it, starting from the closest presets
   // (synthSearch below). That is the synthesizer's settings fitted to a synthesizer part, not a new
   // instrument made up.
-  if (synthSearch && !kit && Math.max(0, ...[...tried.values()].map((c) => c.acc)) < target) {
+  if (synthSearch && synthOk && !kit && Math.max(0, ...[...tried.values()].map((c) => c.acc)) < target) {
     const bases = [...tried.values()].filter((c) => !c.error && isSynthId(c.id)).sort((a, b) => b.acc - a.acc).slice(0, 1);
     const best = Math.max(0, ...[...tried.values()].map((c) => c.acc));
     for (const b of bases) {
@@ -932,7 +1110,9 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
   }
   let cands = [...tried.values()].filter((c) => !c.error).sort((a, b) => b.acc - a.acc);
   // the automatic mixing on the best of the family (fitMix), then the order again
-  if (mix && cands.length) {
+  // (not for a part split off by a label: the stem at its notes is the whole mix, and an EQ or a
+  // second layer fitted there fits the other instruments)
+  if (mix && cands.length && !g.only && !isStemId(cands[0].id)) {
     const top0 = cands[0].id, acc0 = cands[0].acc;
     stats.mix = await fitMix(S, k, cands, { SF, P, notes, length, measureRen, raws, kit, plausible: kit ? [] : plausible });
     stats.mix.top0 = top0; stats.mix.acc0 = acc0;
@@ -940,6 +1120,20 @@ export async function matchGroup(S, r, k, g, bars, audio, { onStep = () => {}, p
     stats.mix.topChanged = cands[0].id !== top0;
   }
   stats.wall = Math.round(performance.now() - stats.wall); stats.renderMs = Math.round(stats.renderMs); stats.seconds = +length.toFixed(1);
+  // A synth preset, above all one fitted to this very part, has knobs the sampled instruments do
+  // not, and wins near-ties it should not: a real instrument within 4 points of a winning synth
+  // goes first (measured on the six test sets: more parts get their own kind of instrument, and
+  // the choice no longer flips between runs on a point's difference).
+  if (!kit && cands.length > 1 && isSynthId(cands[0].id) && !(fams && fams.every((f) => f === 'synth'))) {
+    const real = cands.find((c) => !isSynthId(c.id) && famOf(S, c.id) !== 'synth' && cands[0].acc - c.acc <= 4);
+    if (real) cands = [real, ...cands.filter((c) => c !== real)];
+  }
+  // A part split off by a label that names one instrument (a cello line inside an orchestra): the
+  // stem's sound at its notes is the whole orchestra, and the listening took a cello for a second
+  // violin there. The label's own instrument goes first. Labels that name a kind (a string
+  // ensemble, a synth lead, a piano, a guitar) leave the choice to the listening.
+  const seed = ONE_INSTRUMENT.has(g.only) ? seedIds.map((id) => cands.find((c) => c.id === id)).find(Boolean) : null;
+  if (seed && cands[0] !== seed) { seed.label = true; cands = [seed, ...cands.filter((c) => c !== seed)]; }
   raws.clear();
   return { cands, probes: P.length, desc, room, errors: [...tried.values()].filter((c) => c.error).length, stats };
 }
@@ -1027,8 +1221,162 @@ export function splitByTimbre(r, k, groups, bars, audio) {
   return out.sort((a, b) => a.secs[0].start - b.secs[0].start);
 }
 
+// Instrument labels per note from a multi-instrument transcription (MuScriptor when it ran, or any
+// source in r.labels: { source, parts: { category: [[t, d, n, v]] } }) are a HINT: they decide how a
+// stem's notes split into instruments (an orchestra in "other") and which families each part's
+// candidates come from; which MeloFi instrument plays a part is still decided by listening.
+// A stem note takes the label of the part with the same pitch (or an octave off) starting within
+// 50 ms (or, failing that, sounding it); in "other" a label with 12 notes and 5% of the labelled
+// notes over the whole stem makes a part of its own; the other notes go to the part nearest in pitch.
+export function labelParts(r) {
+  const parts = r.labels?.parts || r.muscriptor?.notes;
+  if (!parts) return null;
+  const out = Object.entries(parts).filter(([c, ns]) => c !== 'drums' && ns?.length).map(([c, ns]) => ({ c, ns: ns.slice().sort((a, b) => a[0] - b[0]) }));
+  return out.length ? out : null;
+}
+export function splitByLabels(r, k, groups, bars, parts) {
+  if (k === 'drums' || !parts) return groups;
+  let all = stemNotes(r, k);
+  // a stem note's label: the part with the same pitch (or an octave off) starting within 50 ms;
+  // failing that (legato and rubato: the two transcriptions put the onset apart) the part that
+  // is sounding that pitch at the note's start, or starts it within 150 ms
+  const find = (t, n, loose) => {
+    let best = null;
+    const w = loose ? 0.15 : 0.05;
+    for (const { c, ns } of parts) {
+      let lo = 0, hi = ns.length;
+      const from = loose ? t - 8 : t - w;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (ns[m][0] < from) lo = m + 1; else hi = m; }
+      for (let j = lo; j < ns.length && ns[j][0] <= t + w; j++) {
+        const dn = Math.abs(ns[j][2] - n);
+        if (dn !== 0 && dn !== 12) continue;
+        const dt = Math.abs(ns[j][0] - t), held = loose && ns[j][0] <= t && ns[j][0] + ns[j][1] >= t - 0.05;
+        if (dt > w && !held) continue;
+        const cost = (held ? Math.min(dt, 0.15) : dt) + (dn ? 0.1 : 0);
+        if (!best || cost < best[0]) best = [cost, c];
+      }
+    }
+    return best ? best[1] : null;
+  };
+  let lab = all.map(([t, , n]) => find(t, n, false) || find(t, n, true));
+  // a label counts only where it can be: the bass, guitar and piano stems hold those kinds of
+  // instruments (a transcription of the whole mix calls every low note a bass and labels bleed),
+  // and the same kinds are not in "other" unless their own stem is all but empty (a string
+  // orchestra: the double basses are in "other", the bass stem is silent).
+  const sf = STEM_FAMS[k];
+  const empty = (stem) => (r.notes?.[stem] || []).length < 12;
+  // Labels from a transcription that is often wrong about the instrument (YourMT3+ wrote a chip
+  // lead down as 677 piano notes) count in "other" only when the instrument recognition heard
+  // mostly that family in the stem too, and never add notes of their own.
+  const weak = r.labels?.source === 'yourmt3';
+  const heard = new Set();
+  // (heard: the family the recognition heard most in a group, or any it gave a quarter of the
+  // group to. 8% was too little: a chip lead that sounded 9% like a piano became an upright piano)
+  if (weak && !sf) for (const g of groups) {
+    const sh = Object.entries(g.share || {}).sort((x, y) => y[1] - x[1]);
+    sh.forEach(([c, v], i) => { if (i === 0 || v >= 0.25) for (const f of CAT_FAMS[c] || []) heard.add(f); });
+  }
+  // (when the label on most of the stem's labelled notes is of a family the recognition heard,
+  // the transcription has the stem right, and its other labels count too: the horns beside the
+  // strings of an orchestra)
+  let trusted = false;
+  if (weak && !sf) {
+    const c0 = {}; for (const c of lab) if (c) c0[c] = (c0[c] || 0) + 1;
+    const top = Object.entries(c0).sort((x, y) => y[1] - x[1])[0];
+    trusted = !!top && (HINT_FAMS[top[0]] || []).some((x) => heard.has(x));
+  }
+  const fits = (c) => {
+    const f = HINT_FAMS[c]; if (!f) return false;
+    if (sf) return f.some((x) => sf.fams.includes(x));
+    if (weak && !trusted && !f.some((x) => heard.has(x))) return false;
+    return !f.some((x) => OWN_STEM.includes(x) && !empty(x));
+  };
+  // the bass, guitar and piano stems are never split: one hint at most, per group
+  if (sf) {
+    // (weak labels say nothing here: these stems already have their families, and a hint only
+    // reshuffled near-ties between pianos)
+    if (weak) return groups;
+    (r.noteLabel ||= {})[k] = lab;
+    return groups.map((g) => {
+      if (g.stray) return g;
+      const cnt = {};
+      all.forEach(([t], i) => { if (lab[i] && g.secs.some((sc) => t >= bars[sc.start] && t < (bars[sc.end] ?? Infinity))) cnt[lab[i]] = (cnt[lab[i]] || 0) + 1; });
+      const top = Object.entries(cnt).filter(([c, n]) => fits(c) && n >= 12).sort((a, b) => b[1] - a[1])[0];
+      return top ? { ...g, hint: top[0] } : g;
+    });
+  }
+  // "other": the labels are decided over the whole stem (a cello line is thin in every section and
+  // clear over the song): 12 notes and 5% of the labelled notes
+  const cnt = {};
+  for (const c of lab) if (c) cnt[c] = (cnt[c] || 0) + 1;
+  // A string orchestra comes labelled as one "string ensemble" (the labelling model does not tell
+  // the desks apart). When that label is most of the stem, 200 notes or more over two and a half
+  // octaves, and the song has next to no drums or bass (an orchestral texture, not a string pad
+  // in a band), it is read as a score: the top line to the violins, the lowest notes to the
+  // double basses and cellos, the middle to the violas.
+  if (cnt.string_ensemble >= 200 && cnt.string_ensemble >= 0.6 * all.length && (r.drums || []).length < 40 && empty('bass')) {
+    const idx = []; lab.forEach((c, i) => { if (c === 'string_ensemble') idx.push(i); });
+    const ps = idx.map((i) => all[i][2]).sort((x, y) => x - y);
+    if (ps[Math.floor(ps.length * 0.95)] - ps[Math.floor(ps.length * 0.05)] >= 30) {
+      idx.sort((x, y) => all[x][0] - all[y][0]);
+      for (let a0 = 0; a0 < idx.length;) {
+        let b0 = a0 + 1;
+        while (b0 < idx.length && all[idx[b0]][0] - all[idx[a0]][0] <= 0.06) b0++;
+        const grp = idx.slice(a0, b0), top = Math.max(...grp.map((i) => all[i][2]));
+        for (const i of grp) {
+          const n = all[i][2];
+          lab[i] = n < 40 ? 'contrabass' : n < 55 ? 'cello' : (n === top && grp.length > 1) || n >= 67 ? 'violin' : 'viola';
+        }
+        a0 = b0;
+      }
+      for (const k2 of Object.keys(cnt)) delete cnt[k2];
+      for (const c of lab) if (c) cnt[c] = (cnt[c] || 0) + 1;
+    }
+  }
+  const labelled = lab.filter(Boolean).length;
+  const keep = Object.entries(cnt).filter(([c, n]) => fits(c) && n >= 12 && n >= 0.05 * labelled).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  (r.noteLabel ||= {})[k] = lab;
+  if (!keep.length) return groups;
+  // (a weak label is used to split a stem, not to name it: one label on a mixed stem tied the
+  // whole stem to its family, a clavinet label taking the guitar with it)
+  if (keep.length === 1) return weak ? groups : groups.map((g) => (g.stray ? g : { ...g, hint: keep[0] }));
+  // a kept part the stem's own transcription mostly missed (low strings under an orchestra) takes
+  // the labelled transcription's notes for what is missing
+  const extra = [];
+  for (const c of weak ? [] : keep) {
+    const ns = parts.find((x) => x.c === c).ns;
+    if (cnt[c] >= 0.6 * ns.length) continue;
+    for (const m of ns) {
+      const hit = all.some((x, i) => lab[i] === c && Math.abs(x[2] - m[2]) % 12 === 0 && x[0] <= m[0] + 0.15 && x[0] + x[1] >= m[0] - 0.15);
+      if (!hit) extra.push([[m[0], m[1], m[2], m[3] || 80], c]);
+    }
+  }
+  if (extra.length) {
+    const merged = all.map((x, i) => [x, lab[i]]).concat(extra).sort((a, b) => a[0][0] - b[0][0]);
+    all = merged.map((x) => x[0]); lab = merged.map((x) => x[1]);
+    (r.fixed ||= {})[k] = all; r.noteLabel[k] = lab;
+  }
+  // the rest: to the kept part nearest in pitch
+  const medPitch = Object.fromEntries(keep.map((c) => { const ps = all.filter((_, i) => lab[i] === c).map((x) => x[2]).sort((a, b) => a - b); return [c, ps[ps.length >> 1]]; }));
+  lab.forEach((c, i) => { if (!keep.includes(c)) lab[i] = keep.reduce((b, q) => (Math.abs(medPitch[q] - all[i][2]) < Math.abs(medPitch[b] - all[i][2]) ? q : b), keep[0]); });
+  // one group per part over all the sections it plays in (a part is stray on its total, not per section)
+  const main = groups.filter((g) => !g.stray).sort((a, b) => b.notes - a.notes)[0] || groups[0];
+  const nb = bars.length - 1;
+  return keep.map((c) => {
+    const played = new Uint8Array(nb + 1);
+    let n = 0;
+    all.forEach(([t], i) => { if (lab[i] === c) { played[Math.min(nb, barOf(bars, t))] = 1; n++; } });
+    const secs = [];
+    for (let b = 0; b < nb; b++) if (played[b]) { if (secs.length && secs.at(-1).end === b) secs.at(-1).end = b + 1; else secs.push({ start: b, end: b + 1 }); }
+    // (bars between two played stretches belong to the part too: rests)
+    const joined = secs.reduce((a, sc) => { if (a.length && sc.start - a.at(-1).end <= 4) a.at(-1).end = sc.end; else a.push({ ...sc }); return a; }, []);
+    const playedBars = played.reduce((a, x) => a + x, 0);
+    return { ...main, cat: `${main.base || main.cat}@${c}`, base: main.base || main.cat, secs: joined, bars: joined.reduce((a, sc) => a + sc.end - sc.start, 0), only: c, hint: c, notes: n, playedBars, density: n / Math.max(1, playedBars), heard: joined.length, thin: n < 12, stray: n < 12, split: keep.length, match: undefined };
+  }).sort((a, b) => a.secs[0].start - b.secs[0].start);
+}
+
 // every group of every stem gets g.match. onProgress(fraction, label)
-export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90, also = [], octaves = true, split = true, normalize = true, synthSearch = true, reverb = true, mix = true } = {}) {
+export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90, also = [], octaves = true, split = true, hints = true, normalize = true, synthSearch = true, reverb = true, mix = true, stemInst = true } = {}) {
   await fingerprints();
   // each stem is listened to once: octave errors, then the groups split where the timbre changes
   const audio = new Map();
@@ -1037,8 +1385,10 @@ export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90,
     try {
       audio.set(k, await stemAudio(r.stems[k]));
       if (octaves) fixStemOctaves(r, k, audio.get(k));
-      if (split) plan.stems[k] = splitByTimbre(r, k, plan.stems[k], plan.bars, audio.get(k));
-    } catch (err) { audio.set(k, null); }
+      const labels = hints ? labelParts(r) : null;
+      if (labels) plan.stems[k] = splitByLabels(r, k, plan.stems[k], plan.bars, labels);
+      if (split) plan.stems[k] = plan.stems[k].flatMap((g) => (g.only ? [g] : splitByTimbre(r, k, [g], plan.bars, audio.get(k))));
+    } catch (err) { audio.set(k, null); console.warn(`matchAll ${k}: ${err?.stack || err}`); } // (said, not swallowed: a split that throws looks like an unreadable stem)
     await new Promise((res) => setTimeout(res, 0));
   }
   const jobs = [];
@@ -1050,7 +1400,7 @@ export async function matchAll(S, r, plan, { onProgress = () => {}, target = 90,
       // a sung lead is not an instrument: it goes to the vocal synth (lyrics, a voice), not to a
       // matching instrument
       if (k === 'vocals') { g.match = { cands: [], vocal: true }; continue; }
-      g.match = await matchGroup(S, r, k, g, plan.bars, audio.get(k), { plausible: plausibleFor(S, k, g), target, also: k === 'drums' ? [] : also, normalize, synthSearch, reverb, mix });
+      g.match = await matchGroup(S, r, k, g, plan.bars, audio.get(k), { plausible: plausibleFor(S, k, g), target, also: k === 'drums' ? [] : also, normalize, synthSearch, reverb, mix, stemInst });
     } catch (err) { g.match = { cands: [], error: String(err.message || err) }; }
   }
   onProgress(1, '');

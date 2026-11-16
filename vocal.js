@@ -146,6 +146,30 @@ function register(ipcMain, { app }) {
   };
   const partInstalled = (id) => (readMeta(partPath(id)) ? partPath(id) : null);
 
+  // NEUTRINO (STUDIO NEUTRINO, freeware, Windows): the user's own copy, unpacked into
+  // userData/vocal-engine/neutrino (or MELOFI_NEUTRINO_DIR) with its voice libraries under model/.
+  // Each model folder becomes a voice "nt-<folder>". Terms differ per character: the libraries
+  // whose output the project allows in any music are marked commercial, the rest non-commercial.
+  const NEUTRINO_DIR = () => process.env.MELOFI_NEUTRINO_DIR || path.join(ROOT(), 'neutrino');
+  const NT_OPEN = new Set(['MERROW', 'NAKUMO', 'SOMA', 'RUNO']);
+  const NT_NAMES = { KIRITAN: '東北きりたん', ZUNDAMON: 'ずんだもん', ITAKO: '東北イタコ', ZUNKO: '東北ずん子', METAN: '四国めたん', MERROW: 'めろう', NAKUMO: 'ナクモ', SOMA: 'ソウマ', RUNO: 'ルノ', REINA: 'レイナ', SEVEN: 'No.7' };
+  const neutrinoVoices = () => {
+    const root = NEUTRINO_DIR();
+    if (!exists(path.join(root, 'bin', 'neutrino.exe'))) return [];
+    let dirs = [];
+    try { dirs = fs.readdirSync(path.join(root, 'model'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return []; }
+    return dirs.filter((d) => exists(path.join(root, 'model', d, 'info.toml'))).map((d) => {
+      const info = fs.readFileSync(path.join(root, 'model', d, 'info.toml'), 'utf8');
+      const field = (k) => (info.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, 'm')) || [])[1] || '';
+      const jp = NT_NAMES[d] || field('name') || d;
+      return {
+        id: `nt-${d.toLowerCase()}`, model: d, name: `${jp} (NEUTRINO)`, gender: field('gender') === 'male' ? 'male' : 'female', genderNote: '', langs: ['ja'], engine: 'neutrino',
+        use: NT_OPEN.has(d) ? 'commercial' : 'noncommercial', credit: `NEUTRINO · ${jp}`, licenseUrl: 'https://studio-neutrino.com/faq/',
+        note: N_('NEUTRINO (STUDIO NEUTRINO) · 직접 설치한 보이스 · 캐릭터별 가이드라인을 따라 주세요'), dir: path.join(root, 'model', d),
+      };
+    });
+  };
+
   // the folder inside an unpacked archive that holds the model
   const findRoot = async (dir, engine) => {
     const want = engine === 'nnsvs' ? 'acoustic_model.pth' : engine === 'vocoder' ? 'vocoder.yaml' : 'dsconfig.yaml';
@@ -227,6 +251,7 @@ function register(ipcMain, { app }) {
   ipcMain.handle('vocal:status', async (_e, opts = {}) => {
     if (opts.refresh) caps = null;
     const c = await capabilities();
+    const nt = c.python ? neutrinoVoices().map((v) => ({ ...v, installed: true, ready: true, bytes: 0, speakers: null })) : [];
     const voices = Object.entries(VOICES).map(([id, v]) => {
       const ins = installed(id);
       const needs = v.engine === 'nnsvs' ? !!c.nnsvs : c.diffsinger;
@@ -239,7 +264,7 @@ function register(ipcMain, { app }) {
     });
     return {
       engine: !!c.python, python: c.python, diffsinger: c.diffsinger, nnsvs: !!c.nnsvs, lyrics: c.lyrics, componentsMissing: c.componentsMissing,
-      voices, busy: busy || (dl ? 'download' : null),
+      voices: [...voices, ...nt], busy: busy || (dl ? 'download' : null),
     };
   });
 
@@ -340,12 +365,13 @@ function register(ipcMain, { app }) {
   // payload: { voice, notes: [{t, d, n, syl}] (seconds), speaker?, steps? } -> { ok, wav, seconds, sr }
   ipcMain.handle('vocal:render', async (e, payload = {}) => {
     const id = OLD_IDS[payload.voice] || payload.voice;
-    const v = VOICES[id];
+    const ntv = /^nt-/.test(id || '') ? neutrinoVoices().find((x) => x.id === id) : null;
+    const v = VOICES[id] || ntv;
     if (!v) return { ok: false, error: 'voice', message: t('보이스를 골라 주세요.') };
-    const ins = installed(id);
+    const ins = ntv ? { dir: ntv.dir } : installed(id);
     if (!ins) return { ok: false, error: 'not_installed', message: t('{name} 보이스를 먼저 내려받아 주세요.', { name: t(v.name) }) };
     const c = await capabilities();
-    const py = v.engine === 'nnsvs' ? c.nnsvs : c.diffsinger ? c.python : null;
+    const py = v.engine === 'nnsvs' ? c.nnsvs : v.engine === 'neutrino' ? c.python : c.diffsinger ? c.python : null;
     if (!py) return { ok: false, error: 'no_engine', message: v.engine === 'nnsvs' ? t('NNSVS가 설치돼 있지 않아요. \'보컬 구성 요소 설치\'를 눌러 주세요.') : t('먼저 AI 분석 엔진을 설치해 주세요.') };
     if (v.vocoder && !partInstalled(v.vocoder)) return { ok: false, error: 'not_installed', message: t('보코더가 없어요. 보이스를 다시 내려받아 주세요.') };
     const notes = (payload.notes || []).filter((x) => x && x.d > 0 && Number.isFinite(x.t) && Number.isFinite(x.n)).map((x) => ({ t: +x.t, d: +x.d, n: Math.round(+x.n), syl: String(x.syl ?? '') }));
@@ -356,7 +382,7 @@ function register(ipcMain, { app }) {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'melofi-sing-'));
     try {
       const out = path.join(dir, 'out.wav'), job = path.join(dir, 'job.json');
-      await fsp.writeFile(job, JSON.stringify({ engine: v.engine, voice_dir: ins.dir, vocoder_dir: v.vocoder ? partInstalled(v.vocoder) : null, speaker: payload.speaker || null, notes, out, steps: payload.steps || 50,
+      await fsp.writeFile(job, JSON.stringify({ engine: v.engine, voice_dir: ins.dir, neutrino_dir: ntv ? NEUTRINO_DIR() : undefined, model: ntv?.model, vocoder_dir: v.vocoder ? partInstalled(v.vocoder) : null, speaker: payload.speaker || null, notes, out, steps: payload.steps || 50,
         cmudict: partInstalled('cmudict') ? path.join(partInstalled('cmudict'), PARTS.cmudict.raw) : null }));
       send({ p: 0.02, label: t('{name} 노래 만드는 중…', { name: v.name.split(' (')[0] }) });
       let err = null;
@@ -366,6 +392,8 @@ function register(ipcMain, { app }) {
       });
       child = null;
       const res = lastJson(r.out);
+      // a test run keeps the job and the engine's own error output of a failed render (userData/logs)
+      if ((!res?.ok || !exists(out)) && process.env.MELOFI_SHOT) { const lg = path.join(app.getPath('userData'), 'logs'); await fsp.mkdir(lg, { recursive: true }).catch(() => {}); await fsp.copyFile(job, path.join(lg, 'sing-failed.json')).catch(() => {}); await fsp.writeFile(path.join(lg, 'sing-failed.err.txt'), String(r.err || '')).catch(() => {}); }
       if (!res?.ok || !exists(out)) return { ok: false, error: 'render', message: t('노래를 만들지 못했어요: {why}', { why: err || res?.error || (r.err.split(/\r?\n/).filter(Boolean).pop() || '').slice(0, 300) }) };
       return { ok: true, wav: new Uint8Array(await fsp.readFile(out)), seconds: res.seconds, sr: res.sr, voice: id, use: v.use, credit: v.credit };
     } finally {

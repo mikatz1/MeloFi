@@ -22,7 +22,8 @@ function unit(input, output, map, setters = {}, stop = null) {
       }
     },
     param(k) { return map[k] || null; },
-    dispose() { try { stop?.(); input.disconnect(); output.disconnect(); } catch { /* gone */ } },
+    // a worklet effect also stops its processor (a disconnected one would live on with the page)
+    dispose() { try { stop?.(); if (input instanceof AudioWorkletNode) input.port.postMessage('dispose'); input.disconnect(); output.disconnect(); } catch { /* gone */ } },
   };
 }
 

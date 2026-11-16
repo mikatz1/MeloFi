@@ -3,6 +3,7 @@ import { PPQ, barTicks, ticksToSec, tickToSec, tempoList, migrate, newChannel, n
 import { eventsFor, scheduleAll } from './transport.js';
 import { StudioEngine } from './engine.js';
 import { encodeWav } from '../js/recorder.js';
+import { OFFLINE_CHUNK } from './vststream.js';
 import { parseMidi } from '../js/score/midi.js';
 
 export async function saveProject(proj, path = null) {
@@ -60,7 +61,7 @@ export function projectToMidi(proj, isKit = (id) => id.startsWith('drums')) {
   let next = 0;
   for (const c of proj.channels) {
     // channel numbers count every channel, as the REAPER project and the live MIDI out do
-    const drum = isKit(c.inst);
+    const drum = isKit(c.inst) || c.stemInst === 'drums'; // (a kit cut from the song's own drums is a sample channel)
     let mc = 9;
     if (!drum) { if (next === 9) next++; mc = next % 16; next++; }
     const evs = [];
@@ -117,11 +118,16 @@ export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, on
   if (noMaster) src = { ...src, master: { ...src.master, fx: [] } };
   const probe = eventsFor(src);
   const seconds = tickToSec(src, probe.base + probe.length, src.mode) - tickToSec(src, probe.base, src.mode);
-  const ctx = new OfflineAudioContext(2, Math.ceil((offset + seconds + tail) * SR), SR);
+  // VST inserts hold the sound back by a chunk each (vststream.js): notes then start that much
+  // earlier, so render from before bar 1 and cut that lead-in off again
+  const pre = vstLeadIn(src, SR), preFrames = Math.round(pre * SR);
+  const ctx = new OfflineAudioContext(2, Math.ceil((offset + pre + seconds + tail) * SR), SR);
   const eng = await StudioEngine.create(ctx);
   await eng.sync(src, (id, p) => onProgress('load', p));
-  await scheduleAll(eng, src, { offset });
+  await scheduleAll(eng, src, { offset: offset + pre });
+  eng.zero = offset + pre;
   await eng.finalize();
+  eng.pumpOffline();
   onProgress('render', 0);
   // the samplers get their samples and notes by message; an offline render can otherwise run ahead
   // of them and come out (partly) silent. Hold at the start until every sampler has them.
@@ -131,7 +137,22 @@ export async function renderMix(proj, { only = null, offset = 0.05, tail = 3, on
   onProgress('render', 1);
   // warnings: channels that could not render and stay silent [{ ch, name, message }]
   const warnings = (eng.warnings || []).map((w) => ({ ...w, name: proj.channels.find((c) => c.id === w.ch)?.name || w.ch }));
-  return { left: buf.getChannelData(0), right: buf.getChannelData(1), rate: SR, warnings };
+  for (const u of eng.vstUnits()) u.dispose(); // the export's own copies of the plugins
+  return { left: buf.getChannelData(0).subarray(preFrames), right: buf.getChannelData(1).subarray(preFrames), rate: SR, warnings };
+}
+
+// the longest chain of VST inserts a channel goes through, in seconds (with room for the plugins' own latency)
+function vstLeadIn(proj, SR) {
+  const n = (list) => (list || []).filter((f) => f.type === 'vst' && f.on !== false).length;
+  const m = n(proj.master?.fx);
+  let most = 0;
+  const bus = (id) => proj.buses.find((b) => b.id === id);
+  for (const c of proj.channels) {
+    // the slowest way out: its own bus, or a bus it sends to
+    const ways = [c.out && c.out !== 'master' ? bus(c.out) : null, ...(c.sends || []).map((x) => bus(x.to))];
+    most = Math.max(most, n(c.fx) + Math.max(0, ...ways.map((b) => n(b?.fx))) + m);
+  }
+  return most ? (most * OFFLINE_CHUNK) / SR + 0.1 : 0;
 }
 
 export async function renderWav(proj, onProgress = () => {}) {

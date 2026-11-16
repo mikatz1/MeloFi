@@ -141,6 +141,7 @@
   "조성을 찾는 중": "Finding the key",
   "음표를 받아 적는 중: {stem} (Basic Pitch)": "Transcribing notes: {stem} (Basic Pitch)",
   "드럼 타격을 찾는 중": "Finding drum hits",
+  "박자를 다시 세는 중": "Counting the beats again",
   "// tools/stems/instruments.py": "instrument recognition labels",
   "악기 인식 구성 요소가 없습니다: {why}": "Instrument recognition isn't installed: {why}",
   "악기 인식 모델을 불러오는 중… (처음엔 내려받아요, 약 350MB)": "Loading the instrument recognition model… (downloads about 350 MB the first time)",
@@ -168,5 +169,18 @@
   "서버 오류 ({status})": "Server error ({status})",
   "http:// 또는 https://로 시작하는 주소를 넣어 주세요.": "Enter an address starting with http:// or https://.",
   "MeloFi 계정 데이터": "MeloFi account data",
-  "issue::문제 신고": "Problem report"
+  "issue::문제 신고": "Problem report",
+  "비브라토와 음을 미끄러지듯 잇는 부분이 많아요": "a lot of vibrato and sliding between notes",
+  "비브라토가 많아요 (노래 시간의 {n}%)": "a lot of vibrato ({n}% of the singing)",
+  "음을 미끄러지듯 잇는 부분이 많아요": "a lot of sliding between notes",
+  "이 보컬은 {what}. 음표는 한 음높이만 담아서 떨림과 미끄러짐은 빠지고, 긴 음이 잘게 나뉠 수 있어요.": "This vocal has {what}. A note holds one pitch, so the wobble and slides are lost and long notes may be split into short ones.",
+  "악기별 분리 구성 요소 준비 중": "Preparing instrument splitting",
+  "악기별 분리 구성 요소 받는 중": "Downloading instrument splitting",
+  "피아노 채보 구성 요소 준비 중": "Preparing piano transcription",
+  "피아노 채보 구성 요소 받는 중": "Downloading piano transcription",
+  "베이스 채보 구성 요소 준비 중": "Preparing bass transcription",
+  "베이스 채보 구성 요소 받는 중": "Downloading bass transcription",
+  "보컬 채보 구성 요소 준비 중": "Preparing vocal transcription",
+  "보컬 채보 구성 요소 받는 중": "Downloading vocal transcription",
+  "NEUTRINO (STUDIO NEUTRINO) · 직접 설치한 보이스 · 캐릭터별 가이드라인을 따라 주세요": "NEUTRINO (STUDIO NEUTRINO) · voices you installed yourself · follow each character's guidelines"
 }

@@ -1,11 +1,13 @@
 // Mixer: a strip per channel, per bus and the master — insert effects, routing, pan, reverb send,
 // meter, fader, mute / solo — plus an effect editor and the master's loudness and spectrum.
-import { h, knob, fader, popup, ask } from './dom.js';
+import { h, knob, fader, popup, ask, form } from './dom.js';
 import { FX_TYPES, FX_ORDER, FX_PRESETS, fxDefaults, fmtParam } from '../fx.js';
 import { uid, newBus } from '../model.js';
 import { LoudnessMeter } from '../meter.js';
 import { t } from '../../i18n/i18n.js';
 import { studioPalette } from './theme.js';
+import { vstPanel } from './vstpanel.js';
+import { vstFxSlot } from '../vstfx.js';
 
 const panFmt = (v) => (Math.abs(v) < 0.02 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
 
@@ -41,6 +43,17 @@ export class Mixer {
     this.render();
   }
 
+  // a VST3 effect from the helper's scan
+  addVst(stripId, p) {
+    const s = this.stripOf(stripId);
+    if (!s) return;
+    const fx = { id: uid('f'), type: 'vst', on: true, params: {}, vst: { plugin: p.id, file: p.file, name: p.name, vendor: p.vendor } };
+    this.S.edit(() => s.fx.push(fx), true, t('VST 이펙트 추가'));
+    this.edit = { strip: stripId, fx: fx.id };
+    this.S.syncAudio();
+    this.render();
+  }
+
   addPreset(stripId, chain) {
     const s = this.stripOf(stripId);
     if (!s) return;
@@ -56,17 +69,53 @@ export class Mixer {
     return h('div', { class: 'mx-fx' },
       ...s.fx.map((f) => h('div', { class: `mx-slot${this.edit?.fx === f.id ? ' sel' : ''}${f.on === false ? ' off' : ''}` },
         h('button', { class: 'pw', title: t('켜기 / 끄기'), onclick: () => { S.edit(() => { f.on = f.on === false; }); S.syncAudio(); } }),
-        h('button', { class: 'nm', title: t(FX_TYPES[f.type]?.hint || ''), onclick: () => { this.edit = { strip: s.id, fx: f.id }; this.render(); },
-          oncontextmenu: (e) => { e.preventDefault(); popup(e.clientX, e.clientY, [
-            { label: t('위로'), act: () => S.edit(() => { const i = s.fx.indexOf(f); if (i > 0) s.fx.splice(i - 1, 0, ...s.fx.splice(i, 1)); }) },
-            { label: t('아래로'), act: () => S.edit(() => { const i = s.fx.indexOf(f); if (i < s.fx.length - 1) s.fx.splice(i + 1, 0, ...s.fx.splice(i, 1)); }) },
-            { sep: true },
-            { label: t('삭제'), act: () => { S.edit(() => s.fx.splice(s.fx.indexOf(f), 1)); if (this.edit?.fx === f.id) this.edit = null; S.syncAudio(); } },
-          ]); } }, t(FX_TYPES[f.type]?.name || f.type)))),
+        h('button', { class: 'nm', title: f.type === 'vst' ? (f.vst?.name || 'VST') : t(FX_TYPES[f.type]?.hint || ''), onclick: () => { this.edit = { strip: s.id, fx: f.id }; this.render(); },
+          oncontextmenu: (e) => { e.preventDefault(); this.slotMenu(e, s, f); } }, f.type === 'vst' ? (f.vst?.name || 'VST') : t(FX_TYPES[f.type]?.name || f.type)))),
       h('button', { class: 'mx-add', onclick: (e) => popup(e.clientX, e.clientY, [
         { group: t('이펙트') }, ...FX_ORDER.map((k) => ({ label: t(FX_TYPES[k].name), hint: t(FX_TYPES[k].hint), act: () => this.addFx(s.id, k) })),
         { group: t('프리셋 (여러 이펙트 한 번에)') }, ...FX_PRESETS.map(([name, hint, chain]) => ({ label: t(name), hint: t(hint), act: () => this.addPreset(s.id, chain) })),
+        ...S.vstFxItems(e, (p) => this.addVst(s.id, p)),
       ]).classList.add('tall') }, t('+ 이펙트')));
+  }
+
+  // FL's effect slot menu: Replace, Delete, Move up / down, View editor
+  slotMenu(e, s, f) {
+    const S = this.S;
+    const replace = (type) => { S.edit(() => { const i = s.fx.indexOf(f); s.fx[i] = { id: f.id, type, on: true, params: fxDefaults(type) }; }, true, t('이펙트 바꾸기')); this.edit = { strip: s.id, fx: f.id }; S.syncAudio(); this.render(); };
+    popup(e.clientX, e.clientY, [
+      { label: t('편집기 보기'), act: () => { this.edit = { strip: s.id, fx: f.id }; this.render(); } },
+      { label: t('바꾸기…'), act: () => popup(e.clientX, e.clientY, [{ group: t('이 슬롯의 이펙트 바꾸기') }, ...FX_ORDER.map((k) => ({ label: t(FX_TYPES[k].name), hint: t(FX_TYPES[k].hint), act: () => replace(k) }))]).classList.add('tall') },
+      { label: f.on === false ? t('켜기') : t('끄기'), act: () => { S.edit(() => { f.on = f.on === false; }); S.syncAudio(); } },
+      { sep: true },
+      { label: t('위로'), disabled: s.fx.indexOf(f) <= 0, act: () => { S.edit(() => { const i = s.fx.indexOf(f); if (i > 0) s.fx.splice(i - 1, 0, ...s.fx.splice(i, 1)); }); S.syncAudio(); } },
+      { label: t('아래로'), disabled: s.fx.indexOf(f) >= s.fx.length - 1, act: () => { S.edit(() => { const i = s.fx.indexOf(f); if (i < s.fx.length - 1) s.fx.splice(i + 1, 0, ...s.fx.splice(i, 1)); }); S.syncAudio(); } },
+      { sep: true },
+      { label: t('삭제'), act: () => { S.edit(() => s.fx.splice(s.fx.indexOf(f), 1)); if (this.edit?.fx === f.id) this.edit = null; S.syncAudio(); } },
+    ]);
+  }
+
+  // FL's mixer track menu (right-click a track's name): rename, routing, move, insert, delete, solo, reset
+  trackMenu(e, s) {
+    const S = this.S, proj = this.proj, o = s.obj, B = proj.buses, bi = s.bus ? B.indexOf(o) : -1;
+    const sel = proj.channels.find((c) => c.id === proj.selected);
+    const rename = async () => { const v = await ask(s.channel ? t('채널 이름') : t('믹서 트랙 이름'), o.name); if (v && v.trim()) S.edit(() => { o.name = v.trim(); }); };
+    const solo = () => S.edit(() => { const list = s.bus ? B : proj.channels; const was = o.solo; for (const x of list) x.solo = false; o.solo = !was; });
+    popup(e.clientX, e.clientY, [
+      ...(s.id === 'master' ? [] : [{ label: t('이름 바꾸기…'), hint: 'F2', act: rename }]),
+      ...(s.id === 'master' ? [] : [{ label: t('색 바꾸기…'), act: async () => { const v = await form(t('색'), [{ key: 'c', label: t('색'), type: 'color', value: o.color || '#5aa0e8' }]); if (v) S.edit(() => { o.color = v.c; }); } }]),
+      ...(s.channel ? [{ label: t('채널 설정…'), act: () => S.channelSheet.show(s.id) }] : []),
+      ...(s.bus && sel ? [{ label: t('선택한 채널을 이 트랙으로'), hint: sel.name, act: () => { S.edit(() => { sel.out = o.id; }); S.syncAudio(); } }] : []),
+      ...(s.channel ? [{ label: t('새 믹서 트랙에 연결'), hint: 'Ctrl+L', act: () => S.linkToMixer(s.id) }] : []),
+      ...(s.id === 'master' ? [] : [{ label: o.solo ? t('솔로 끄기') : t('솔로'), act: solo }]),
+      { label: t('볼륨·팬 초기화'), act: () => { S.edit(() => { o.vol = s.id === 'master' ? 0.85 : 0.8; if (s.id !== 'master') o.pan = 0; }); S.applyStrips(); } },
+      ...(s.bus ? [
+        { sep: true },
+        { label: t('왼쪽으로 옮기기'), disabled: bi <= 0, act: () => S.edit(() => { B.splice(bi, 1); B.splice(bi - 1, 0, o); }) },
+        { label: t('오른쪽으로 옮기기'), disabled: bi >= B.length - 1, act: () => S.edit(() => { B.splice(bi, 1); B.splice(bi + 1, 0, o); }) },
+        { label: t('믹서 트랙 넣기'), hint: t('이 트랙 다음에'), act: () => S.edit(() => B.splice(bi + 1, 0, newBus(B.length))) },
+        { label: t('믹서 트랙 삭제'), act: () => { S.edit(() => { B.splice(B.indexOf(o), 1); for (const c of proj.channels) if (c.out === o.id) c.out = 'master'; }); S.syncAudio(); } },
+      ] : []),
+    ]);
   }
 
   strip(s, kind) {
@@ -79,8 +128,9 @@ export class Mixer {
     return h('div', { class: `mx-strip ${kind}${s.id === proj.selected || (this.edit?.strip === s.id) ? ' sel' : ''}`, 'data-id': s.id },
       h('div', { class: 'mx-name', style: `--c:${o.color || 'var(--accent)'}`, title: s.channel ? S.instName(o.inst) : s.name,
         onclick: () => { if (s.channel) S.select(s.id); else { this.edit = { strip: s.id, fx: s.fx[0]?.id || null }; this.render(); } },
-        ondblclick: async () => { if (!s.bus) return; const v = await ask(t('믹서 트랙 이름'), o.name); if (v && v.trim()) S.edit(() => { o.name = v.trim(); }); },
-        oncontextmenu: (e) => { if (!s.bus) return; e.preventDefault(); popup(e.clientX, e.clientY, [{ label: t('믹서 트랙 삭제'), act: () => { S.edit(() => { proj.buses.splice(proj.buses.indexOf(o), 1); for (const c of proj.channels) if (c.out === o.id) c.out = 'master'; }); S.syncAudio(); } }]); } }, s.name),
+        ondblclick: async () => { if (s.id === 'master') return; const v = await ask(t('믹서 트랙 이름'), o.name); if (v && v.trim()) S.edit(() => { o.name = v.trim(); }); },
+        // FL: double-click renames, right-click opens the track menu; inserts show their number
+        oncontextmenu: (e) => { e.preventDefault(); this.trackMenu(e, s); } }, s.bus ? h('span', { class: 'mx-no' }, String(proj.buses.indexOf(o) + 1)) : null, s.name),
       route,
       this.fxSlots(s),
       kind !== 'master' ? this.sendsRow(s, o) : null,
@@ -92,8 +142,9 @@ export class Mixer {
       h('div', { class: 'mx-body' }, meter, fader({ value: o.vol, def: kind === 'master' ? 0.85 : 0.8, title: t('볼륨'), target: kind === 'master' ? 'master:vol' : `${tgt}:vol`,
         onInput: (v) => { o.vol = v; S.applyStrips(); }, onChange: () => S.changed() })),
       kind === 'master' ? h('div', { class: 'mx-btns' }) : h('div', { class: 'mx-btns' },
-        h('button', { class: `mx-m${o.mute ? ' on' : ''}`, title: t('음소거'), onclick: () => { S.edit(() => { o.mute = !o.mute; }); S.syncAudio(); } }, 'M'),
-        s.channel ? h('button', { class: `mx-s${o.solo ? ' on' : ''}`, title: t('솔로'), onclick: () => S.edit(() => { o.solo = !o.solo; }) }, 'S') : null,
+        h('button', { class: `mx-m${o.mute ? ' on' : ''}`, title: t('음소거 · 우클릭: 솔로'), onclick: () => { S.edit(() => { o.mute = !o.mute; }); S.syncAudio(); },
+          oncontextmenu: (e) => { e.preventDefault(); S.edit(() => { o.solo = !o.solo; }); S.syncAudio(); } }, 'M'),
+        h('button', { class: `mx-s${o.solo ? ' on' : ''}`, title: t('솔로'), onclick: () => { S.edit(() => { o.solo = !o.solo; }); S.syncAudio(); } }, 'S'),
         // FL: arm a mixer track for audio recording; right-click picks its input
         s.channel ? h('button', { class: `mx-arm${o.arm ? ' on' : ''}`, title: t('녹음 대기: R(녹음)을 누르면 {input}을(를) 이 트랙에 녹음 · 우클릭: 입력 선택', { input: o.inputName || t('기본 입력') }),
           onclick: () => { S.edit(() => { o.arm = !o.arm; }); this.render(); },
@@ -135,6 +186,12 @@ export class Mixer {
     const f = s?.fx.find((x) => x.id === e.fx);
     if (!f) return h('div', { class: 'mx-ed empty' }, h('span', {}, t('이펙트를 고르면 여기서 조절합니다. 노브를 우클릭하면 오토메이션 클립을 만들거나 MIDI 컨트롤러에 연결할 수 있습니다.')));
     const def = FX_TYPES[f.type];
+    if (f.type === 'vst') {
+      const change = h('button', { class: 'btn ghost', onclick: (ev) => S.vstMenu(ev.clientX, ev.clientY, (p) => { S.edit(() => { f.vst = { plugin: p.id, file: p.file, name: p.name, vendor: p.vendor }; }); S.syncAudio(); this.render(); }, 'fx') }, t('플러그인 바꾸기…'));
+      return h('div', { class: 'mx-ed' }, h('div', { class: 'mx-ed-head' }, h('b', {}, `${s.name} · ${f.vst?.name || 'VST'}`), h('span', {}, f.vst?.vendor || t(def.hint))),
+        h('div', { class: 'mx-ed-body vst' }, vstPanel(S, { slot: vstFxSlot(e.strip, f.id), target: (i) => `vst:${e.strip}:${f.id}:${i}`, buttons: [change],
+          note: t('이 이펙트를 거친 소리는 조금 늦게 나오지만, 재생할 때는 그만큼 미리 연주해서 박자가 맞습니다.') })));
+    }
     const ctrls = def.params.map((p) => {
       const val = f.params[p.key] ?? p.def;
       if (p.channel) {
@@ -169,7 +226,7 @@ export class Mixer {
     this.el.replaceChildren(
       h('div', { class: 'mx-wrap' },
         h('div', { class: 'mx-main' },
-          h('div', { class: 'mx-row' }, ...strips, h('div', { class: 'mx-gap' }), ...buses, addBus, this.strip(this.stripOf('master'), 'master'), analysis),
+          h('div', { class: 'mx-row' }, this.strip(this.stripOf('master'), 'master'), h('div', { class: 'mx-gap' }), ...buses, addBus, h('div', { class: 'mx-gap' }), ...strips, analysis),
           this.editor()),
         this.insertPanel()));
   }
@@ -182,13 +239,14 @@ export class Mixer {
     const menu = (e) => popup(e.clientX, e.clientY, [
       { group: t('이펙트') }, ...FX_ORDER.map((k) => ({ label: t(FX_TYPES[k].name), hint: t(FX_TYPES[k].hint), act: () => this.addFx(s.id, k) })),
       { group: t('프리셋 (여러 이펙트 한 번에)') }, ...FX_PRESETS.map(([name, hint, chain]) => ({ label: t(name), hint: t(hint), act: () => this.addPreset(s.id, chain) })),
+      ...S.vstFxItems(e, (p) => this.addVst(s.id, p)),
     ]).classList.add('tall');
     const slots = Array.from({ length: Math.max(10, s.fx.length) }, (_, i) => {
       const f = s.fx[i];
       if (!f) return h('div', { class: 'mx-ins-slot empty', title: t('빈 슬롯: 클릭해 이펙트 넣기'), onclick: menu }, h('span', { class: 'no' }, String(i + 1)), h('span', { class: 'nm' }, t('(비어 있음)')));
       return h('div', { class: `mx-ins-slot${this.edit?.fx === f.id ? ' sel' : ''}${f.on === false ? ' off' : ''}`, title: t(FX_TYPES[f.type]?.hint || '') },
         h('span', { class: 'no' }, String(i + 1)),
-        h('button', { class: 'nm', onclick: () => { this.edit = { strip: s.id, fx: f.id }; this.render(); } }, t(FX_TYPES[f.type]?.name || f.type)),
+        h('button', { class: 'nm', onclick: () => { this.edit = { strip: s.id, fx: f.id }; this.render(); }, oncontextmenu: (e) => { e.preventDefault(); this.slotMenu(e, s, f); } }, f.type === 'vst' ? (f.vst?.name || 'VST') : t(FX_TYPES[f.type]?.name || f.type)),
         h('input', { type: 'checkbox', checked: f.on !== false, title: t('켜기 / 끄기'), onchange: () => { S.edit(() => { f.on = f.on === false; }); S.syncAudio(); } }));
     });
     const out = s.channel ? h('label', { class: 'mx-ins-out' }, t('출력'),

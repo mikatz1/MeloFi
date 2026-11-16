@@ -25,6 +25,7 @@ import { HAND_COLORS } from './app-colors.js';
 import { Studio } from '../studio/ui/studio.js';
 import { Store } from './store.js';
 import { renderVideo } from './render-video.js';
+import { VirtualMic } from './vmic.js';
 
 class App {
   // Start-up runs while the window is still hidden behind the start-up card (main.js): every slow
@@ -101,7 +102,22 @@ class App {
     this.player = new ScorePlayer(this);
     this.studio = new Studio(this);
     this.store = new Store(this);
+    // Discord로 보내기 (vmic.js): what the piano plays, copied to a virtual audio cable, with the
+    // microphone if asked. The piano window only: the Studio never sends to the cable.
+    this.vmic = null;
+    if (this.role === 'piano') {
+      this.vmic = new VirtualMic(this.engine.ctx, { withMic: true });
+      this.vmic.attach(this.engine.out);
+      this.vmic.apply(this.settings.get('vmic'));
+      this.settings.on((p) => { if ('vmic' in p) this.vmic.apply(this.settings.get('vmic')); });
+    }
     this.ui = new UI(this);
+    // Discord /piano opened MeloFi (melofi://piano?vmic=1): turn sending on
+    if (this.vmic) {
+      const onLink = (l) => { if (l?.vmic) this.fromDiscordLink(); };
+      window.melofi.takeDeepLink?.().then(onLink);
+      window.melofi.onDeepLink?.(onLink);
+    }
 
     this.held = new Map();          // KeyboardEvent.code -> note
     this.count = new Uint8Array(128); // how many sources hold each note
@@ -163,6 +179,20 @@ class App {
   }
 
   // ---------- settings → subsystems ----------
+
+  // Discord /piano: Discord로 연주 보내기 on; if it cannot send yet (no cable, say), the card that says why
+  async fromDiscordLink() {
+    const vm = this.vmic;
+    if (!vm) return;
+    // the first time, the card stays open on the Discord step (input device, 소리 확인)
+    const first = !this.settings.get('vmic')?.linkGuided;
+    this.settings.set({ vmic: { ...this.settings.get('vmic'), on: true, linkGuided: true } });
+    await vm.apply(this.settings.get('vmic'));
+    if (vm.status.state === 'on' && !first) { this.ui.toast(t('Discord로 연주를 보내는 중입니다')); return; }
+    this.ui.tab = 'sound';
+    this.ui.open('settings');
+    setTimeout(() => document.querySelector('#vmicCard')?.scrollIntoView({ block: 'start' }), 50);
+  }
 
   applyAll() {
     const v = this.settings.v;
@@ -407,7 +437,7 @@ class App {
     const down = (e) => {
       const tag = e.target?.tagName;
       const typing = tag === 'INPUT' && e.target.type !== 'range';
-      if (typing) return;
+      if (typing || e.target?.closest?.('[data-own-keys]')) return; // a sheet with its own keys (accounts-ui.js)
 
       if (e.code === 'F12') { e.preventDefault(); if (!e.repeat && !this.studioWindow) window.melofi.openStudioWindow(); return; }
       if (this.studio.key(e)) return;
@@ -454,6 +484,7 @@ class App {
       // Space / Enter on a focused button "click" it on key-up (Space is the pedal: lifting it
       // after a score ended restarted the score). Keys belong to the piano unless typing.
       const tag = e.target?.tagName;
+      if (e.target?.closest?.('[data-own-keys]')) return;
       if (!((tag === 'INPUT' && e.target.type !== 'range') || tag === 'SELECT' || tag === 'TEXTAREA')) e.preventDefault();
       if (this.studio.keyUp(e)) return;
       const v0 = this.settings.v;

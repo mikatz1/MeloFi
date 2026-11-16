@@ -268,6 +268,8 @@ export const FX_TYPES = {
 };
 
 Object.assign(FX_TYPES, MASTER_TYPES);
+// a VST3 effect: built by the strip itself (vstfx.js); its parameters are the plugin's own
+FX_TYPES.vst = { name: 'VST', hint: 'VST3 이펙트 플러그인', params: [], build: null };
 export { MASTER_FX, PEAK_FX };
 
 export const FX_ORDER = ['pitchfix', 'eq', 'comp', 'filter', 'dist', 'chorus', 'delay', 'reverb', 'width', 'sidechain', 'limiter'];
@@ -299,7 +301,8 @@ function unit(input, output, map, setters = {}, stop = null) {
       }
     },
     param(k) { return map[k] || null; },
-    dispose() { try { stop?.(); input.disconnect(); output.disconnect(); } catch { /* gone */ } },
+    // a worklet effect also stops its processor (a disconnected one would live on with the page)
+    dispose() { try { stop?.(); if (input instanceof AudioWorkletNode) input.port.postMessage('dispose'); input.disconnect(); output.disconnect(); } catch { /* gone */ } },
   };
 }
 

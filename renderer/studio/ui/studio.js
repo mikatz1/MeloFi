@@ -23,6 +23,8 @@ import { MidiOut } from '../midiout.js';
 import { DawSheet } from './daw.js';
 import { infraMenuItems } from '../../js/appinfra.js';
 import { CloudSheet } from './cloud.js';
+import { workshopMenuItems, openWorkInStudio, openWorkshop } from '../../js/workshop-ui.js';
+import { openAccountCenter } from '../../js/accounts-ui.js';
 import { AiSheet } from './ai.js';
 import { openPicker } from '../../js/picker-client.js';
 import { TEMPLATES } from '../templates.js';
@@ -34,8 +36,17 @@ import { finish, encode, fmtLufs, fmtDb } from '../export-audio.js';
 import { TARGETS } from '../meter.js';
 import { MasteringWindow } from './mastering.js';
 import { AiMini } from './aimini.js';
+import { StemConvert } from './stemconvert.js';
+import { WaveEditor } from './waveeditor.js';
+import { loadSynthWorklet } from '../synth.js';
+import { loadSynthUser, userPresets } from '../synth-user.js';
 import { STUDIO_THEMES, setStudioTheme, studioTheme, invalidatePalette } from './theme.js';
 import { T } from '../../js/strings.js';
+import { vstFxSlot } from '../vstfx.js';
+import { hiddenParam } from './vstpanel.js';
+
+// the helper slot a vst:<owner>:<inst|insert>:<i> target belongs to
+const vstSlotOf = (target) => { const [, id, a] = target.split(':'); return a === 'inst' ? id : vstFxSlot(id, a); };
 import { t, tc, tdyn, N_, langChoices, onLangChange, translateDom, locale } from '../../i18n/i18n.js';
 
 const SNAPS = [['bar', N_('마디')], [PPQ, '1/4'], [PPQ / 2, '1/8'], [STEP, '1/16'], [STEP / 2, '1/32'], [PPQ / 6, N_('1/16 셋잇단')], [1, N_('없음')]];
@@ -57,7 +68,7 @@ const FAMILY_ORDER =['drums', 'piano', 'keys', 'organ', 'synth', 'strings', 'bra
 // studio actions that can be bound to keys (Shortcut settings)
 // FL Studio's keys (basics_shortcuts in the FL manual), so its tutorials can be followed key for key
 export const ACTIONS = {
-  play: [N_('재생 / 정지'), 'Space'], record: [N_('녹음'), 'R'], undo: [N_('실행 취소'), 'Ctrl+Z'], redo: [N_('다시 실행'), 'Ctrl+Y'],
+  play: [N_('재생 / 정지'), 'Space'], pause: [N_('재생 / 일시 정지'), 'Ctrl+Space'], record: [N_('녹음'), 'R'], undo: [N_('실행 취소'), 'Ctrl+Z'], redo: [N_('다시 실행'), 'Ctrl+Y'], undostep: [N_('한 단계씩 실행 취소'), 'Ctrl+Alt+Z'],
   save: [N_('저장'), 'Ctrl+S'], open: [N_('열기'), 'Ctrl+O'], metro: [N_('메트로놈'), 'Ctrl+M'], countin: [N_('녹음 전 카운트'), 'Ctrl+P'],
   songmode: [N_('PAT / SONG 전환'), 'L'], newpattern: [N_('새 패턴'), 'F4'], renamepattern: [N_('패턴 이름 바꾸기'), 'F2'], link: [N_('채널을 믹서 트랙에 연결 (피아노 롤에서는 레가토)'), 'Ctrl+L'], timesig: [N_('박자표 바꾸기 (재생 위치부터)'), 'Shift+Alt+T'], clonechannel: [N_('채널 복제 (설정만)'), 'Alt+C'],
   playlist: [N_('플레이리스트'), 'F5'], rack: [N_('채널 랙'), 'F6'], roll: [N_('피아노 롤'), 'F7'], picker: [N_('플러그인 피커'), 'F8'], mixer: [N_('믹서'), 'F9'],
@@ -66,6 +77,9 @@ export const ACTIONS = {
   graph: [N_('Graph editor (벨로시티)'), 'Ctrl+K'],
   draw: [N_('그리기 도구'), 'P'], paint: [N_('페인트 도구'), 'B'], erase: [N_('지우기 도구'), 'D'], mutetool: [N_('뮤트 도구'), 'T'], slicetool: [N_('자르기 도구'), 'C'],
   select: [N_('선택 도구'), 'E'], zoom: [N_('확대 도구'), 'Z'], slide: [N_('슬라이드 도구'), 'S'], porta: [N_('포르타멘토 (슬라이드)'), 'O'], chord: [N_('코드 스탬프'), 'H'],
+  panic: [N_('모든 소리 끄기 (패닉)'), 'Ctrl+H'], arrange: [N_('창 정렬 (FL 기본 배치)'), 'Ctrl+Shift+H'], projinfo: [N_('프로젝트 정보'), 'F11'],
+  saveversion: [N_('새 버전으로 저장'), 'Ctrl+N'], marker: [N_('재생 위치에 마커 추가'), 'Alt+T'], home: [N_('처음으로'), 'Home'], nextbar: [N_('다음 마디로'), '*'], prevbar: [N_('이전 마디로'), '/'],
+  nextwin: [N_('다음 창'), 'Tab'], find: [N_('브라우저 검색'), 'Ctrl+F'], pickerpanel: [N_('플레이리스트 피커 패널'), 'Alt+P'],
   tour: [N_('튜토리얼'), 'F1'],
 };
 // Shift counts for named keys and with Ctrl / Alt (Ctrl+Shift+R); a shifted letter alone is just a capital
@@ -84,6 +98,8 @@ export class Studio {
     this.dirty = false;
     this.learn = null;
     this.taps = [];
+    this.vstParams = new Map(); // helper slot -> parameter list
+    this.vstCache = null; // the last vstStatus (scanned plugins)
     this.countIn = true;
     this.scoreLog = []; // everything played live recently: { n, v, on, off } (ms)
   }
@@ -96,7 +112,9 @@ export class Studio {
   get dawSheet() { return (this._daw ||= new DawSheet(this)); }
   get cloudSheet() { return (this._cloud ||= new CloudSheet(this)); }
   get channelSheet() { return (this._chs ||= new ChannelSheet(this)); }
+  get stemConvert() { return (this._conv ||= new StemConvert(this)); } // a separated track -> MIDI / vocal
   get riffWizard() { return (this._rw ||= new RiffWizard(this)); }
+  get waveEditor() { return (this._we ||= new WaveEditor(this)); } // MeloFi Synth's expert mode
   get newtone() { return (this._nt ||= new NewtoneWindow(this)); }
   get tour() { return (this._tour ||= new Tour(this)); }
   get aiSheet() { return (this._ai ||= new AiSheet(this)); }
@@ -119,6 +137,9 @@ export class Studio {
     if (!this.engine) {
       // the studio shares the piano's audio context: add the mastering processors to it first
       await this.app.engine.ctx.audioWorklet.addModule('melofi://app/renderer/js/master-worklet.js');
+      await this.app.engine.ctx.audioWorklet.addModule('melofi://app/renderer/studio/vst-worklet.js');
+      await loadSynthWorklet(this.app.engine.ctx); // user waveforms (the export's offline engine loads it in StudioEngine.create)
+      loadSynthUser();
       this.engine = new StudioEngine(this.app.engine.ctx);
       this.transport = new Transport(this.engine, () => this._proj);
       this.transport.onTick = () => this.updatePos();
@@ -128,6 +149,14 @@ export class Studio {
       this.transport.out = this.midiOut;
       this.midiOut.init().then(() => { this.midiOut.clock = !!this.app.settings.get('midiClock'); this.midiOut.select(this.app.settings.get('midiOut') || ''); });
       setControlMenu((e, target, label) => this.controlMenu(e, target, label));
+      // a VST plugin crashed the helper: it restarts and loads the plugins again by itself
+      window.melofi.onVstHost?.((m) => {
+        this.vstParams.clear();
+        if (m.state === 'crashed') this.status(t('VST 플러그인이 멈춰서 VST 호스트를 다시 시작합니다…'));
+        else if (m.state === 'restarted') this.status(t('VST 호스트를 다시 시작했습니다. 플러그인 소리가 돌아왔어요.'));
+        else if (m.state === 'failed') this.status(t('VST 호스트를 다시 시작하지 못했습니다: {msg}', { msg: tdyn(m.message || '') }));
+      });
+      window.melofi.vstStatus?.().then((st) => { this.vstCache = st; });
     }
     if (!this._proj) {
       this._proj = (await autoload()) || newProject();
@@ -161,12 +190,16 @@ export class Studio {
 
   toggle() { if (this.isOpen) this.close(); else this.open(); }
 
+  // File > New (the piano window's 작곡 menu and the studio window's 'new' command): FL's New from template
+  newFile() { this.newFromTemplate(); }
+
   // commands from the piano window's menus
   command(cmd) {
+    if (cmd?.workshop) { openWorkInStudio(this, cmd.workshop); return; } // a work opened from the piano window's 창작마당
     const acts = {
       new: () => this.newFile(), open: () => this.openFile(), importMidi: () => this.importMidi(),
       ai: () => this.aiSheet.show(), daw: () => this.dawSheet.show(),
-      cloudProjects: () => this.cloudSheet.show('projects'), cloudShared: () => this.cloudSheet.show('shared'), cloudAccount: () => this.cloudSheet.show('account'),
+      cloudProjects: () => this.cloudSheet.show('projects'), cloudShared: () => this.cloudSheet.show('shared'), cloudAccount: () => openAccountCenter({ openWorkshop: (w) => openWorkshop({ where: 'studio', app: this.app }, w) }), workshop: () => openWorkshop({ where: 'studio', app: this.app }),
     };
     acts[cmd]?.();
   }
@@ -209,7 +242,9 @@ export class Studio {
     if (!this.engine) return;
     const p = this._proj;
     for (const c of p.channels) this.engine.channels.get(c.id)?.set(c);
-    for (const b of p.buses) this.engine.buses.get(b.id)?.set({ vol: b.vol, pan: b.pan, mute: b.mute });
+    // the same rule as the engine's sync: a soloed mixer track mutes the others; sends kept
+    const busSolo = p.buses.some((b) => b.solo);
+    for (const b of p.buses) this.engine.buses.get(b.id)?.set({ vol: b.vol, pan: b.pan, send: b.send || 0, mute: b.mute || (busSolo && !b.solo) });
     this.engine.masterStrip.set({ vol: p.master.vol, pan: 0 });
   }
 
@@ -244,6 +279,7 @@ export class Studio {
 
   setProject(p, path = null) {
     this.transport.stop();
+    this.plSource = null; // the picker's audio / automation choice belongs to the old project
     this._proj = migrate(p);
     this.history = this.makeHistory();
     this.path = path;
@@ -252,10 +288,10 @@ export class Studio {
     this.dirty = true;
   }
 
-  select(id) {
+  select(id, { keepTab = false } = {}) {
     this._proj.selected = id;
     this.roll.reset();
-    this.setTab('roll');
+    if (!keepTab) this.setTab('roll');
     this.renderAll();
     this.roll.focusNotes();
   }
@@ -463,6 +499,8 @@ export class Studio {
   pickInstrument(x, y, cb, current = null) {
     // the picker also lists MeloFi Synth presets by category (like FL Studio's FLEX browser)
     const synths = Object.entries(SYNTH_CATEGORIES).flatMap(([cat, names]) => names.map((n) => ({ id: `synth:${n}`, name: n, cat })));
+    // the user's own synth presets (saved with their waveforms) as one more category
+    for (const n of Object.keys(userPresets())) synths.push({ id: `synth:${n}`, name: n, cat: '내 파형' }); // i18n-ignore: category key, shown through t()
     openPicker({ title: current ? t('채널 악기 바꾸기') : t('채널 추가'), heading: t('플러그인 피커'), current, closeOnPick: true, synths },
       async (id) => { await this.app.refreshInstruments(); cb(id); },
       () => this.app.store.show());
@@ -681,6 +719,7 @@ export class Studio {
   valueOf(target) {
     const p = this._proj, [kind, id, a, b] = target.split(':');
     if (kind === 'master') return p.master.vol;
+    if (kind === 'vst') return this.vstParams.get(vstSlotOf(target))?.find((q) => q.i === +b)?.value ?? 0.5;
     const o = kind === 'ch' ? p.channels.find((c) => c.id === id) : kind === 'bus' ? p.buses.find((x) => x.id === id) : null;
     if (o) return a === 'pan' ? (o.pan + 1) / 2 : a === 'send' ? o.send : o.vol;
     if (kind === 'fx') {
@@ -693,6 +732,14 @@ export class Studio {
 
   setValue(target, v) {
     const p = this._proj, [kind, id, a, b] = target.split(':');
+    if (kind === 'vst') {
+      // straight to the plugin (its settings are saved with its state)
+      this.engine.target(p, target)?.set(v, -1);
+      const q = this.vstParams.get(vstSlotOf(target))?.find((x) => x.i === +b);
+      if (q) { q.value = v; q.text = `${Math.round(v * 100)}%`; }
+      this.dirty = true;
+      return;
+    }
     if (kind === 'master') p.master.vol = v;
     const o = kind === 'ch' ? p.channels.find((c) => c.id === id) : kind === 'bus' ? p.buses.find((x) => x.id === id) : null;
     if (o) { if (a === 'pan') o.pan = v * 2 - 1; else if (a === 'send') o.send = v; else o.vol = v; this.applyStrips(); }
@@ -734,6 +781,11 @@ export class Studio {
   targetName(target, label) {
     const p = this._proj, [kind, id, a, b] = target.split(':');
     const owner = kind === 'master' || id === 'master' ? t('마스터') : (p.channels.find((c) => c.id === id) || p.buses.find((x) => x.id === id))?.name || '';
+    if (kind === 'vst') {
+      const plug = a === 'inst' ? p.channels.find((c) => c.id === id)?.vst?.name : this.fxOf(id, a)?.vst?.name;
+      const name = this.vstParams.get(vstSlotOf(target))?.find((q) => q.i === +b)?.name || label || `#${b}`;
+      return `${owner}${plug && plug !== owner ? ` ${plug}` : ''} ${name}`.trim();
+    }
     if (kind === 'fx') { const list = id === 'master' ? p.master.fx : (p.channels.find((c) => c.id === id) || p.buses.find((x) => x.id === id))?.fx; const f = list?.find((x) => x.id === a); const spec = f && FX_TYPES[f.type].params.find((q) => q.key === b); return `${owner} ${t(FX_TYPES[f?.type]?.name || '')} ${spec?.label ? t(spec.label) : label || ''}`.trim(); }
     return `${owner} ${t({ vol: N_('볼륨'), pan: N_('팬'), send: N_('리버브') }[a] || label || N_('볼륨'))}`.trim();
   }
@@ -756,16 +808,53 @@ export class Studio {
   // ---------- files ----------
   // a VST plugin's settings live in the helper: copy them into the project before it is saved
   async captureVstStates() {
-    for (const c of this._proj.channels) {
+    const p = this._proj;
+    for (const c of p.channels) {
       if (c.kind !== 'vst' || !c.vst?.plugin) continue;
       const r = await window.melofi.vstGetState(c.id);
       if (r.ok) c.vst.state = r.state;
     }
+    // VST effects in insert slots
+    for (const [sid, list] of [['master', p.master.fx], ...p.channels.map((c) => [c.id, c.fx]), ...p.buses.map((b) => [b.id, b.fx])]) {
+      for (const f of list || []) {
+        if (f.type !== 'vst' || !f.vst?.plugin) continue;
+        const r = await window.melofi.vstGetState(vstFxSlot(sid, f.id));
+        if (r.ok) f.vst.state = r.state;
+      }
+    }
+  }
+
+  fxOf(stripId, fxId) {
+    const p = this._proj;
+    const list = stripId === 'master' ? p.master.fx : (p.channels.find((c) => c.id === stripId) || p.buses.find((x) => x.id === stripId))?.fx;
+    return list?.find((f) => f.id === fxId) || null;
+  }
+
+  // a plugin's parameters [{ i, name, value, def, text, ... }], cached per slot (null: not loaded)
+  async vstParamList(slot, fresh = false) {
+    if (!fresh && this.vstParams.has(slot)) return this.vstParams.get(slot);
+    const r = await window.melofi.vstParams(slot);
+    if (!r.ok) return null;
+    this.vstParams.set(slot, r.params);
+    return r.params;
+  }
+
+  // the insert menu's VST part (from the last scan; the first time, a search)
+  vstFxItems(e, onPick) {
+    const st = this.vstCache;
+    if (!st?.available) return [];
+    const fx = (st.plugins || []).filter((p) => !p.instrument);
+    return [
+      { group: t('VST 이펙트') },
+      ...fx.map((p) => ({ label: p.name, hint: p.vendor, act: () => onPick(p) })),
+      { label: fx.length ? t('VST 이펙트 다시 찾기…') : t('VST 이펙트 찾기…'), act: () => this.vstMenu(e.clientX, e.clientY, onPick, 'fx') },
+    ];
   }
 
   // VST plugins found by the helper, grouped for a menu; scans the first time
-  async vstMenu(x, y, onPick) {
+  async vstMenu(x, y, onPick, kind = 'inst') {
     const st = await window.melofi.vstStatus();
+    this.vstCache = st;
     if (!st.available) { this.status(t('VST 호스트를 찾을 수 없습니다. MeloFi를 재설치해 주세요.')); return; }
     let plugins = st.plugins, folders = st.folders;
     const rescan = async (more = folders) => {
@@ -773,17 +862,18 @@ export class Studio {
       const r = await window.melofi.vstScan(more);
       if (!r.ok) { this.status(t('VST 플러그인을 찾지 못했습니다: {msg}', { msg: tdyn(r.message || r.error) })); return null; }
       this.status(t('VST 플러그인 {n}개를 찾았습니다.', { n: r.plugins.length }));
+      this.vstCache = { ...st, plugins: r.plugins, scannedAt: Date.now() };
       return r.plugins;
     };
     if (!st.scannedAt) plugins = (await rescan()) || [];
     const inst = plugins.filter((p) => p.instrument), fx = plugins.filter((p) => !p.instrument);
+    const list = kind === 'fx' ? fx : inst;
     popup(x, y, [
-      { group: inst.length ? t('VST 악기') : t('VST 악기가 없습니다') },
-      ...inst.map((p) => ({ label: p.name, hint: p.vendor, act: () => onPick(p) })),
-      ...(fx.length ? [{ group: t('이펙트 {n}개는 아직 채널 트랙에 적용할 수 없습니다', { n: fx.length }) }] : []),
+      { group: kind === 'fx' ? (list.length ? t('VST 이펙트') : t('VST 이펙트가 없습니다')) : (list.length ? t('VST 악기') : t('VST 악기가 없습니다')) },
+      ...list.map((p) => ({ label: p.name, hint: p.vendor, act: () => onPick(p) })),
       { sep: true },
-      { label: t('다시 찾기'), hint: 'C:\\Program Files\\Common Files\\VST3', act: async () => { if (await rescan()) this.vstMenu(x, y, onPick); } },
-      { label: t('플러그인 폴더 추가…'), act: async () => { const d = await window.melofi.mediaPickFolder(); if (d) { folders = [...new Set([...folders, d])]; if (await rescan(folders)) this.vstMenu(x, y, onPick); } } },
+      { label: t('다시 찾기'), hint: 'C:\\Program Files\\Common Files\\VST3', act: async () => { if (await rescan()) this.vstMenu(x, y, onPick, kind); } },
+      { label: t('플러그인 폴더 추가…'), act: async () => { const d = await window.melofi.mediaPickFolder(); if (d) { folders = [...new Set([...folders, d])]; if (await rescan(folders)) this.vstMenu(x, y, onPick, kind); } } },
     ]);
   }
 
@@ -791,6 +881,16 @@ export class Studio {
     await this.captureVstStates();
     const p = await saveProject(this._proj, as ? null : this.path);
     if (p) { this.path = p; this.app.ui.toast(t('저장됨'), { path: p }); }
+  }
+
+  // FL's Save new version: the next free name_N.mfproj beside the project (Save as… the first time)
+  async saveVersion() {
+    if (!this.path) return this.save(true);
+    const next = await window.melofi.studioNextVersion?.(this.path);
+    if (!next) return this.save(true);
+    await this.captureVstStates();
+    const p = await saveProject(this._proj, next);
+    if (p) { this.path = p; this.app.ui.toast(t('새 버전으로 저장됨'), { path: p }); }
   }
 
   async openFile() {
@@ -899,7 +999,7 @@ export class Studio {
   makeLoopStart(k) {
     const t = TEMPLATES[k], p = t.make();
     const shift = Math.floor(Math.random() * 12) - 5; // -5..+6 semitones
-    const drum = (c) => this.isKit(c.inst) || /kick|snare|hat|clap|perc|drum|킥|스네어|햇|클랩/i.test(c.name) || ['sample', 'slicer', 'audio'].includes(c.kind);
+    const drum = (c) => this.isKit(c.inst) || /kick|snare|hat|clap|perc|drum|킥|스네어|햇|클랩/i.test(c.name) || (['sample', 'slicer', 'audio'].includes(c.kind) && (!c.stemInst || c.stemInst === 'drums')); // (an instrument cut from a stem is a sample channel that plays notes)
     const pitched = new Set(p.channels.filter((c) => !drum(c)).map((c) => c.id));
     for (const pat of p.patterns) for (const [id, list] of Object.entries(pat.notes)) if (pitched.has(id)) for (const n of list) n.n = Math.max(0, Math.min(127, n.n + shift));
     if (p.scale) p.scale = { ...p.scale, root: ((p.scale.root + shift) % 12 + 12) % 12 };
@@ -1078,7 +1178,21 @@ export class Studio {
   runAction(a) {
     const T2 = this.transport;
     switch (a) {
-      case 'play': T2.toggle(); this.renderToolbar(); break;
+      case 'play': // FL: Space starts, and stops back where playback started
+        if (T2.playing) { T2.pause(); T2.pos = this.playFrom ?? 0; T2.onTick(); } else { this.playFrom = T2.pos; T2.play(); }
+        this.renderToolbar(); break;
+      case 'pause': T2.toggle(); this.renderToolbar(); break; // FL: Ctrl+Space pauses where it is
+      case 'undostep': if (this.history.undo()) this.app.ui.toast(t('실행 취소'), { ms: 900 }); break;
+      case 'panic': this.engine.stopAll?.(); for (const n of this.liveHeld || []) this.liveOff?.(n); this.status(t('모든 소리를 껐어요.')); break;
+      case 'arrange': this.arrange('fl'); break;
+      case 'projinfo': this.projectInfo(); break;
+      case 'pickerpanel': this.togglePicker(); break;
+      case 'find': if (!this.browserOpen) this.setLeft('browser'); setTimeout(() => this.browserCol.querySelector('.br-search')?.focus()); break;
+      case 'saveversion': this.saveVersion(); break;
+      case 'marker': { const proj = this._proj, bar = Math.floor((proj.mode === 'song' ? T2.songPos() : 0) / barTicks(proj)); ask(t('마커 이름'), t('구간 {n}', { n: proj.markers.length + 1 })).then((v) => { if (v) this.edit(() => proj.markers.push({ bar, name: v })); }); break; }
+      case 'home': T2.seek(0); break;
+      case 'nextbar': case 'prevbar': { const bt = barTicks(this._proj), cur = T2.pos; T2.seek(Math.max(0, (Math.floor(cur / bt) + (a === 'nextbar' ? 1 : -1)) * bt)); break; }
+      case 'nextwin': { const order = ['playlist', 'roll', 'mixer'], i = order.indexOf(this.tab); this.setTab(order[(i + 1) % order.length]); break; }
       case 'record': if (this.arec || this._proj.channels.some((c) => c.arm)) { this.toggleAudioRec(this._proj.channels.find((c) => c.arm)); break; } T2.recording = !T2.recording; if (T2.recording && !T2.playing) this.playWithCountIn(); this.renderToolbar(); break;
       case 'undo': if (this.history.undo()) this.app.ui.toast(t('실행 취소'), { ms: 900 }); break;
       case 'redo': this.history.redo(); break;
@@ -1129,11 +1243,14 @@ export class Studio {
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return false;
     if (document.querySelector('.st-ask')) return false;
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(true); return true; }
-    const a = this.shortcut(e);
+    let a = this.shortcut(e);
+    // Tab moves between windows only when no control has the focus (it still walks through a form)
+    if (a === 'nextwin' && document.activeElement && document.activeElement !== document.body && document.activeElement.tagName !== 'CANVAS') a = null;
     // single letters (draw / chord / slide / record) only when the roll is focused, so they still play notes elsewhere
     const letter = !e.ctrlKey && !e.altKey && e.key.length === 1 && e.code !== 'Space';
     if (a && (!letter || a === 'songmode' || a === 'record' || ((this.tab === 'roll' || this.tab === 'playlist') && [this.roll.c, this.playlist.c].includes(document.activeElement)))) { e.preventDefault(); if (!e.repeat) this.runAction(a); return true; }
-    if (e.key === 'Escape') { e.preventDefault(); if (this.tour.active) this.tour.stop(); else if (!this.app.studioWindow) this.close(); return true; }
+    if (e.key === 'Escape') { e.preventDefault(); if (this.tour.active) this.tour.stop(); else if (!this.closeTopWindow() && !this.app.studioWindow) this.close(); return true; }
+    if (this.rackKey(e)) { e.preventDefault(); return true; }
     const inRoll = this.tab === 'roll' && (document.activeElement === this.roll.c || this.el.contains(document.activeElement) || document.activeElement === document.body);
     if (inRoll && this.roll.key(e)) { e.preventDefault(); return true; }
     if (this.tab === 'playlist' && document.activeElement === this.playlist.c && this.playlist.key(e)) { e.preventDefault(); return true; }
@@ -1189,7 +1306,10 @@ export class Studio {
     const fhead = (k, name) => h('div', { class: 'st-fhead', title: t('끌어서 옮기기 · 더블클릭: 붙이기') }, h('b', {}, name), h('span', { class: 'sp' }),
       h('button', { class: 'btn sm ghost', title: t('원래 자리에 붙이기'), onclick: () => this.dock(k) }, t('붙이기')));
     const rollWrap = h('div', { class: 'st-pane roll' }, fhead('roll', t('피아노 롤')), this.rollBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
-    const plWrap = h('div', { class: 'st-pane playlist', hidden: true }, fhead('playlist', t('플레이리스트')), this.plBar, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 })));
+    // FL's playlist picker panel (Alt+P): the patterns down the left, the one picked is what Draw / Paint place
+    this.pickerEl = h('div', { class: 'pl-picker', hidden: this.app.settings.get('plPicker') === false });
+    const plWrap = h('div', { class: 'st-pane playlist', hidden: true }, fhead('playlist', t('플레이리스트')), this.plBar,
+      h('div', { class: 'pl-row' }, this.pickerEl, h('div', { class: 'cv' }, h('canvas', { tabIndex: 0 }))));
     const mxInner = h('div', { class: 'mx-in' });
     const mxWrap = h('div', { class: 'st-pane mixer', hidden: true }, fhead('mixer', t('믹서')), mxInner);
     const lvWrap = h('div', { class: 'st-pane live', hidden: true });
@@ -1313,17 +1433,19 @@ export class Studio {
       // 2. transport
       h('div', { class: 'tb-grp tb-transport' },
         h('div', { class: 'tb-mode', 'data-tour': 'mode' },
-          h('button', { class: proj.mode === 'pattern' ? 'on' : '', title: t('PAT: 지금 패턴만 반복 (L)'), onclick: () => this.setMode('pattern') }, 'PAT'),
-          h('button', { class: proj.mode === 'song' ? 'on' : '', title: t('SONG: 플레이리스트 전체 (L)'), onclick: () => this.setMode('song') }, 'SONG'),
+          h('button', { class: proj.mode === 'pattern' ? 'on' : '', title: t('PAT: 지금 패턴만 반복 (L) · 우클릭: 채널 랙'), onclick: () => this.setMode('pattern'), oncontextmenu: (e) => { e.preventDefault(); this.runAction('rack'); } }, 'PAT'),
+          h('button', { class: proj.mode === 'song' ? 'on' : '', title: t('SONG: 플레이리스트 전체 (L) · 우클릭: 플레이리스트'), onclick: () => this.setMode('song'), oncontextmenu: (e) => { e.preventDefault(); this.setTab('playlist'); } }, 'SONG'),
           h('button', { class: `live${proj.mode === 'live' ? ' on' : ''}`, title: t('라이브: 트랙마다 패턴을 골라 실시간으로'), onclick: () => { this.setMode('live'); this.setTab('live'); } }, t('라이브'))),
         btn(Tr.playing ? '❚❚' : '▶', t('재생 / 일시정지 (Space)'), () => { Tr.toggle(); this.renderToolbar(); }, 'tb-big play', 'play'),
-        btn('■', t('정지 (Space)'), () => { Tr.stop(); this.renderToolbar(); }, 'tb-big stop'),
-        btn('●', t('노트 녹음: 재생 중 건반으로 친 음을 패턴에 기록 (R)'), () => this.runAction('record'), `tb-big rec${Tr.recording ? ' on' : ''}`, 'rec'),
+        h('button', { class: 'btn tb-big stop', title: t('정지 (Space) · 더블클릭: 모든 소리 끄기'), onclick: () => { Tr.stop(); this.renderToolbar(); }, ondblclick: () => this.runAction('panic') }, '■'),
+        // FL: right-click the record button for the recording options
+        h('button', { class: `btn tb-big rec${Tr.recording ? ' on' : ''}`, 'data-tour': 'rec', title: t('노트 녹음: 재생 중 연주한 노트를 패턴에 기록 (R) · 우클릭: 녹음 옵션'), onclick: () => this.runAction('record'), oncontextmenu: (e) => { e.preventDefault(); this.recordMenu(e); } }, '●'),
         h('label', { class: 'tb-lcd tb-tempo', 'data-tour': 'bpm', title: t('템포 (BPM) · 우클릭: 탭 템포, 절반 / 두 배, 박자'), oncontextmenu: (e) => { e.preventDefault(); this.tempoMenu(e); } },
-          h('input', { type: 'number', min: 30, max: 300, step: 1, value: proj.bpm, onchange: (e) => this.setBpm(+e.target.value || 120) }),
+          h('input', { type: 'number', min: 10, max: 522, step: 1, value: proj.bpm, onchange: (e) => this.setBpm(+e.target.value || 120) }),
           h('small', {}, `BPM · ${proj.sig.join('/')}`)),
         btn(t('탭'), t('탭 템포: 박자에 맞춰 여러 번 누르면 그 빠르기로 템포가 맞춰집니다'), () => this.tap(), 'tb-tap'),
-        h('div', { class: 'tb-lcd tb-pos', title: t('재생 위치 (마디:박:스텝)') }, this.posEl = h('span', {}, '1:1:1'), h('small', {}, t('마디:박:스텝')))),
+        // FL's time panel: click switches between bars (B:S:T) and time (M:S:CS)
+        h('div', { class: 'tb-lcd tb-pos', title: t('재생 위치 · 클릭: 마디 ↔ 시간'), onclick: () => { this.posTime = !this.posTime; this.renderToolbar(); } }, this.posEl = h('span', {}, '1:1:1'), h('small', {}, this.posTime ? t('분:초:1/100') : t('마디:박:스텝')))),
       // 3. recording switches
       h('div', { class: 'tb-grp tb-rec' },
         btn(t('메트로놈'), t('메트로놈 (Ctrl+M)'), () => this.runAction('metro'), `sm${Tr.metro ? ' on' : ''}`, 'metro'),
@@ -1356,7 +1478,7 @@ export class Studio {
 
   setBpm(v) {
     const proj = this._proj;
-    this.edit(() => { proj.bpm = Math.max(30, Math.min(300, Math.round(v))); });
+    this.edit(() => { proj.bpm = Math.max(10, Math.min(522, Math.round(v))); /* FL's tempo range */ });
     this.engine.info.bpm = proj.bpm; this.syncAudio();
   }
 
@@ -1407,6 +1529,7 @@ export class Studio {
         { label: t('최근 프로젝트 · 자동 저장 기록…'), act: () => this.recentMenu(at) },
         { label: t('저장'), hint: keyOf('save'), act: () => this.save() },
         { label: t('다른 이름으로 저장…'), hint: 'Ctrl+Shift+S', act: () => this.save(true) },
+        act('saveversion', t('새 버전으로 저장')),
         { group: t('가져오기') },
         { label: t('MIDI 가져오기…'), act: () => this.importMidi() },
         { label: t('AI로 음원 분리 · MIDI 변환…'), hint: 'MP4 · WAV · MP3', act: () => this.aiSheet.show() },
@@ -1419,12 +1542,18 @@ export class Studio {
         { group: t('클라우드') },
         { label: T.cloud.menuSave, act: () => this.cloudSheet.show('projects') },
         { label: T.cloud.menuShared, act: () => this.cloudSheet.show('shared') },
-        { label: T.cloud.menuAccount, act: () => this.cloudSheet.show('account') },
+        ...workshopMenuItems({ where: 'studio', app: this.app }), // 창작마당 · 계정 (js/workshop-ui.js)
+        ...(this.app.studioWindow ? [] : [{ sep: true }, { label: t('Studio 닫기'), hint: 'F12', act: () => this.close() }]),
       ],
       edit: () => [
         { label: t('실행 취소'), hint: keyOf('undo'), act: () => this.history.undo() },
         { label: t('다시 실행'), hint: keyOf('redo'), act: () => this.history.redo() },
+        act('undostep'),
         { label: t('실행 기록…'), hint: t('그 시점으로 되돌리기'), act: () => this.historySheet(at) },
+        { sep: true },
+        { label: t('잘라내기'), hint: 'Ctrl+X', disabled: !this.roll?.sel?.size, act: () => this.roll.key({ key: 'x', ctrlKey: true }) },
+        { label: t('복사'), hint: 'Ctrl+C', disabled: !this.roll?.sel?.size, act: () => this.roll.key({ key: 'c', ctrlKey: true }) },
+        { label: t('붙여넣기'), hint: 'Ctrl+V', disabled: !this.roll?.clip?.length, act: () => { this.setTab('roll'); this.roll.key({ key: 'v', ctrlKey: true }); } },
       ],
       add: () => [
         { label: t('채널 (플러그인 피커)…'), hint: keyOf('picker'), act: () => this.runAction('picker') },
@@ -1440,6 +1569,9 @@ export class Studio {
         act('renamepattern', t('이름 바꾸기…')),
         { label: t('복제'), act: () => this.edit(() => { const p = JSON.parse(JSON.stringify(pat)); p.id = uid('p'); p.name = t('{name} 복사', { name: pat.name }); proj.patterns.push(p); proj.current = p.id; }, true, t('패턴 복제')) },
         { label: t('삭제'), disabled: proj.patterns.length <= 1, act: () => { if (confirm(t("'{name}'을(를) 삭제할까요?", { name: pat.name }))) this.edit(() => { proj.patterns.splice(proj.patterns.indexOf(pat), 1); proj.playlist.clips = proj.playlist.clips.filter((c) => c.pattern !== pat.id); proj.current = proj.patterns[0].id; }, true, t('패턴 삭제')); } },
+        { label: t('위로 옮기기'), disabled: proj.patterns.indexOf(pat) <= 0, act: () => this.movePattern(-1) },
+        { label: t('아래로 옮기기'), disabled: proj.patterns.indexOf(pat) >= proj.patterns.length - 1, act: () => this.movePattern(1) },
+        { label: t('조옮김…'), hint: t('이 패턴의 모든 노트'), act: () => this.transposePattern() },
         { label: t('채널별로 패턴 나누기'), hint: t('가져온 MIDI 정리에'), act: () => this.splitByChannel() },
         act('timesig', t('박자표 바꾸기 (재생 위치부터)…')),
         { group: t('박자') }, ...this.sigItems(),
@@ -1449,8 +1581,11 @@ export class Studio {
         act('playlist'), act('roll'), act('rack'), act('mixer'), act('browser'), act('live'), act('keys'),
         { group: t('창 배치') },
         ...Object.entries({ roll: t('피아노 롤'), playlist: t('플레이리스트'), mixer: t('믹서') }).map(([w, n]) => ({ label: this.floating[w] ? t('{n} 붙이기', { n }) : t('{n} 떼어내기', { n }), hint: t('탭 더블클릭'), act: () => (this.floating[w] ? this.dock(w) : this.detach(w)) })),
-        { label: t('모두 떼어내기 (작업 창 배치)'), act: () => this.arrange('fl') },
+        { label: t('모두 떼어내기 (작업 창 배치)'), hint: keyOf('arrange'), act: () => this.arrange('fl') },
         { label: t('모두 붙이기'), act: () => this.arrange('docked') },
+        { label: t('열린 창 모두 닫기'), hint: 'Esc', act: () => { while (this.closeTopWindow()); } },
+        act('nextwin', t('다음 창')),
+        { ...act('pickerpanel'), check: !this.pickerEl?.hidden },
         { sep: true },
         { label: t('화면 꾸미기…'), hint: t('크기 · 색 · 트랙 높이'), act: () => this.lookSheet() },
       ],
@@ -1459,6 +1594,9 @@ export class Studio {
         { ...act('countin', t('녹음 전 1마디 세기')), check: !!this.countIn },
         { ...act('loop', t('반복 구간')), check: !!proj.loopOn, disabled: !proj.loop },
         { sep: true },
+        { label: t('MIDI 설정…'), act: () => this.openSettings('play') },
+        { label: t('오디오 설정…'), act: () => this.openSettings('sound') },
+        act('projinfo', t('프로젝트 정보…')),
         { label: t('단축키 설정…'), act: () => this.shortcutsSheet() },
         { group: t('테마') },
         ...STUDIO_THEMES.map((k) => ({ label: themeName(k), check: this.look().theme === k, act: () => this.setTheme(k) })),
@@ -1474,6 +1612,10 @@ export class Studio {
         { label: t('방금 연주한 것 패턴에 넣기'), hint: t('녹음 안 켜고 친 것도'), act: () => this.dumpScoreLog(1) },
         { label: this.arec ? t('마이크 녹음 멈추기') : t('마이크 녹음'), hint: t('플레이리스트에 오디오 클립'), act: () => this.toggleAudioRec() },
         { label: t('채널을 믹서 트랙에 연결'), hint: keyOf('link'), act: () => this.linkToMixer(proj.selected) },
+        { group: t('매크로') },
+        act('panic'),
+        { label: t('안 쓰는 채널 선택'), act: () => this.selectUnusedChannel() },
+        { label: t('안 쓰는 오디오 정리'), hint: t('어디에도 쓰이지 않는 오디오 파일'), act: () => this.purgeUnusedMedia() },
       ],
       help: () => [
         { group: t('튜토리얼') },
@@ -1490,10 +1632,10 @@ export class Studio {
     const proj = this._proj, R = this.roll, P = this.playlist;
     const sc = proj.scale;
     const tool = (k, label, title, tour) => h('button', { class: R.tool === k ? 'on' : '', title, 'data-tour': tour, onclick: () => { R.tool = k; this.renderPaneBars(); R.draw(); } }, label);
+    // FL's piano roll toolbar order: Tools menu, snap to scale, Chord Stamp, then the tools; the event
+    // editor's target (bottom lane) at the end
     this.rollBar.replaceChildren(...[
-      h('div', { class: 'seg sm', 'data-tour': 'roll-tools' }, tool('draw', 'Draw', t('Draw: 노트 그리기 (P)')), tool('paint', 'Paint', t('Paint: 끌면서 여러 음 칠하기 (B)')), tool('delete', 'Delete', t('Delete: 지우기 (D)')), tool('mute', 'Mute', t('Mute: 음 음소거 (T)')), tool('slice', 'Slice', t('Slice: 음 자르기 (C)')), tool('select', 'Select', t('Select: 선택 (E)')), tool('zoom', 'Zoom', t('Zoom: 확대, 오른클릭 축소 (Z)')), tool('slide', 'Slide', t('Slide 노트 (S)')), tool('porta', 'Porta', t('Portamento: 앞 음에서 미끄러져 들어오는 노트 (O)')), tool('chord', 'Stamp', t('Stamp: 클릭 한 번에 코드 (H)'), 'tool-chord')),
-      R.tool === 'chord' ? h('select', { title: t('화음 종류'), onchange: (e) => { R.chord = e.target.value; R.draw(); } }, ...Object.entries(CHORDS).map(([k, c]) => h('option', { value: k, selected: R.chord === k }, t(c.name)))) : null,
-      R.tool === 'chord' && R.chord === 'auto' ? h('select', { title: t('음 개수'), onchange: (e) => { R.chordSize = +e.target.value; } }, h('option', { value: 3, selected: R.chordSize === 3 }, t('3화음')), h('option', { value: 4, selected: R.chordSize === 4 }, t('7화음'))) : null,
+      h('button', { class: 'btn sm', 'data-tour': 'tools', onclick: (e) => this.rollTools(e) }, t('도구 ▾')),
       h('span', { class: 'bar-gap' }),
       h('label', { class: 'st-field', 'data-tour': 'scale' }, t('스케일'),
         h('select', { onchange: (e) => this.edit(() => { proj.scale = e.target.value === '' ? null : { root: +e.target.value, type: proj.scale?.type || 'major' }; }) },
@@ -1501,14 +1643,20 @@ export class Studio {
         sc ? h('select', { onchange: (e) => this.edit(() => { proj.scale = { ...proj.scale, type: e.target.value }; }) }, ...Object.entries(SCALES).map(([k, s]) => h('option', { value: k, selected: sc.type === k }, t(s.name)))) : null,
         sc ? h('label', { class: 'chk', title: t('스케일 밖의 음은 찍히지 않습니다') }, h('input', { type: 'checkbox', checked: R.lock, onchange: (e) => { R.lock = e.target.checked; } }), t('고정')) : null),
       h('span', { class: 'bar-gap' }),
+      h('div', { class: 'seg sm' }, tool('chord', 'Stamp', t('Stamp: 클릭 한 번에 코드 (H)'), 'tool-chord')),
+      R.tool === 'chord' ? h('select', { title: t('화음 종류'), onchange: (e) => { R.chord = e.target.value; R.draw(); } }, ...Object.entries(CHORDS).map(([k, c]) => h('option', { value: k, selected: R.chord === k }, t(c.name)))) : null,
+      R.tool === 'chord' && R.chord === 'auto' ? h('select', { title: t('음 개수'), onchange: (e) => { R.chordSize = +e.target.value; } }, h('option', { value: 3, selected: R.chordSize === 3 }, t('3화음')), h('option', { value: 4, selected: R.chordSize === 4 }, t('7화음'))) : null,
+      h('div', { class: 'seg sm', 'data-tour': 'roll-tools' }, tool('draw', 'Draw', t('Draw: 노트 그리기 (P)')), tool('paint', 'Paint', t('Paint: 끌면서 여러 음 칠하기 (B)')), tool('delete', 'Delete', t('Delete: 지우기 (D)')), tool('mute', 'Mute', t('Mute: 음 음소거 (T)')), tool('slice', 'Slice', t('Slice: 음 자르기 (C)')), tool('select', 'Select', t('Select: 선택 (E)')), tool('zoom', 'Zoom', t('Zoom: 확대, 오른클릭 축소 (Z)')), tool('slide', 'Slide', t('Slide 노트 (S)')), tool('porta', 'Porta', t('Portamento: 앞 음에서 미끄러져 들어오는 노트 (O)'))),
+      h('span', { class: 'bar-gap' }),
       h('label', { class: 'st-field' }, t('아래 칸'), h('select', { onchange: (e) => { R.lane = e.target.value; R.draw(); } }, ...Object.entries(LANES).map(([k, l]) => h('option', { value: k, selected: R.lane === k }, t(l))))),
-      h('button', { class: 'btn sm', 'data-tour': 'tools', onclick: (e) => this.rollTools(e) }, t('도구 ▾')),
       h('span', { class: 'sp' }),
       h('span', { class: 'hint' }, R.tool === 'chord' ? t('클릭: 코드 찍기') : R.tool === 'slide' ? t('노트를 누르면 슬라이드로 바뀜') : t('클릭: 음 · 끌기: 길이 · 우클릭: 지우기'))].filter(Boolean));
+
     const ptool = (k, label, title) => h('button', { class: P.tool === k ? 'on' : '', title, onclick: () => { P.tool = k; this.renderPaneBars(); P.draw(); } }, label);
     this.plBar.replaceChildren(...[
-      h('div', { class: 'seg sm', 'data-tour': 'pl-tools' }, ptool('draw', 'Draw', t('Draw: 클립 놓기 (P)')), ptool('paint', 'Paint', t('Paint: 끌면서 패턴 칠하기 (B)')), ptool('delete', 'Delete', t('Delete: 지우기 (D)')), ptool('mute', 'Mute', t('Mute: 클립 음소거 (T)')), ptool('slice', 'Slice', t('Slice: 클립 자르기 (C)')), ptool('select', 'Select', t('Select: 드래그해서 여러 클립 선택 (E) · Draw에서는 Ctrl+드래그'))),
-      h('div', { class: 'seg sm' }, h('button', { class: P.grid === 'bar' ? 'on' : '', onclick: () => { P.grid = 'bar'; this.renderPaneBars(); P.draw(); } }, t('마디')), h('button', { class: P.grid === 'beat' ? 'on' : '', onclick: () => { P.grid = 'beat'; this.renderPaneBars(); P.draw(); } }, t('박'))),
+      // FL's playlist toolbar: snap first, then the tools
+      h('div', { class: 'seg sm', title: t('스냅') }, h('button', { class: P.grid === 'bar' ? 'on' : '', onclick: () => { P.grid = 'bar'; this.renderPaneBars(); P.draw(); } }, t('마디')), h('button', { class: P.grid === 'beat' ? 'on' : '', onclick: () => { P.grid = 'beat'; this.renderPaneBars(); P.draw(); } }, t('박'))),
+      h('div', { class: 'seg sm', 'data-tour': 'pl-tools' }, ptool('draw', 'Draw', t('Draw: 클립 놓기 (P)')), ptool('paint', 'Paint', t('Paint: 끌면서 패턴 칠하기 (B)')), ptool('delete', 'Delete', t('Delete: 지우기 (D)')), ptool('mute', 'Mute', t('Mute: 클립 음소거 (T)')), ptool('slice', 'Slice', t('Slice: 클립 자르기 (C)')), ptool('select', 'Select', t('Select: 드래그해서 여러 클립 선택 (E) · Draw에서는 Ctrl+드래그')), ptool('zoom', 'Zoom', t('Zoom: 클릭 확대 · 우클릭 축소 (Z)'))),
       h('button', { class: `btn sm${proj.loopOn ? ' on' : ''}`, disabled: !proj.loop, title: t('눈금자를 끌어서 반복 구간을 정합니다 (Ctrl+Shift+L)'), onclick: () => this.edit(() => { proj.loopOn = !proj.loopOn; }) }, proj.loop ? t('반복 {a}~{b}마디', { a: proj.loop.start + 1, b: proj.loop.end }) : t('반복 구간 없음')),
       h('button', { class: 'btn sm', title: t('오디오 파일을 클립으로'), onclick: async () => { const fs2 = await window.melofi.mediaPickFiles(); for (const f of fs2) await this.addAudioClip(f.name, f.data); } }, t('+ 오디오')),
       h('button', { class: 'btn sm', title: t('노브를 우클릭해도 만들 수 있습니다'), 'data-tour': 'add-auto', onclick: (e) => this.autoTargetMenu(e) }, t('+ 오토메이션')),
@@ -1537,8 +1685,127 @@ export class Studio {
     if (v) this.roll.quantizeOpts({ ...v, strength: v.strength / 100 });
   }
 
+  // FL: Esc closes the window in front: a popup, a dialog, a sheet, then a floating pane
+  closeTopWindow() {
+    const pop = document.querySelector('.st-pop'); if (pop) { pop.remove(); return true; }
+    if (document.querySelector('.st-ask')) return false; // the dialog handles its own Esc
+    // sheets and floating windows (channel settings, mastering, Riff Machine, Newtone, waveforms): the one on top
+    const wins = [...document.querySelectorAll('.sheet:not([hidden]), .ch-float:not([hidden])')].filter((x) => x.getClientRects().length);
+    const z = (x) => +getComputedStyle(x).zIndex || 0;
+    const top = wins.map((x, i) => [x, i]).sort((a, b) => z(a[0]) - z(b[0]) || a[1] - b[1]).at(-1)?.[0];
+    if (top) { (top.querySelector('.sheet-head .x') || top.querySelector('.x'))?.click(); if (!top.hidden && top.isConnected) top.hidden = true; return true; }
+    const fl = Object.keys(this.floating || {});
+    if (fl.length) { this.dock(fl.at(-1)); return true; }
+    return false;
+  }
+
+  // channel rack keys (FL: channelrack.htm) when the rack has the focus: ↑↓ select, Alt+↑↓ move the
+  // channel, Alt+Del delete it, Shift+Ctrl+←→ rotate its steps, Ctrl+C / Ctrl+V its steps
+  rackKey(e) {
+    if (!this.rackEl?.contains(document.activeElement)) return false;
+    const proj = this._proj, list = proj.channels, i = list.findIndex((c) => c.id === proj.selected), ch = list[i];
+    if (!ch) return false;
+    const k = e.key;
+    if ((k === 'ArrowUp' || k === 'ArrowDown') && !e.ctrlKey && !e.shiftKey) {
+      const j = i + (k === 'ArrowUp' ? -1 : 1);
+      if (j < 0 || j >= list.length) return true;
+      if (e.altKey) this.edit(() => { list.splice(i, 1); list.splice(j, 0, ch); }, true, t('채널 이동'));
+      else this.select(list[j].id);
+      this.rackEl.querySelector(`.rack-row[data-ch="${CSS.escape(proj.selected)}"] .cname`)?.focus();
+      return true;
+    }
+    if (e.altKey && k === 'Delete') { this.rack.remove(ch); return true; }
+    if (e.ctrlKey && e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { this.rack.rotate(ch, k === 'ArrowRight' ? 1 : -1); return true; }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && (k === 'c' || k === 'C')) { this.rack.copySteps(ch); return true; }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && (k === 'v' || k === 'V')) { this.rack.pasteSteps(ch); return true; }
+    return false;
+  }
+
+  // the piano window's settings sheet at a tab (MIDI / audio settings in FL's OPTIONS menu)
+  openSettings(tab) { this.app.ui.tab = tab; this.app.ui.open('settings'); }
+
+  movePattern(d) {
+    const proj = this._proj, pat = pattern(proj), i = proj.patterns.indexOf(pat), j = i + d;
+    if (j < 0 || j >= proj.patterns.length) return;
+    this.edit(() => { proj.patterns.splice(i, 1); proj.patterns.splice(j, 0, pat); }, true, t('패턴 옮기기'));
+  }
+
+  async transposePattern() {
+    const v = await form(t('조옮김'), [{ key: 'semi', label: t('반음 (위 +, 아래 -)'), type: 'number', value: 0, min: -48, max: 48 }]);
+    if (!v || !v.semi) return;
+    const pat = pattern(this._proj);
+    // drum channels keep their notes: those pick the drum, not a pitch
+    this.edit(() => { for (const ch of this._proj.channels) if (!(this.isKit(ch.inst) && (ch.kind || 'inst') === 'inst')) for (const n of pat.notes[ch.id] || []) n.n = Math.max(0, Math.min(127, n.n + v.semi)); }, true, t('조옮김'));
+  }
+
+  // FL's Macros > Select unused channels: the first channel with no notes in any pattern and no clips
+  selectUnusedChannel() {
+    const proj = this._proj;
+    const used = (ch) => proj.patterns.some((p) => (p.notes[ch.id] || []).length) || proj.playlist.clips.some((c) => c.ch === ch.id);
+    const un = proj.channels.filter((c) => !used(c));
+    if (!un.length) { this.status(t('안 쓰는 채널이 없어요.')); return; }
+    this.select(un[0].id);
+    this.status(t('안 쓰는 채널 {n}개: {names}', { n: un.length, names: un.map((c) => c.name).join(', ') }));
+  }
+
+  // FL's Purge unused audio clips: audio files of the project that nothing plays any more
+  purgeUnusedMedia() {
+    const proj = this._proj, used = new Set();
+    for (const c of proj.playlist.clips) if (c.media) used.add(c.media);
+    for (const ch of proj.channels) if (ch.sample?.media) used.add(ch.sample.media);
+    const rest = JSON.stringify({ ...proj, media: null });
+    const drop = Object.keys(proj.media || {}).filter((h) => !used.has(h) && !rest.includes(h));
+    if (!drop.length) { this.status(t('정리할 오디오가 없어요.')); return; }
+    this.edit(() => { for (const h of drop) delete proj.media[h]; }, true, t('안 쓰는 오디오 정리'));
+    this.status(t('안 쓰는 오디오 {n}개를 프로젝트에서 뺐어요.', { n: drop.length }));
+  }
+
+  // FL's recording options (right-click on record): what gets recorded and how
+  recordMenu(e) {
+    const armed = this._proj.channels.filter((c) => c.arm);
+    popup(e.clientX, e.clientY + 12, [
+      { group: t('녹음 옵션') },
+      { label: t('녹음 전 1마디 세기'), hint: 'Ctrl+P', check: !!this.countIn, act: () => { this.countIn = !this.countIn; } },
+      { label: t('녹음한 노트 스냅에 맞추기'), check: !!this.recQuant, act: () => { this.recQuant = !this.recQuant; } },
+      { label: t('메트로놈'), hint: 'Ctrl+M', check: !!this.transport.metro, act: () => this.runAction('metro') },
+      { sep: true },
+      { label: armed.length ? t('오디오 녹음: {names}', { names: armed.map((c) => c.name).join(', ') }) : t('오디오 녹음: 녹음 대기 중인 믹서 트랙 없음'), hint: t('믹서에서 ● 녹음 대기'), act: () => this.setTab('mixer') },
+      { label: t('방금 연주한 것 패턴에 넣기'), hint: t('녹음 안 켜고 친 것도'), act: () => this.dumpScoreLog(1) },
+    ]);
+  }
+
+  // FL's Project info (F11): title, author, genre and comments, saved in the project
+  async projectInfo() {
+    const proj = this._proj, info = proj.info || {};
+    const v = await form(t('프로젝트 정보'), [
+      { key: 'title', label: t('제목'), type: 'text', value: info.title || proj.name || '' },
+      { key: 'author', label: t('만든 사람'), type: 'text', value: info.author || '' },
+      { key: 'genre', label: t('장르'), type: 'text', value: info.genre || '' },
+      { key: 'comments', label: t('메모'), type: 'text', value: info.comments || '' },
+    ], { ok: t('저장') });
+    if (v) this.edit(() => { proj.info = { title: v.title.trim(), author: v.author.trim(), genre: v.genre.trim(), comments: v.comments.trim() }; }, true, t('프로젝트 정보'));
+  }
+
   // FL Studio's Riff Machine (piano roll tools menu): a step-by-step window
   riffDialog() { this.riffWizard.open(); }
+
+  // FL's Backspace: the snap goes to none and back to the line it was on
+  toggleSnapNone() {
+    if (this.snapKey === 1) this.snapKey = this._snapBefore || STEP; else { this._snapBefore = this.snapKey; this.snapKey = 1; }
+    this.renderToolbar(); this.roll.draw(); this.playlist.draw?.();
+    this.status(this.snapKey === 1 ? t('스냅: 없음') : t('스냅: {s}', { s: t(SNAPS.find(([g]) => g === this.snapKey)?.[1] || '') }));
+  }
+
+  // the piano roll's FL tools that take a few settings: Chop (Alt+U), Limit (Alt+K), Scale levels (Alt+X),
+  // Articulate (Alt+L), Flam (Alt+F)
+  async rollToolDialog(kind) {
+    const R = this.roll;
+    if (kind === 'chop') { const v = await form('Chop', [{ key: 'size', label: t('조각 길이'), type: 'select', value: this.snap, options: SNAPS.filter(([g]) => g !== 'bar' && g !== 1).map(([g, l]) => [g, t(l)]) }]); if (v) R.chop(+v.size); }
+    if (kind === 'limit') { const v = await form('Limit', [{ key: 'low', label: t('가장 낮은 음 (MIDI 번호, 60 = 가운데 도)'), type: 'number', value: 48, min: 0, max: 116 }, { key: 'high', label: t('가장 높은 음 (MIDI 번호)'), type: 'number', value: 84, min: 11, max: 127 }], { note: t('범위 밖의 음은 옥타브 단위로 안쪽으로 옮겨집니다.') }); if (v) R.limit(v); }
+    if (kind === 'levels') { const v = await form('Scale levels', [{ key: 'scale', label: t('폭 (%)'), type: 'number', value: 100, min: 0, max: 300 }, { key: 'offset', label: t('더하기'), type: 'number', value: 0, min: -127, max: 127 }], { note: t('벨로시티를 평균을 중심으로 넓히거나 좁힙니다.') }); if (v) R.scaleLevels(v); }
+    if (kind === 'articulate') { const v = await form('Articulate', [{ key: 'gate', label: t('다음 음까지의 길이 중 (%)'), type: 'number', value: 50, min: 5, max: 100 }]); if (v) R.articulate(v); }
+    if (kind === 'flam') { const v = await form('Flam', [{ key: 'delay', label: t('앞꾸밈음 간격 (틱)'), type: 'number', value: 8, min: 1, max: 48 }, { key: 'velocity', label: t('앞꾸밈음 세기 (%)'), type: 'number', value: 60, min: 5, max: 100 }]); if (v) R.flam(v); }
+  }
 
   // FL Studio's Randomize (Alt+R): random notes in the scale
   async randomizeDialog() {
@@ -1556,28 +1823,37 @@ export class Studio {
     this.status(sc ? t('Randomize: 스케일에 맞춰 {n}개 노트를 만들었어요. 다시 하려면 Alt+R.', { n }) : t('Randomize: 스케일이 없어 C 마이너로 {n}개 노트를 만들었어요. 다시 하려면 Alt+R.', { n }));
   }
 
+  // the piano roll's Tools menu, in FL Studio's order (pianoroll_menu: Tools)
   rollTools(e) {
     const R = this.roll;
     popup(e.clientX, e.clientY + 12, [
-      { label: 'Riff Machine…', hint: t('코드 진행 → 아르페지오 → 리듬 → 변형'), act: () => this.riffDialog() },
-      { label: 'Randomize…', hint: 'Alt+R', act: () => this.randomizeDialog() },
-      { label: t('아르페지오…'), hint: t('화음을 한 음씩 펼치기'), act: async () => { const v = await form(t('아르페지오'), [
+      { label: 'Riff Machine…', hint: 'Alt+E', act: () => this.riffDialog() },
+      { label: t('코드 진행…'), hint: 'Alt+P', act: () => this.riffDialog() },
+      { label: 'Quick legato', hint: 'Ctrl+L', act: () => R.legato() },
+      { label: 'Articulate…', hint: 'Alt+L', act: () => this.rollToolDialog('articulate') },
+      { label: 'Quick quantize', hint: 'Ctrl+Q', act: () => R.quantizeOpts({ lengths: true }) },
+      { label: t('Quick quantize (시작만)'), hint: 'Shift+Q', act: () => R.quantizeOpts({}) },
+      { label: t('퀀타이즈…'), hint: 'Alt+Q', act: () => this.quantizeDialog() },
+      { label: 'Quick chop', hint: 'Ctrl+U', act: () => R.chop(this.snap) },
+      { label: 'Chop…', hint: 'Alt+U', act: () => this.rollToolDialog('chop') },
+      { label: 'Glue', hint: 'Ctrl+G', act: () => R.glue() },
+      { label: t('아르페지오…'), hint: 'Alt+A', act: async () => { const v = await form(t('아르페지오'), [
         { key: 'pattern', label: t('순서'), type: 'select', value: 'up', options: [['up', t('아래에서 위로')], ['down', t('위에서 아래로')], ['updown', t('올라갔다 내려오기')], ['random', t('무작위')]] },
         { key: 'rate', label: t('빠르기'), type: 'select', value: STEP, options: [[PPQ / 2, t('8분음표')], [STEP, t('16분음표')], [STEP / 2, t('32분음표')], [PPQ / 6, t('16분 셋잇단')]] },
         { key: 'octaves', label: t('옥타브 범위'), type: 'number', value: 1, min: 1, max: 3 },
         { key: 'gate', label: t('음 길이 (%)'), type: 'number', value: 90, min: 10, max: 100 }]); if (v) R.arpeggiate({ ...v, gate: v.gate / 100 }); } },
-      { label: t('스트럼…'), hint: t('기타처럼 살짝 엇갈리게'), act: async () => { const v = await form(t('스트럼'), [
+      { label: t('스트럼…'), hint: 'Alt+S', act: async () => { const v = await form(t('스트럼'), [
         { key: 'spread', label: t('엇갈림 정도'), type: 'number', value: 3, min: 1, max: 24 },
         { key: 'direction', label: t('방향'), type: 'select', value: 'down', options: [['down', t('다운 (높은 음부터)')], ['up', t('업 (낮은 음부터)')]] }]); if (v) R.strum(v); } },
+      { label: 'Flam…', hint: 'Alt+F', act: () => this.rollToolDialog('flam') },
+      { label: 'Limit…', hint: 'Alt+K', act: () => this.rollToolDialog('limit') },
+      { label: 'Flip', hint: 'Alt+Y', act: () => R.transform('flip') },
+      { label: 'Randomize…', hint: 'Alt+R', act: () => this.randomizeDialog() },
+      { label: 'Scale levels…', hint: 'Alt+X', act: () => this.rollToolDialog('levels') },
       { label: 'Humanize…', hint: t('사람이 친 것처럼'), act: async () => { const v = await form('Humanize', [
         { key: 'timing', label: t('타이밍 흔들기 (틱)'), type: 'number', value: 6, min: 0, max: 24 }, { key: 'velocity', label: t('벨로시티 흔들기'), type: 'number', value: 12, min: 0, max: 40 }]); if (v) R.humanize(v); } },
-      { label: t('퀀타이즈…'), hint: 'Alt+Q', act: () => this.quantizeDialog() },
-      { label: t('레가토'), hint: t('다음 음까지 길이 늘리기'), act: () => R.legato() },
-      { label: t('Chop (스냅 길이로)'), hint: t('Ctrl+U · 하이햇 롤, 트랩 연타'), act: () => R.chop(this.snap) },
-      { label: 'Glue', hint: t('Ctrl+G · 같은 높이로 이어진 음 합치기'), act: () => R.glue() },
       { sep: true },
       { label: t('좌우 뒤집기'), act: () => R.transform('reverse') },
-      { label: t('위아래 뒤집기'), act: () => R.transform('flip') },
       { label: t('한 옥타브 위로 겹치기'), act: () => R.transform('octUp') },
       { label: t('한 옥타브 아래로 겹치기'), act: () => R.transform('octDown') },
       { label: t('스케일에 맞추기'), disabled: !this._proj.scale, act: () => R.transform('toScale') },
@@ -1586,7 +1862,7 @@ export class Studio {
       { label: t('채널별로 패턴 나누기'), hint: t('가져온 MIDI 정리에'), act: () => this.splitByChannel() },
       { label: t('방금 연주한 것 패턴에 넣기'), hint: t('녹음 안 켜고 친 것도'), act: () => this.dumpScoreLog(1) },
       { label: this.countIn ? t('녹음 전 1마디 세기 끄기') : t('녹음 전 1마디 세기 켜기'), act: () => { this.countIn = !this.countIn; } },
-    ]);
+    ]).classList.add('tall');
   }
 
   autoTargetMenu(e) {
@@ -1597,24 +1873,55 @@ export class Studio {
     const fxItems = [];
     for (const [sid, name, list] of fxList) for (const f of list) for (const q of FX_TYPES[f.type].params) if (!q.choices && !q.channel) fxItems.push({ label: `${name} · ${t(FX_TYPES[f.type].name)} ${t(q.label)}`, act: () => this.makeAutomation(`fx:${sid}:${f.id}:${q.key}`) });
     if (fxItems.length) items.push({ group: t('이펙트') }, ...fxItems);
+    // VST plugins: one entry each, then a list of that plugin's parameters
+    const vstItems = [];
+    for (const c of p.channels) if (c.kind === 'vst' && c.vst?.plugin) vstItems.push([c.id, `${c.name}`, `vst:${c.id}:inst:`]);
+    for (const [sid, name, list] of fxList) for (const f of list) if (f.type === 'vst' && f.vst?.plugin) vstItems.push([vstFxSlot(sid, f.id), `${name} · ${f.vst.name}`, `vst:${sid}:${f.id}:`]);
+    if (vstItems.length) {
+      items.push({ group: t('VST 파라미터') }, ...vstItems.map(([slot, label, prefix]) => ({ label: t('{name} 파라미터…', { name: label }), act: async () => {
+        const list = (await this.vstParamList(slot)) || [];
+        const shown = list.filter((q) => !hiddenParam(q)).slice(0, 120);
+        if (!shown.length) { this.status(t('조절할 수 있는 파라미터가 없습니다.')); return; }
+        popup(e.clientX, e.clientY + 12, shown.map((q) => ({ label: q.name, act: () => this.makeAutomation(`${prefix}${q.i}`, q.name) }))).classList.add('tall');
+      } })));
+    }
     items.push({ group: t('마스터') }, { label: t('마스터 볼륨'), act: () => this.makeAutomation('master:vol') });
     popup(e.clientX, e.clientY + 12, items).classList.add('tall');
   }
 
+  // the playlist's picker panel: one row per pattern (click: pick it for Draw / Paint, double-click: open
+  // it in the piano roll, right-click: the PATTERNS menu)
+  renderPicker() {
+    const el = this.pickerEl;
+    if (!el || el.hidden) return;
+    const proj = this._proj, src = this.plSource;
+    // FL's picker lists patterns, audio clips and automation clips; the one picked is what Draw / Paint place
+    const media = Object.entries(proj.media || {}).filter(([hash]) => proj.playlist.clips.some((c) => c.kind === 'audio' && c.media === hash));
+    const pick = (s) => { this.plSource = s; this.renderPicker(); this.playlist.draw(); };
+    el.replaceChildren(
+      h('div', { class: 'pl-pk-head' }, h('b', {}, t('패턴')), h('button', { class: 'x', title: t('피커 패널 닫기 (Alt+P)'), onclick: () => this.togglePicker() })),
+      ...proj.patterns.map((p) => h('button', { class: `pl-pk${!src && p.id === proj.current ? ' on' : ''}`, style: `--c:${p.color || '#5a7bd6'}`, title: t('클릭: 그리기에 쓸 패턴 · 더블클릭: 피아노 롤'),
+        onclick: () => { this.plSource = null; this.setPattern(p.id); }, ondblclick: () => this.setPattern(p.id, true),
+        oncontextmenu: (e) => { e.preventDefault(); this.plSource = null; this.setPattern(p.id); popup(e.clientX, e.clientY, this.menuItems('patterns', e)); } }, p.name)),
+      h('button', { class: 'pl-pk add', title: t('새 패턴 (F4)'), onclick: () => this.runAction('newpattern') }, '+'),
+      ...(media.length ? [h('div', { class: 'pl-pk-head' }, h('b', {}, t('오디오 클립'))),
+        ...media.map(([hash, m]) => h('button', { class: `pl-pk${src?.media === hash ? ' on' : ''}`, style: `--c:${proj.channels.find((c) => proj.playlist.clips.some((k) => k.media === hash && k.ch === c.id))?.color || '#6c8'}`, title: t('클릭: 그리기에 사용할 오디오 클립'), onclick: () => pick({ kind: 'audio', media: hash }) }, m.name))] : []),
+      ...(proj.autos?.length ? [h('div', { class: 'pl-pk-head' }, h('b', {}, t('오토메이션 클립'))),
+        ...proj.autos.map((a) => h('button', { class: `pl-pk${src?.auto === a.id ? ' on' : ''}`, style: `--c:${a.color || '#9a8cd6'}`, title: t('클릭: 그리기에 사용할 오토메이션 클립'), onclick: () => pick({ kind: 'auto', auto: a.id }) }, a.name))] : []));
+  }
+
+  togglePicker() {
+    this.pickerEl.hidden = !this.pickerEl.hidden;
+    this.app.settings.set({ plPicker: !this.pickerEl.hidden });
+    this.renderPicker();
+    this.playlist.resize();
+  }
+
+  // the channel rack's title bar (FL: options, swing, pattern length, graph editor); patterns are picked
+  // on the toolbar and managed in the PATTERNS menu
   renderPatternBar() {
-    const proj = this._proj, pat = pattern(proj);
-    this.patternBar.replaceChildren(...[
-      h('select', { title: t('패턴'), onchange: (e) => this.setPattern(e.target.value) },
-        ...proj.patterns.map((p) => h('option', { value: p.id, selected: p.id === proj.current }, p.name))),
-      h('button', { class: 'btn sm', title: t('새 패턴'), onclick: () => this.edit(() => { const p = newPattern(proj.patterns.length, pat.bars); proj.patterns.push(p); proj.current = p.id; }, true, t('새 패턴')) }, '+'),
-      h('button', { class: 'btn sm', title: t('패턴 복제'), onclick: () => this.edit(() => { const p = JSON.parse(JSON.stringify(pat)); p.id = uid('p'); p.name = t('{name} 복사', { name: pat.name }); proj.patterns.push(p); proj.current = p.id; }, true, t('패턴 복제')) }, '⧉'),
-      h('button', { class: 'btn sm', title: t('패턴 이름'), onclick: async () => { const v = await ask(t('패턴 이름'), pat.name); if (v && v.trim()) this.edit(() => { pat.name = v.trim(); }); } }, t('이름')),
-      h('select', { title: t('패턴 길이'), onchange: (e) => this.edit(() => { pat.bars = +e.target.value; }) },
-        ...[1, 2, 4, 8, 16].map((b) => h('option', { value: b, selected: pat.bars === b }, t('{n}마디', { n: b })))),
-      // swing sits on the channel rack, as in FL
-      h('label', { class: 'st-field st-swing', title: t('스윙: 짝수 16분음표를 뒤로 밀어 그루브 주기') }, t('스윙'), h('input', { type: 'range', min: 0, max: 0.6, step: 0.05, value: proj.swing, oninput: (e) => { proj.swing = +e.target.value; this.transport.refresh(); this.dirty = true; } })),
-      h('button', { class: 'btn sm', title: t('패턴 삭제'), disabled: proj.patterns.length <= 1, onclick: () => { if (confirm(t("'{name}'을(를) 삭제할까요?", { name: pat.name }))) this.edit(() => { proj.patterns.splice(proj.patterns.indexOf(pat), 1); proj.playlist.clips = proj.playlist.clips.filter((c) => c.pattern !== pat.id); proj.current = proj.patterns[0].id; }, true, t('패턴 삭제')); } }, t('삭제')),
-    ].filter(Boolean));
+    this.patternBar.replaceChildren(...this.rack.header());
+    this.renderPicker();
   }
 
   updatePos() {
@@ -1623,6 +1930,7 @@ export class Studio {
     // position follows time signature markers in song mode
     const B = proj.mode === 'song' && proj.sigs?.length ? barAt(proj, Tk) : { num: Math.floor(Tk / barTicks(proj)), start: Math.floor(Tk / barTicks(proj)) * barTicks(proj), beat: (PPQ * 4) / proj.sig[1] };
     const bar = B.num, b = Math.floor((Tk - B.start) / B.beat), s = Math.floor(((Tk - B.start) % B.beat) / STEP);
+    if (this.posTime) { const sec = Math.max(0, tickToSec(proj, Tk, 'song')); this.posEl.textContent = `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}:${String(Math.floor((sec % 1) * 100)).padStart(2, '0')}`; return; }
     this.posEl.textContent = `${bar + 1}:${b + 1}:${s + 1}`;
   }
 

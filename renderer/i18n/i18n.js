@@ -13,7 +13,7 @@ const HAS_WIN = typeof window !== 'undefined';
 const HAS_DOC = typeof document !== 'undefined';
 
 // one table per area of the app, so separate pieces of work don't collide in one file
-export const EN_FILES = ['piano', 'studio', 'studio-panels', 'studio-ai', 'sound', 'main', 'instruments'];
+export const EN_FILES = ['piano', 'studio', 'studio-panels', 'studio-ai', 'sound', 'main', 'instruments', 'workshop', 'waveeditor', 'firstrun'];
 
 let pref = 'system';
 let loaded = null;

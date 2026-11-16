@@ -194,6 +194,7 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 .ai-step { border-top: 1px solid var(--line); padding: 10px 0 12px; }
 .ai-step:first-child { border-top: 0; }
 .ai-step > b { display: block; font-weight: 600; margin-bottom: 6px; }
+.ai-warn { color: var(--s-warn-ink); border-left: 2px solid var(--s-warn-line); padding: 2px 0 2px 8px; margin: 4px 0 8px; }
 .ai-body .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .ai-body .dim { color: var(--dim); font-size: 11.5px; line-height: 1.5; }
 .ai-body textarea.cl-in { resize: vertical; font: 12px var(--ui); }
@@ -494,3 +495,57 @@ body.studio-open #renderBox { visibility: visible; position: fixed; z-index: 60;
 .ai-mini.err .ai-mini-bar i { background: var(--rec); }
 .ai-mini small { display: block; color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .ai-mini.indet .ai-mini-bar i { animation: none; width: 100% !important; opacity: .4; } }
+
+/* VST3 plugin panel (channel sheet, mixer effect editor, mastering window) */
+.vst-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; }
+.vst-panel .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.vst-panel .vst-msg:empty, .vst-panel .vst-stat:empty { display: none; }
+.vst-panel .vst-stat { font-size: 11px; margin: 0; }
+.vst-find .vst-filter { width: 200px; max-width: 100%; font-size: 11.5px; padding: 3px 6px; background: var(--s-field); border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); }
+.vst-params { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-start; max-height: 220px; overflow-y: auto; }
+.vst-params .fx-p { width: 72px; min-width: 0; }
+.vst-params .fx-p.vst-p .k { margin-bottom: 4px; }
+.vst-params .fx-p span { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.mx-ed-body.vst { display: block; }
+.mx-slot, .mx-slot .nm { min-width: 0; } /* long plugin names end in an ellipsis */
+
+/* channel rack as in FL: routing box, selector bar, piano roll preview, options arrow */
+.rack-row { grid-template-columns: 14px 18px 18px 22px 132px 1fr 8px; }
+.cbus { width: 22px; height: 20px; padding: 0; border: 1px solid var(--line-2); border-radius: 3px; background: var(--s-field); color: var(--dim, var(--faint)); font: 11px var(--mono, var(--ui)); cursor: pointer; }
+.cbus:hover { color: var(--text); border-color: var(--accent); }
+.csel { width: 8px; align-self: stretch; min-height: 20px; padding: 0; border: 1px solid var(--line-2); border-radius: 2px; background: var(--s-field); cursor: pointer; }
+.csel.on { background: var(--accent); border-color: var(--accent); }
+.steps.preview { position: relative; display: block; height: 24px; padding: 0; border: 1px solid var(--line-2); border-radius: 3px; background: var(--s-field); cursor: pointer; overflow: hidden; }
+.steps.preview i { position: absolute; height: 3px; background: var(--c); border-radius: 1px; }
+.steps.preview:hover { border-color: var(--accent); }
+.rk-opt { min-width: 22px; padding: 2px 4px; }
+.st-patbar .st-swing { display: flex; align-items: center; gap: 4px; }
+
+.br-head .br-search { flex: 1 1 100%; min-width: 0; margin-top: 4px; }
+
+/* the playlist's picker panel (FL: Alt+P) */
+.pl-row { display: flex; flex: 1; min-height: 0; }
+.pl-row > .cv { flex: 1; min-width: 0; }
+.pl-picker { width: 128px; flex: none; overflow-y: auto; border-right: 1px solid var(--line-2); background: var(--s-panel, var(--bg)); padding: 4px; display: flex; flex-direction: column; gap: 3px; }
+.pl-picker[hidden] { display: none; }
+.pl-pk-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 4px; font-size: 11px; color: var(--faint); }
+.pl-pk-head .x { width: 16px; height: 16px; }
+.pl-pk { text-align: left; padding: 3px 6px; border: 1px solid var(--line-2); border-left: 3px solid var(--c); border-radius: 3px; background: var(--s-btn, var(--s-field)); color: var(--text); font: 11px var(--ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.pl-pk.on { border-color: var(--accent); border-left-color: var(--c); }
+.pl-pk.add { text-align: center; border-left-color: var(--line-2); color: var(--faint); }
+/* the steps never scroll row by row: each row is as wide as its cells need, and the whole rack scrolls
+   sideways with one bar at the bottom (as in FL) */
+.steps { grid-template-columns: repeat(var(--n), minmax(7px, 1fr)); }
+.rack-row > .steps:not(.preview):not(.audio) { overflow: visible; min-width: calc(var(--n) * 9px); }
+.rack-row { min-width: max-content; }
+.st-rack { overflow-x: auto; }
+.ch-menu { min-width: 22px; padding: 1px 4px; margin-right: 4px; }
+.sq { min-width: 7px; }
+.steps .sq.bar { margin-left: 2px; }
+/* the menu group is as wide as its menu bar (English names are longer than Korean): the name / hint
+   line under it takes that width without widening it, so HELP is never covered by PAT / SONG */
+.st-tool .tb-menu { width: auto; min-width: 318px; flex: 0 0 auto; }
+.st-tool .tb-menu > :not(.tb-menubar) { contain: inline-size; }
+/* a dialog taller than the window scrolls, with its buttons always in view (Shortcut settings has 50 rows) */
+.st-ask .box { max-height: calc(78vh - 24px); overflow-y: auto; } /* .st-ask starts the box 22vh down */
+.st-ask .box > .row:last-child { position: sticky; bottom: -1px; background: inherit; padding-top: 8px; }

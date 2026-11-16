@@ -17,6 +17,7 @@ class PitchFix extends AudioWorkletProcessor {
 
   constructor() {
     super();
+    this.port.onmessage = (e) => { if (e.data === 'dispose') this.dead = true; }; // the effect was removed: stop, so it can be collected
     this.sr2 = sampleRate / 2;
     this.W = Math.round(this.sr2 * 0.032);              // analysis window (decimated samples)
     this.tauMin = Math.floor(this.sr2 / 1100);
@@ -64,6 +65,7 @@ class PitchFix extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, P) {
+    if (this.dead) return false;
     const inp = inputs[0], out = outputs[0];
     if (!inp || !inp.length) return true;
     const n = inp[0].length, chs = Math.min(out.length, 2);

@@ -1,0 +1,83 @@
+/* MeloFi Synth expert mode (ui/waveeditor.js). Canvas colours come from the studio's well / trace tokens
+   (theme.css), so the editor follows the dark and white themes like the scopes and meters do. */
+#wavewin {
+  --wv-bg: var(--cv-well);
+  --wv-grid: var(--cv-well-grid);
+  --wv-grid-2: var(--cv-well-line);
+  --wv-zero: var(--cv-well-zero);
+  --wv-line: var(--cv-trace);
+  --wv-fill: color-mix(in srgb, var(--cv-trace) 12%, transparent);
+  --wv-ghost: color-mix(in srgb, var(--cv-well-ink) 70%, transparent);
+  --wv-ink: var(--cv-well-ink);
+  --wv-point: var(--cv-trace);
+  --wv-sel: var(--cv-trace);
+  --wv-bar: color-mix(in srgb, var(--cv-trace) 72%, var(--cv-well));
+  --wv-bar-hi: var(--cv-trace);
+  --wv-phase: color-mix(in srgb, var(--cv-well-ink) 85%, var(--cv-trace) 15%);
+  outline: none;
+}
+#wavewin.ch-float { position: fixed; z-index: 42; }
+#wavewin.ch-float[hidden] { display: none; }
+#wavewin .wv-card { width: min(1000px, calc(100vw - 20px)); max-height: calc(100vh - 20px); box-shadow: 0 10px 32px var(--s-shadow); padding-bottom: 0; }
+#wavewin .ch-drag { cursor: move; user-select: none; background: var(--s-chrome); }
+#wavewin .sheet-head h2 { font-size: 13px; font-weight: 600; }
+#wavewin .wv-modes { margin: 0 0 0; padding: 0 12px; }
+
+#wavewin .wv-main { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 12px; padding: 10px 12px 8px; }
+#wavewin .wv-views { display: flex; flex-direction: column; min-width: 0; }
+#wavewin .wv-lbl { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 4px; font-size: 10.5px; color: var(--faint); }
+#wavewin .wv-lbl em { font: 10.5px var(--mono); font-style: normal; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wavewin .wv-wave { display: block; width: 100%; height: 276px; border: 1px solid var(--line); border-radius: 3px; cursor: crosshair; touch-action: none; margin-bottom: 8px; }
+#wavewin .wv-harm { display: block; width: 100%; height: 132px; border: 1px solid var(--line); border-radius: 3px; cursor: ns-resize; touch-action: none; }
+
+#wavewin .wv-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-height: 452px; overflow: hidden auto; }
+#wavewin .wv-box { padding: 6px 9px 7px; background: var(--s-box); border: 1px solid var(--line); border-radius: 3px; display: flex; flex-direction: column; gap: 6px; }
+#wavewin .wv-box > b { font-weight: 500; font-size: 10.5px; color: var(--faint); }
+#wavewin .wv-seg { display: flex; border: 1px solid var(--line-2); border-radius: 3px; overflow: hidden; }
+#wavewin .wv-seg button { flex: 1 1 0; padding: 4px 6px; background: var(--s-ctl); border: 0; border-left: 1px solid var(--line-2); color: var(--dim); font: 11px var(--ui); white-space: nowrap; }
+#wavewin .wv-seg button:first-child { border-left: 0; }
+#wavewin .wv-seg button.on { background: var(--s-tab-on); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+#wavewin .wv-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#wavewin .wv-row .sp, #wavewin .wv-foot .sp, #wavewin .wv-strip-bar .sp { flex: 1; }
+#wavewin .wv-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); white-space: nowrap; }
+#wavewin .wv-inline select, #wavewin .wv-src { font-size: 11px; padding: 1px 18px 1px 4px; background-color: var(--s-field); border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); }
+#wavewin .wv-src { width: 100%; }
+#wavewin .wv-n { width: 56px; padding: 2px 4px; font: 11px var(--mono); }
+#wavewin .wv-ops { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+#wavewin .wv-ops .btn { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#wavewin .wv-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--faint); }
+#wavewin .wv-hint.mono { font: 10.5px var(--mono); word-spacing: 3px; }
+#wavewin .wv-err { margin: 0; min-height: 15px; font-size: 11px; color: var(--rec); }
+#wavewin .wv-formula { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 7px; background: var(--s-input); border: 1px solid var(--line-2); border-radius: 3px; color: var(--text); font: 12px/1.45 var(--mono); }
+#wavewin .wv-formula:focus { border-color: var(--accent); outline: none; }
+#wavewin .wv-ex { display: flex; flex-direction: column; gap: 2px; }
+#wavewin .wv-code { text-align: left; padding: 3px 6px; background: none; border: 1px solid transparent; border-radius: 2px; color: var(--dim); font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wavewin .wv-code:hover { background: var(--s-row-hover); border-color: var(--line); color: var(--text); }
+
+#wavewin .wv-table { padding: 8px 12px; border-top: 1px solid var(--line); background: var(--s-card-2); }
+#wavewin .wv-strip-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#wavewin .wv-cap { font-size: 10.5px; color: var(--faint); }
+#wavewin .wv-count, #wavewin .wv-num { font: 11px var(--mono); font-style: normal; color: var(--text); min-width: 52px; }
+#wavewin .wv-num { min-width: 36px; text-align: right; }
+#wavewin .wv-inline input[type=range] { width: 130px; accent-color: var(--accent); }
+#wavewin .wv-strip-row { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 12px; align-items: start; }
+#wavewin .wv-strip { display: flex; gap: 3px; overflow-x: auto; padding: 2px 0 6px; min-height: 46px; }
+#wavewin .wv-thumb { flex: 0 0 auto; width: 64px; height: 36px; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
+#wavewin .wv-thumb:hover { border-color: var(--line-2); }
+#wavewin .wv-thumb.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+#wavewin .wv-3d { display: block; width: 100%; height: 86px; border: 1px solid var(--line); border-radius: 3px; cursor: ew-resize; touch-action: none; }
+
+#wavewin .wv-foot { display: flex; align-items: center; gap: 6px; padding: 8px 12px 12px; border-top: 1px solid var(--line); }
+#wavewin .wv-msg { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px; }
+
+/* the channel sheet's oscillator heads */
+.sy-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.sy-head b { margin-bottom: 0 !important; }
+.sy-expert { padding: 1px 7px; background: var(--s-ctl); border: 1px solid var(--line-2); border-radius: 3px; color: var(--dim); font: 10.5px var(--ui); }
+.sy-expert:hover { color: var(--text); border-color: var(--s-ctl-hover-line); }
+.sy-expert.on { color: var(--accent-ink); border-color: var(--accent); }
+#wavewin .wv-modes { align-items: center; }
+#wavewin .wv-modes .sp { flex: 1; }
+#wavewin .wv-modes .wv-hist { padding: 3px 9px; font-size: 11px; color: var(--dim); border: 1px solid var(--line-2); border-radius: 3px; background: var(--s-ctl); margin-left: 4px; }
+#wavewin .wv-modes .wv-hist:hover:not(:disabled) { color: var(--text); }
+#wavewin .wv-modes .wv-hist:disabled { opacity: .45; cursor: default; }

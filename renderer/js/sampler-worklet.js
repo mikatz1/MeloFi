@@ -53,6 +53,7 @@ class Sampler extends AudioWorkletProcessor {
   }
 
   onMessage(m) {
+    if (!m) return;
     switch (m.type) {
       case 'sample':
         this.samples.set(m.id, { L: m.L, R: m.R || m.L, len: m.L.length });
@@ -62,6 +63,9 @@ class Sampler extends AudioWorkletProcessor {
         break;
       case 'clear': // an offline render is done: let go of every sample (each render got its own copies)
         this.samples.clear(); this.voices = []; this.pendingOffs = []; this.queue = []; this.qi = 0;
+        break;
+      case 'dispose': // the channel is gone: drop every sample and stop, so the processor can be collected
+        this.samples.clear(); this.voices = []; this.pendingOffs = []; this.queue = []; this.qi = 0; this.dead = true;
         break;
       case 'ping': // everything sent before this has been handled (offline renders wait for it)
         this.port.postMessage({ type: 'pong', n: m.n });
@@ -128,6 +132,7 @@ class Sampler extends AudioWorkletProcessor {
   }
 
   process(_in, outputs) {
+    if (this.dead) return false; // disposed: no more processing, the node can be garbage collected
     const out = outputs[0];
     const oL = out[0], oR = out[1] || out[0];
     const n = oL.length;

@@ -18,6 +18,7 @@ class Maximizer extends AudioWorkletProcessor {
 
   constructor() {
     super();
+    this.port.onmessage = (e) => { if (e.data === 'dispose') this.dead = true; }; // the effect was removed: stop, so it can be collected
     const L = this.L = Math.max(1, Math.round((LOOK_MS / 1000) * sampleRate)), T = LIM_T;
     this.W = L + T + 1;                  // window of the minimum hold
     this.R = 1 << Math.ceil(Math.log2(L + 2 * T + 8)); // ring size (power of two)
@@ -29,6 +30,7 @@ class Maximizer extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, params) {
+    if (this.dead) return false;
     const inp = inputs[0], out = outputs[0];
     const n = out[0].length;
     const inL = inp && inp[0] ? inp[0] : null, inR = inp && (inp[1] || inp[0]) ? (inp[1] || inp[0]) : null;
@@ -156,6 +158,7 @@ class DynEq extends AudioWorkletProcessor {
 
   constructor() {
     super();
+    this.port.onmessage = (e) => { if (e.data === 'dispose') this.dead = true; }; // the effect was removed: stop, so it can be collected
     this.st = new Float64Array(32); // EQ filter state [band][channel]
     this.dt = new Float64Array(32); // detector state
     this.env = [0, 0, 0, 0]; this.gain = [0, 0, 0, 0];
@@ -163,6 +166,7 @@ class DynEq extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, P) {
+    if (this.dead) return false;
     const inp = inputs[0], out = outputs[0];
     if (!inp || !inp[0]) { for (const ch of out) ch.fill(0); return true; }
     const n = out[0].length, chans = Math.min(2, inp.length, out.length);

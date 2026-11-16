@@ -165,7 +165,18 @@ export async function sampleInstrument(spec, rate = 48000) {
       regions.push({ s, lo, hi, c, t: spec.tune || 0, lv: 1, hv: 127, g: 1, r: spec.release ?? 0.12, off: 0, attack: spec.attack || 0,
         loop: spec.loop ? [0, part.L.length] : null });
     };
-    if (spec.slices?.length) {
+    if (spec.cuts?.length) {
+      // an instrument cut from a recording (stemsampler.js): one region per cut, each a single
+      // note of the recording at its own pitch, spread over the keys around it. Cuts carry their
+      // own level (g) so a quiet note and a loud one play alike.
+      spec.cuts.forEach((c, i) => {
+        const s = `cut${i}`;
+        add(s, cut(c.start, c.end), c.lo, c.hi, c.root);
+        const r = regions.at(-1);
+        r.g = c.g ?? 1; r.r = c.release ?? spec.release ?? 0.12; r.attack = c.attack ?? spec.attack ?? 0;
+        if (c.loop) r.loop = [Math.round(c.loop[0] * sr), Math.round(c.loop[1] * sr)];
+      });
+    } else if (spec.slices?.length) {
       const ts = spec.slices;
       ts.forEach((t, i) => { const k = (spec.root ?? 60) + i; if (k <= 127) add(`slice${i}`, cut(t, ts[i + 1] ?? spec.end ?? buf.duration), k, k, k); });
     } else {

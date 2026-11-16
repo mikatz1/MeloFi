@@ -90,6 +90,16 @@ const make = (updater, extra = {}) => {
   ok(seen.length === 0 && ctl.state().phase === 'idle', 'missing latest.yml: silent');
 }
 
+// autoGet (the app): a found update downloads by itself and ends ready for 지금 다시 시작
+{
+  const u = new FakeUpdater({ latest: '0.3.3' });
+  const { ctl } = make(u, { autoGet: true });
+  await ctl.check();
+  for (let i = 0; i < 10 && ctl.state().phase !== 'ready'; i++) await tick();
+  ok(u.downloads === 1 && ctl.state().phase === 'ready' && ctl.state().version === '0.3.3', 'autoGet: found -> downloaded -> ready');
+  ok(ctl.restart() === true, 'autoGet: restart allowed at once');
+}
+
 // download fails -> 다시 받기
 {
   const u = new FakeUpdater({ latest: '0.3.1', failDownload: 'ECONNRESET' });

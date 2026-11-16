@@ -48,6 +48,13 @@ export async function loadSome(id, keys) {
   const { m, byKey } = await manifests.get(id);
   const pick = (note, vel) => { const list = byKey[note]; if (!list?.length) return null; return list.find((r) => vel >= r.lv && vel <= r.hv) || list.reduce((b, r) => (Math.abs((r.lv + r.hv) / 2 - vel) < Math.abs((b.lv + b.hv) / 2 - vel) ? r : b)); };
   const want = [...new Set(keys.map(([n, v]) => pick(n, v)?.s).filter(Boolean))];
+  // an instrument that is not installed: just these samples are fetched first (only the files the
+  // notes use, never the whole instrument)
+  // (window.__offline: a test run on a metered connection plays only what is on disk)
+  if (!m.procedural && window.melofi?.fetchSamples && !window.__offline) {
+    const missing = want.filter((s) => !someCache.has(`${id}:${s}`));
+    if (missing.length) await window.melofi.fetchSamples(id, missing).catch(() => null);
+  }
   const data = new Map();
   await Promise.all(want.map(async (s) => {
     const key = `${id}:${s}`;
@@ -72,7 +79,8 @@ export async function loadSome(id, keys) {
 // are dropped from it (channels that still use one keep their own reference, so nothing stops
 // playing); without a limit, trying many instruments in one session ran the renderer out of memory
 // and every later decode failed ("Unable to decode audio data").
-const CACHE_BYTES = 1.5e9, sizes = new Map(); // id -> decoded bytes
+// 1 GB: room for a full project's instruments and a few tried ones, with headroom left on 16 GB PCs
+const CACHE_BYTES = 1.0e9, sizes = new Map(); // id -> decoded bytes
 function trimCache(keep) {
   let total = 0;
   for (const b of sizes.values()) total += b;
@@ -82,6 +90,12 @@ function trimCache(keep) {
     total -= sizes.get(k); sizes.delete(k); cache.delete(k);
   }
 }
+
+// Decoded samples are posted to every channel's sampler worklet. In a cross-origin isolated page they live in
+// a SharedArrayBuffer, so posting shares them instead of copying (one copy in memory however many channels
+// and offline renders play the instrument); elsewhere a plain array, copied as before.
+const sharedI16 = (n) => (globalThis.crossOriginIsolated && typeof SharedArrayBuffer === 'function' ? new Int16Array(new SharedArrayBuffer(n * 2)) : new Int16Array(n));
+export const samplesShared = () => !!globalThis.crossOriginIsolated;
 
 export function loadInstrument(id, onProgress = () => {}, budgetMB = 260) {
   if (cache.has(id)) { const p = cache.get(id); cache.delete(id); cache.set(id, p); return p; } // most recent last
@@ -99,7 +113,7 @@ export function loadInstrument(id, onProgress = () => {}, budgetMB = 260) {
         const s = want[i++], meta = m.samples[s];
         const buf = m.procedural ? await renderSample(m, s) : await decoder(meta.rate, meta.ch).decodeAudioData(await (await fetch(`${BASE}${id}/${s}`)).arrayBuffer());
         const n = buf.length + PAD * 2;
-        data.set(s, { L: toInt16(buf.getChannelData(0), new Int16Array(n)), R: buf.numberOfChannels > 1 ? toInt16(buf.getChannelData(1), new Int16Array(n)) : null });
+        data.set(s, { L: toInt16(buf.getChannelData(0), sharedI16(n)), R: buf.numberOfChannels > 1 ? toInt16(buf.getChannelData(1), sharedI16(n)) : null });
         onProgress(++done / want.length);
       }
     };
@@ -222,9 +236,16 @@ export class SamplerChannel {
     this.held.clear();
   }
 
+  // a channel that is removed (or a project closed) must also free the worklet's own copies of its
+  // samples: a disconnected node keeps its processor, and every project opened added another full set
   dispose() {
     this.stop();
+    this.node.port.postMessage({ type: 'dispose' });
+    this.node.port.onmessage = null;
+    for (const done of this.pongs.values()) done();
+    this.pongs.clear();
     this.node.disconnect();
+    this.inst = null;
   }
 
   // after an offline render: the worklet holds its own copy of every sample (posting copies them),

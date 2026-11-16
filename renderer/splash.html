@@ -24,6 +24,7 @@
       <b>MeloFi</b><span class="mini-ver"></span>
     </div>
     <span class="sp"></span>
+    <button id="setupBtn" class="who setup-btn" type="button" hidden></button>
     <select id="lang" class="lang"></select>
     <button id="who" class="who" type="button" hidden></button>
     <button id="quit" class="quit" type="button" title="MeloFi 종료" aria-label="MeloFi 종료"></button>
@@ -98,24 +99,17 @@
     <div class="hint">1 · 2 또는 ← → 선택 후 Enter로 열기</div>
   </section>
 
-  <section class="acct" id="acct" hidden aria-label="MeloFi 계정 센터">
+  <section class="acct" id="acct" hidden aria-label="계정">
     <div class="acct-head">
       <button id="back" class="back" type="button">← 돌아가기</button>
-      <b id="acctTitle">계정 센터</b>
+      <b id="acctTitle">계정</b>
     </div>
     <div class="acct-main">
-      <aside class="acct-aside" id="acctAside">
-        <b>MeloFi 계정</b>
-        <ul>
-          <li><em>온라인 저장</em>작곡 프로젝트를 서버에 저장하고 어느 PC에서든 이어서 작업해요.</li>
-          <li><em>공유</em>공유 코드나 링크로 프로젝트를 전달할 수 있어요. (수신자 로그인 불필요)</li>
-          <li><em>내 정보 관리</em>닉네임·비밀번호·마케팅 수신 동의를 바꾸고, 내 데이터를 파일로 내려받을 수 있어요.</li>
-        </ul>
-        <p>로그인 없이도 모든 기능을 이용할 수 있어요.</p>
-      </aside>
       <div class="acct-body" id="acctBody"></div>
     </div>
   </section>
+  <!-- 처음 설정 (js/firstrun.js): a new install starts here; others reach it through 설정 마무리하기 -->
+  <section class="setup" id="setup" hidden aria-label="처음 설정"></section>
 </div>
 <script type="module" src="js/splash.js"></script>
 </body>

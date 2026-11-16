@@ -24,7 +24,7 @@ export function encodeMidi(events, { name = 'MeloFi', bpm = 120, ppq = 960 } = {
   const tick = (ms) => Math.round((ms / 1000) * (bpm / 60) * ppq);
 
   const t0 = [
-    0, ...text(0x03, 'MeloFi'),
+    0, ...text(0x03, name), // the sequence name (track 0) is what players and MeloFi read as the title
     0, 0xff, 0x51, 0x03, (usPerQ >> 16) & 255, (usPerQ >> 8) & 255, usPerQ & 255,
     0, 0xff, 0x58, 0x04, 4, 2, 24, 8,
     0, 0xff, 0x2f, 0x00,

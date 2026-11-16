@@ -18,7 +18,7 @@ button { cursor: pointer; }
     radial-gradient(420px 260px at -6% 108%, rgba(64, 150, 160, .12), transparent 70%),
     linear-gradient(160deg, #13151a 0%, #101114 55%, #15130f 100%);
 }
-.card button, .card input, .card a, .card .acct { -webkit-app-region: no-drag; }
+.card button, .card input, .card select, .card a, .card .acct { -webkit-app-region: no-drag; }
 .lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .lines .l { fill: none; stroke: rgba(236, 233, 226, .07); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .lines .l2 { stroke: rgba(236, 233, 226, .05); }
@@ -113,13 +113,16 @@ button { cursor: pointer; }
 .who i { width: 22px; height: 22px; font-size: 11px; }
 .who .chev { color: var(--faint); font-size: 10px; margin-left: 2px; }
 .who.out { padding-left: 12px; }
+.setup-btn { padding: 0 12px; color: var(--accent); border-color: rgba(224, 164, 64, .45); }
+.setup-btn:hover { border-color: var(--accent); }
+.setup { position: absolute; inset: 0; z-index: 6; -webkit-app-region: no-drag; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* account panel over the whole card */
 .acct { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-rows: auto 1fr; background: #121317; border: 1px solid #25262c; animation: rise .22s cubic-bezier(.2, .8, .2, 1) both; user-select: text; cursor: auto; }
 .acct-head { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--line); -webkit-app-region: drag; }
 .acct-head b { font-weight: 600; }
-.acct-main { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+.acct-main { display: grid; grid-template-columns: 1fr; min-height: 0; } /* one column: the account center (js/accounts-ui.js) */
 .acct-aside { padding: 22px 24px; border-right: 1px solid var(--line); background: rgba(10, 11, 14, .45); overflow: auto; }
 .acct-aside b { display: block; font-size: 16px; font-weight: 600; color: #f2efe8; margin-bottom: 14px; }
 .acct-aside ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
@@ -132,7 +135,8 @@ button { cursor: pointer; }
 .who i svg { width: 13px; height: 13px; fill: currentColor; display: block; }
 .back { height: 26px; padding: 0 8px; background: none; border: 1px solid transparent; border-radius: 3px; color: var(--dim); }
 .back:hover { border-color: #34353c; color: var(--text); }
-.acct-body { overflow: auto; padding: 14px 22px 18px; }
+.acct-body { overflow: auto; padding: 18px 22px 18px; }
+.acct-body .mfa { margin: 0 auto; }
 .acct-body::-webkit-scrollbar { width: 8px; } .acct-body::-webkit-scrollbar-thumb { background: #2c2d33; border-radius: 4px; }
 .tabs { display: flex; gap: 2px; margin-bottom: 12px; }
 .tabs button { padding: 4px 10px; background: none; border: 1px solid transparent; border-radius: 3px; color: var(--dim); }

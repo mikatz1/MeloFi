@@ -37,6 +37,20 @@ if(MELOFI_TEST_SYNTH)
     target_sources(MeloFiTestSynth PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../testsynth/TestSynth.cpp)
     target_compile_definitions(MeloFiTestSynth PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
     target_link_libraries(MeloFiTestSynth PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
+
+    # and a tiny VST3 effect (a gain knob), for the mixer insert tests
+    juce_add_plugin(MeloFiTestEffect
+        PRODUCT_NAME "MeloFi Test Effect"
+        COMPANY_NAME "MeloFi"
+        PLUGIN_MANUFACTURER_CODE Melo
+        PLUGIN_CODE Mtfx
+        FORMATS VST3
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE)
+    target_sources(MeloFiTestEffect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../testfx/TestEffect.cpp)
+    target_compile_definitions(MeloFiTestEffect PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_link_libraries(MeloFiTestEffect PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
 endif()
 
 target_link_libraries(MeloFiVstHost PRIVATE

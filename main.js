@@ -6,6 +6,7 @@ const fsp = require('node:fs/promises');
 const { spawn } = require('node:child_process');
 const daw = require('./daw.js');
 const account = require('./account.js');
+const vbcable = require('./vbcable.js'); // 가상 마이크: VB-CABLE install and latency (vmic.js)
 const studioFiles = require('./studio-files.js');
 const crashlog = require('./crashlog.js');
 const i18n = require('./i18n-main.js');
@@ -28,11 +29,31 @@ if (process.env.MELOFI_SHOT) {
 // One MeloFi at a time: launching it again just brings the open window forward.
 // (Headless test runs use their own userData and never show a window.)
 const HEADLESS = !!process.env.MELOFI_SHOT;
+// Headless runs never put a native dialog, Explorer window or browser tab on the user's screen:
+// file dialogs answer "cancelled" (or the next answer a test queued with test:dialogAnswer),
+// message boxes their cancel button, and shell calls are only logged (test:dialogLog reads the log).
+const testDialogs = { log: [], answers: [] };
+if (HEADLESS && !process.env.MELOFI_REAL_DIALOGS) {
+  const note = (kind, detail) => { testDialogs.log.push({ kind, detail: String(detail ?? '').slice(0, 200) }); return testDialogs.answers.shift(); };
+  dialog.showOpenDialog = async (...a) => note('open', (a.at(-1) || {}).title || '') || { canceled: true, filePaths: [] };
+  dialog.showSaveDialog = async (...a) => note('save', (a.at(-1) || {}).defaultPath || '') || { canceled: true, filePath: '' };
+  dialog.showOpenDialogSync = (...a) => note('open', (a.at(-1) || {}).title || '')?.filePaths;
+  dialog.showSaveDialogSync = (...a) => note('save', (a.at(-1) || {}).defaultPath || '')?.filePath;
+  const box = (o = {}) => note('box', o.message) || { response: o.cancelId ?? Math.max(0, (o.buttons || ['']).length - 1), checkboxChecked: false };
+  dialog.showMessageBox = async (...a) => box(a.at(-1));
+  dialog.showMessageBoxSync = (...a) => box(a.at(-1)).response;
+  dialog.showErrorBox = (title, msg) => { note('error', `${title}: ${msg}`); };
+  shell.openExternal = async (u) => { note('openExternal', u); };
+  shell.openPath = async (p) => { note('openPath', p); return ''; };
+  shell.showItemInFolder = (p) => { note('showItem', p); };
+}
 if (!HEADLESS && !app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv) => {
+  const link = linkFrom(argv);
+  if (link) { openLink(link); return; }
   if (splash) { splash.focus(); return; } // still starting up
   if (!win) return;
   if (win.isMinimized()) win.restore();
@@ -70,7 +91,7 @@ function createSplash() {
   splash.loadURL('melofi://app/renderer/splash.html');
   if (HEADLESS) {
     // test runs: invisible, and the card is captured part-way and the steps logged
-    splash.once('ready-to-show', () => { splash.setOpacity(0); splash.showInactive(); });
+    splash.once('ready-to-show', () => { splash.setIgnoreMouseEvents(true); splash.setOpacity(0); splash.showInactive(); });
     const t0 = Date.now();
     splash.webContents.on('ipc-message', () => {});
     ipcMain.on('boot:progress', (_e, m) => console.log(`[boot] ${Date.now() - t0}ms ${Math.round(m.p * 100)}% ${m.label} ${m.detail || ''}`));
@@ -93,6 +114,29 @@ function createWindow() {
 
 // After loading, the card asks where to go (piano or MeloFi Studio); startChoice is the answer.
 let startChoice = null;
+
+// melofi://piano?vmic=1: the link behind the Discord bot's /piano (MeloFi Helper's /open page).
+// It opens the piano, skipping the start card, and turns on Discord로 연주 보내기. Only that one
+// action is read from the link; the microphone keeps whatever the user set.
+let pendingLink = null;
+let winBooted = false;
+function linkFrom(argv) {
+  const a = (argv || []).find((x) => /^melofi:\/\/piano(?:[/?#]|$)/i.test(String(x)));
+  if (!a) return null;
+  try { return { vmic: new URL(a).searchParams.get('vmic') === '1' }; } catch { return null; }
+}
+function openLink(link) {
+  if (!startChoice) startChoice = 'piano';
+  if (!win || win.isDestroyed() || !winBooted) { pendingLink = link; return; } // the page takes it when it starts
+  win.webContents.send('deeplink', link);
+  if (startChoice !== 'piano') startChoice = 'piano';
+  if (!win.isVisible()) revealWindow(win);
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+pendingLink = HEADLESS && !process.env.MELOFI_LINK_TEST ? null : linkFrom(process.argv);
+if (pendingLink) startChoice = 'piano';
 
 // show a window that waited for its page to finish loading; the chosen window takes over from the card
 function revealWindow(w) {
@@ -136,7 +180,9 @@ function makeWindow(size, query, page = 'index.html', { waitBoot = false } = {})
     },
   });
   w.loadURL(`melofi://app/renderer/${page}${query}`);
-  if (HEADLESS) w.once('ready-to-show', () => { w.setOpacity(0); w.showInactive(); }); // invisible, no taskbar, no focus
+  // invisible, no taskbar, no focus, and clicks pass through it: an invisible window still caught
+  // the mouse over its area, so a test run in the background ate the user's clicks on other windows
+  if (HEADLESS) w.once('ready-to-show', () => { w.setIgnoreMouseEvents(true); w.setOpacity(0); w.showInactive(); });
   else if (!waitBoot) w.once('ready-to-show', () => w.show());
   else {
     // shown once the page says it is ready (boot:ready), or after 30 s whatever happens
@@ -152,7 +198,7 @@ function makeWindow(size, query, page = 'index.html', { waitBoot = false } = {})
   if (process.env.MELOFI_DEV) w.webContents.openDevTools({ mode: 'detach' });
   if (process.env.MELOFI_LOG || process.env.MELOFI_SHOT) {
     const tag = page !== 'index.html' ? 'picker' : query ? 'studio' : 'renderer';
-    w.webContents.on('console-message', (e) => console.log(`[${tag}:${e.level}] ${e.message}`));
+    w.webContents.on('console-message', (e) => console.log(`[${tag}:${e.level}] ${e.message}${e.level === 'error' && e.sourceId ? ` @${String(e.sourceId).split('/').pop()}:${e.lineNumber}` : ''}`));
   }
   return w;
 }
@@ -219,6 +265,8 @@ function stamp() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  // melofi://piano links open this app (the installer registers it too; dev runs do not)
+  if (app.isPackaged && !HEADLESS) app.setAsDefaultProtocolClient('melofi');
   i18n.init(SETTINGS_FILE()); // the language of dialogs and window titles (docs/i18n.md)
   ipcMain.on('i18n:boot', (e) => { e.returnValue = i18n.boot(); }); // each window's language at start
 
@@ -249,7 +297,12 @@ app.whenReady().then(() => {
     }
     try {
       const data = await fsp.readFile(full);
-      return new Response(data, { headers: { 'content-type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream' } });
+      const ext = path.extname(full).toLowerCase();
+      // pages and scripts are cross-origin isolated, so instrument samples can live in SharedArrayBuffers that
+      // the audio worklets read without a copy each (renderer/studio/channel.js). credentialless keeps remote
+      // pictures (GitHub / Discord avatars) loading.
+      const iso = (ext === '.html' || ext === '.js' || ext === '.mjs') && !(HEADLESS && process.env.MELOFI_NO_ISOLATION) ? { /* a test can turn it off to compare */ 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' } : {};
+      return new Response(data, { headers: { 'content-type': MIME[ext] || 'application/octet-stream', ...iso } });
     } catch {
       return new Response('not found', { status: 404 });
     }
@@ -341,6 +394,40 @@ app.whenReady().then(() => {
       downloads.delete(id);
     }
   });
+  // Only some samples of an instrument that is not installed (the timbre matching plays a few notes
+  // of a shortlisted candidate): those files, fetched the way a full download would fetch them. A
+  // source that can only come whole (a 7z or tar archive) is left alone: { ok: false, whole: true }.
+  const fetching = new Map(); // id -> the running partial fetch
+  ipcMain.handle('instruments:fetchSome', async (_e, id, names) => {
+    id = path.basename(String(id));
+    while (fetching.has(id)) await fetching.get(id).catch(() => {});
+    const job = (async () => {
+      const m = JSON.parse(await fsp.readFile(path.join(INSTRUMENTS_DIR, id, 'manifest.json'), 'utf8'));
+      const src = m.source;
+      if (!src || downloads.has(id)) return { ok: false };
+      const dir = path.join(USER_INST(), id);
+      const want = [...new Set(names || [])].filter((n) => src.files?.[n] && !fs.existsSync(path.join(dir, n)) && !fs.existsSync(path.join(INSTRUMENTS_DIR, id, n)));
+      if (!want.length) return { ok: true, got: 0 };
+      await fsp.mkdir(path.join(dir, 's'), { recursive: true });
+      if (src.kind === 'archive' || src.kind === 'sf2') {
+        if (src.kind === 'archive' && !(src.format === 'zip' && src.zip)) return { ok: false, whole: true };
+        try {
+          await require('./lib/install-source').installSource(src, dir, { id, signal: new AbortController().signal, tmpDir: path.join(USER_INST(), '_downloads'), progress: () => {}, only: want });
+        } catch (err) { return { ok: false, whole: !!err.whole, error: String(err.message || err) }; }
+        return { ok: true, got: want.length };
+      }
+      for (const n of want) {
+        const r = await fetch(`https://raw.githubusercontent.com/${src.repo}/${src.branch}/${src.files[n].split('/').map(encodeURIComponent).join('/')}`, { headers: { 'User-Agent': 'MeloFi' } });
+        if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+        const dst = path.join(dir, n);
+        await fsp.writeFile(dst + '.part', Buffer.from(await r.arrayBuffer()));
+        await fsp.rename(dst + '.part', dst);
+      }
+      return { ok: true, got: want.length };
+    })();
+    fetching.set(id, job);
+    try { return await job; } catch (err) { return { ok: false, error: String(err.message || err) }; } finally { fetching.delete(id); }
+  });
   ipcMain.handle('instruments:cancel', (_e, id) => { downloads.get(id)?.abort(); return true; });
   ipcMain.handle('instruments:remove', async (_e, id) => {
     downloads.get(id)?.abort();
@@ -377,9 +464,12 @@ app.whenReady().then(() => {
   ipcMain.on('boot:ready', (e) => {
     const w = BrowserWindow.fromWebContents(e.sender);
     if (!w) return;
+    if (w === win) winBooted = true;
     if (w === win && splash && !startChoice) { splash.webContents.send('boot:done'); return; } // ask where to go
     revealWindow(w);
   });
+  // a melofi://piano link that arrived before the piano page was up (openLink)
+  ipcMain.handle('deeplink:take', () => { const l = pendingLink; pendingLink = null; return l; });
   // the card's answer: 'piano' or 'studio'
   // the start card grows when it turns into the choice screen, staying centred where it was
   ipcMain.handle('splash:resize', (_e, w, h) => {
@@ -481,6 +571,21 @@ app.whenReady().then(() => {
   if (HEADLESS) {
     const testWin = (e, which) => ({ picker: pickerWin, keys: keysWin, splash, studio: studioWin, piano: win }[which] || BrowserWindow.fromWebContents(e.sender));
     ipcMain.handle('test:eval', (e, which, code) => { const w = testWin(e, which); return w && !w.isDestroyed() ? w.webContents.executeJavaScript(code) : null; });
+    // a file into the run's output folder (tools/e2e/roundtrip-eval.js: songs, MP3s, MIDI results)
+    // (a name may have one folder: 'oracle-pop/result.json')
+    const testFile = (name) => path.join(process.env.MELOFI_SHOT, ...String(name).split('/').slice(-2).map((s) => s.replace(/[^\w.-]+/g, '_').replace(/^\.+/, '_')));
+    ipcMain.handle('test:write', (_e, name, data) => {
+      const f = testFile(name);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, typeof data === 'string' ? data : Buffer.from(data));
+      return f;
+    });
+    ipcMain.handle('test:read', (_e, name) => { try { return fs.readFileSync(testFile(name)); } catch { return null; } });
+    // native dialogs and shell calls the run asked for (see testDialogs at the top), and canned answers
+    // memory of every process of the app (MB private), for long runs (tools/e2e/sweep-e2e.js)
+    ipcMain.handle('test:metrics', () => app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, mb: Math.round((m.memory?.privateBytes || m.memory?.workingSetSize || 0) / 1024) })));
+    ipcMain.handle('test:dialogLog', (_e, clear) => { const l = testDialogs.log.slice(); if (clear) testDialogs.log.length = 0; return l; });
+    ipcMain.handle('test:dialogAnswer', (_e, answer) => { testDialogs.answers.push(answer); return testDialogs.answers.length; });
     ipcMain.handle('test:shot', async (e, which, name) => {
       const w = testWin(e, which);
       if (!w || w.isDestroyed()) return false;
@@ -577,6 +682,9 @@ app.whenReady().then(() => {
   ipcMain.handle('shell:showItem', (_e, p) => { if (p) shell.showItemInFolder(p); });
   daw.register(ipcMain, { defaultDir: () => path.join(defaultRecordDir(), 'DAW'), iconPath: path.join(ROOT, 'renderer', 'assets', 'icon.png'), shell });
   account.register(ipcMain, { app });
+  vbcable.register(ipcMain, { app });
+  require('./workshop.js').register(ipcMain, { app, dialog, BrowserWindow }); // 창작마당
+  require('./firstrun.js').register(ipcMain); // 처음 설정: Windows settings pages
   studioFiles.register(ipcMain, { app, dialog, getWin: ownerWin, defaultDir: defaultRecordDir });
   require('./vocal').register(ipcMain, { app });
   require('./stems').register(ipcMain, { app, findFfmpeg });

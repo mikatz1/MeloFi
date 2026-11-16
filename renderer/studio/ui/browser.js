@@ -12,6 +12,7 @@ export class Browser {
     this.cwd = null;     // current folder path, or null for the top level
     this.items = [];
     this.preview = null;
+    this.filter = ''; // FL: the browser's search (Ctrl+F) narrows what is listed
   }
 
   get roots() { return this.S.app.settings.get('browserRoots') || []; }
@@ -54,32 +55,55 @@ export class Browser {
     const data = await window.melofi.mediaRead(item.path);
     if (!data) return;
     if (how === 'clip') await this.S.addAudioClip(item.name, data);
-    else await this.S.addSampleChannel(how, null, { name: item.name, data });
+    else if (how === 'selected') { // FL: Send to selected channel
+      const ch = this.S.proj.channels.find((c) => c.id === this.S.proj.selected);
+      await this.S.addSampleChannel(ch?.kind === 'slicer' ? 'slicer' : 'sample', ch && ['sample', 'slicer'].includes(ch.kind) ? ch : null, { name: item.name, data });
+    } else await this.S.addSampleChannel(how, null, { name: item.name, data });
+  }
+
+  // FL's file menu in the browser
+  fileMenu(e, it, inProject) {
+    const S = this.S;
+    e.preventDefault();
+    const sel = S.proj.channels.find((c) => c.id === S.proj.selected);
+    popup(e.clientX, e.clientY, [
+      { label: t('듣기'), act: () => (inProject ? this.listenHash(it.hash) : this.listen(it)) },
+      { label: t('선택한 채널로 보내기'), hint: sel && ['sample', 'slicer'].includes(sel.kind) ? sel.name : t('샘플 채널이 아니면 새 채널'), disabled: inProject, act: () => this.use(it, 'selected') },
+      { label: t('새 샘플 채널로 열기'), act: () => (inProject ? S.addSampleChannelFromHash('sample', it.hash) : this.use(it, 'sample')) },
+      { label: t('새 슬라이서 채널로 열기'), act: () => (inProject ? S.addSampleChannelFromHash('slicer', it.hash) : this.use(it, 'slicer')) },
+      { label: t('플레이리스트에 오디오 클립으로'), act: () => (inProject ? S.addAudioClipFromHash(it.hash) : this.use(it, 'clip')) },
+      ...(inProject ? [] : [{ sep: true }, { label: t('파일 위치 열기'), act: () => window.melofi.showItem?.(it.path) }]),
+    ]);
   }
 
   render() {
     const S = this.S;
+    const search = h('input', { class: 'cl-in br-search', type: 'search', placeholder: t('검색 (Ctrl+F)'), value: this.filter,
+      oninput: (e) => { this.filter = e.target.value; const pos = e.target.selectionStart; this.render(); const n = this.el.querySelector('.br-search'); n?.focus(); n?.setSelectionRange(pos, pos); } });
     const head = h('div', { class: 'br-head' },
       h('button', { class: 'btn sm', onclick: () => this.addRoot() }, t('+ 폴더 추가')),
+      h('button', { class: 'btn sm ghost', title: t('새로고침'), onclick: () => this.open(this.cwd) }, t('새로고침')),
       this.cwd ? h('button', { class: 'btn sm ghost', onclick: () => { const up = this.cwd.replace(/[\\/][^\\/]+$/, ''); this.open(this.roots.some((r) => up.length >= r.length && up.startsWith(r)) ? up : null); } }, t('↑ 위로')) : null,
-      h('span', { class: 'br-path', title: this.cwd || '' }, this.cwd ? this.cwd.split(/[\\/]/).slice(-2).join(' / ') : t('샘플 브라우저')));
+      h('span', { class: 'br-path', title: this.cwd || '' }, this.cwd ? this.cwd.split(/[\\/]/).slice(-2).join(' / ') : t('샘플 브라우저')),
+      search);
+    const q = this.filter.trim().toLowerCase(), hit = (name) => !q || String(name).toLowerCase().includes(q);
     let body;
     if (!this.cwd) {
       const media = Object.entries(S.proj.media);
       body = h('div', { class: 'br-list' },
         h('div', { class: 'br-grp' }, t('내 샘플 폴더')),
         ...(this.roots.length ? this.roots.map((r) => h('div', { class: 'br-item dir', onclick: () => this.open(r),
-          oncontextmenu: (e) => { e.preventDefault(); popup(e.clientX, e.clientY, [{ label: t('목록에서 빼기'), act: () => { S.app.settings.set({ browserRoots: this.roots.filter((x) => x !== r) }); this.render(); } }]); } },
+          oncontextmenu: (e) => { e.preventDefault(); popup(e.clientX, e.clientY, [{ label: t('열기'), act: () => this.open(r) }, { label: t('탐색기에서 열기'), act: () => window.melofi.showItem?.(r) }, { sep: true }, { label: t('목록에서 빼기'), act: () => { S.app.settings.set({ browserRoots: this.roots.filter((x) => x !== r) }); this.render(); } }]); } },
         h('span', {}, r.split(/[\\/]/).pop() || r), h('small', {}, r))) : [h('p', { class: 'hint' }, t('원샷·루프 파일이 든 폴더를 추가하세요. 무료 샘플팩(예: 99Sounds, Freesound)을 받아 두면 좋습니다.'))]),
         h('div', { class: 'br-grp' }, t('MeloFi 루프 (프로젝트 키·템포로 만들어짐)')),
         ...Object.entries(LOOP_GENRES).map(([g, G]) => this.loopGenre(g, G)),
         h('div', { class: 'br-grp' }, t('이 프로젝트의 오디오')),
-        ...(media.length ? media.map(([hash, m]) => this.row({ name: m.name, hash }, true)) : [h('p', { class: 'hint' }, t('아직 없습니다.'))]),
+        ...(media.length ? media.filter(([, m]) => hit(m.name)).map(([hash, m]) => this.row({ name: m.name, hash }, true)) : [h('p', { class: 'hint' }, t('아직 없습니다.'))]),
         h('div', { class: 'br-grp' }, t('MeloFi 악기')),
         h('div', { class: 'br-item', onclick: (e) => S.pickInstrument(e.clientX, e.clientY, (id) => S.rack.add(id)) }, h('span', {}, t('악기 목록에서 채널 추가…'))),
         h('div', { class: 'br-item', onclick: () => S.app.store.show() }, h('span', {}, t('악기 다운로드 센터…'))));
     } else {
-      body = h('div', { class: 'br-list' }, ...(this.items.length ? this.items.map((it) => (it.dir
+      body = h('div', { class: 'br-list' }, ...(this.items.length ? this.items.filter((it) => hit(it.name)).map((it) => (it.dir
         ? h('div', { class: 'br-item dir', onclick: () => this.open(it.path) }, h('span', {}, it.name))
         : this.row(it))) : [h('p', { class: 'hint' }, t('오디오 파일이 없습니다.'))]));
     }
@@ -118,7 +142,7 @@ export class Browser {
 
   row(it, inProject = false) {
     const S = this.S;
-    const el = h('div', { class: 'br-item file', draggable: !inProject, title: t('클릭: 듣기 · 끌어서 플레이리스트나 채널 랙에 놓기') },
+    const el = h('div', { class: 'br-item file', draggable: !inProject, title: t('클릭: 듣기 · 끌어서 플레이리스트나 채널 랙에 놓기 · 우클릭: 메뉴'), oncontextmenu: (e) => this.fileMenu(e, it, inProject) },
       h('span', { onclick: () => (inProject ? this.listenHash(it.hash) : this.listen(it)) }, it.name),
       h('span', { class: 'acts' },
         h('button', { class: 'btn sm ghost', title: t('건반으로 연주하는 샘플 채널로'), onclick: () => (inProject ? S.addSampleChannelFromHash('sample', it.hash) : this.use(it, 'sample')) }, t('채널')),

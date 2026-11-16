@@ -211,9 +211,18 @@ def main():
     models = job.get("models_dir")
     if models:
         os.environ.setdefault("HF_HOME", os.path.join(models, "hf"))
+    # CTranslate2 loads the CUDA libraries (cuBLAS, cuDNN) that come with torch. Only their folder is
+    # needed: importing torch itself took 0.4 GB of memory (1.3 GB committed) for nothing here.
+    gpu = False
     try:
-        import torch  # its CUDA libraries (cuBLAS, cuDNN) are the ones CTranslate2 loads
-        gpu = torch.cuda.is_available()
+        import importlib.util
+        spec = importlib.util.find_spec("torch")
+        lib = os.path.join(os.path.dirname(spec.origin), "lib") if spec and spec.origin else None
+        if lib and os.path.isdir(lib):
+            os.add_dll_directory(lib)
+            os.environ["PATH"] = lib + os.pathsep + os.environ.get("PATH", "")
+        import ctranslate2
+        gpu = ctranslate2.get_cuda_device_count() > 0
     except Exception:
         gpu = False
     from faster_whisper import WhisperModel

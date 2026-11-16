@@ -393,5 +393,19 @@
   "clip::노멀라이즈": "Normalize",
   "clip::거꾸로": "Reverse",
   "지금 악기:": "Current instrument:",
-  "사용자 설정": "Custom"
+  "사용자 설정": "Custom",
+  "소리는 이 채널의 믹서 트랙을 거칩니다. 볼륨, 이펙트, 센드, 마스터가 연주할 때도 그대로 적용돼요. 플러그인 설정은 프로젝트를 저장할 때 함께 저장됩니다.": "The sound goes through this channel's mixer track, so volume, effects, sends and the master apply while you play too. The plugin's settings are saved with the project.",
+  "VST 이펙트 추가": "Add VST effect",
+  "이 이펙트를 거친 소리는 조금 늦게 나오지만, 재생할 때는 그만큼 미리 연주해서 박자가 맞습니다.": "Sound through this effect comes out slightly later, but playback starts that much earlier so it stays in time.",
+  "파라미터 찾기": "Find a parameter",
+  "파라미터를 읽는 중…": "Reading parameters…",
+  "{n}개 더 있음. 이름으로 검색해 보세요.": "{n} more. Search by name.",
+  "맞는 파라미터가 없습니다.": "No matching parameters.",
+  "조절할 수 있는 파라미터가 없습니다.": "No adjustable parameters.",
+  "플러그인이 아직 준비되지 않았습니다.": "The plugin is not ready yet.",
+  "플러그인 창에서 바꾼 값을 다시 불러옵니다": "Reload values changed in the plugin window",
+  "값 새로 읽기": "Reload values",
+  "VST 악기와 같이 처리해서 지연이 더 늘지 않습니다.": "Runs together with the VST instrument, so it adds no delay.",
+  "지연 {ms} ms · 30초간 {n}회 끊김": "Delay {ms} ms · {n} {n|dropout|dropouts} in the last 30 seconds",
+  "지연 {ms} ms": "Delay {ms} ms"
 }

@@ -7,7 +7,9 @@
 const P = (key, label, min, max, def, extra = {}) => ({ key, label, min, max, def, ...extra });
 const WAVES = ['sawtooth', 'square', 'triangle', 'sine'];
 // past the four built-in shapes: harmonic recipes as periodic waves (made once per audio context)
-const WAVE_NAMES = ['톱니파', '사각파', '삼각파', '사인파', '펄스 25%', '펄스 12%', '드로바 오르간', '브라스 (배음 많음)', '보컬 (아)', '보컬 (우)', '튜브 (하프 사인)'];
+const WAVE_NAMES = ['톱니파', '사각파', '삼각파', '사인파', '펄스 25%', '펄스 12%', '드로바 오르간', '브라스 (배음 많음)', '보컬 (아)', '보컬 (우)', '튜브 (하프 사인)', '사용자 파형'];
+// the last choice plays the oscillator's own waveform or wavetable (ch.synth.wt1 / wt2, made in the expert editor)
+export const CUSTOM_WAVE = WAVE_NAMES.length - 1;
 const HARM = 48;
 const RECIPES = [
   (k) => [0, Math.sin(Math.PI * k * 0.25) / k],                       // pulse 25%
@@ -50,9 +52,11 @@ function driveCurve(d) {
 export const SYNTH_PARAMS = [
   { group: '오실레이터 1' },
   P('w1', '파형', 0, WAVE_NAMES.length - 1, 0, { choices: WAVE_NAMES }), P('o1', '옥타브', -2, 2, 0, { step: 1 }), P('l1', '크기', 0, 1, 0.8, { step: 0.01 }),
+  P('wp1', '테이블 위치', 0, 1, 0, { step: 0.001, wt: 1 }),
   { group: '오실레이터 2' },
   P('w2', '파형', 0, WAVE_NAMES.length - 1, 1, { choices: WAVE_NAMES }), P('o2', '옥타브', -2, 2, 0, { step: 1 }), P('s2', '반음', -12, 12, 0, { step: 1 }),
   P('f2', '미세 조정', -50, 50, 7, { step: 1, unit: 'ct' }), P('l2', '크기', 0, 1, 0.4, { step: 0.01 }),
+  P('wp2', '테이블 위치', 0, 1, 0, { step: 0.001, wt: 2 }),
   { group: 'FM (오실레이터 1을 변조)' },
   P('fm', 'FM 양', 0, 10, 0, { step: 0.1 }), P('fmr', 'FM 비율', 0.5, 14, 2, { step: 0.5 }), P('fmd', 'FM 감쇠', 0.01, 4, 0.6, { log: true, unit: 's' }),
   { group: '서브·노이즈' },
@@ -67,7 +71,9 @@ export const SYNTH_PARAMS = [
   { group: '앰프 엔벨로프' },
   P('aa', '어택', 0.001, 4, 0.004, { log: true, unit: 's' }), P('ad', '디케이', 0.01, 4, 0.3, { log: true, unit: 's' }), P('as', '서스테인', 0, 1, 0.8, { step: 0.01 }), P('ar', '릴리스', 0.01, 6, 0.25, { log: true, unit: 's' }),
   { group: 'LFO' },
-  P('lt', '대상', 0, 3, 0, { choices: ['끔', '음높이 (비브라토)', '필터', '볼륨 (트레몰로)'] }), P('lr', '속도', 0.1, 12, 5, { step: 0.1, unit: 'Hz' }), P('ld', '깊이', 0, 1, 0.2, { step: 0.01 }),
+  P('lt', '대상', 0, 4, 0, { choices: ['끔', '음높이 (비브라토)', '필터', '볼륨 (트레몰로)', '테이블 위치'] }), P('lr', '속도', 0.1, 12, 5, { step: 0.1, unit: 'Hz' }), P('ld', '깊이', 0, 1, 0.2, { step: 0.01 }),
+  { group: '테이블 위치 모듈레이션' },
+  P('wpe', '필터 엔벨로프로', -1, 1, 0, { step: 0.01 }),
   { group: '기타 설정' },
   P('drv', '드라이브', 0, 1, 0, { step: 0.01 }),
   P('lvl', '레벨 보정', -24, 24, 0, { step: 0.1, unit: 'dB' }),
@@ -79,6 +85,89 @@ export const synthDefaults = () => Object.fromEntries(SYNTH_PARAMS.filter((p) =>
 // presets and their browser categories live in synth-presets.js
 import { SYNTH_PRESETS, SYNTH_CATEGORIES } from './synth-presets.js';
 export { SYNTH_PRESETS, SYNTH_CATEGORIES };
+
+import { decodeTable, tableId, buildMips, playFrames, spectrum, sineFrame } from './wavetable.js';
+
+// ---------- user waveforms (the expert mode): a band-limited wavetable worklet per voice ----------
+// The worklet module is loaded with the engine (StudioEngine.create), on the live context and on every
+// export's offline context alike, so both play the same tables through the same code.
+const wtLoaded = new WeakMap(); // ctx -> true | Promise
+export function loadSynthWorklet(ctx) {
+  if (!wtLoaded.has(ctx)) {
+    const p = ctx.audioWorklet.addModule(new URL('./wavetable-worklet.js', import.meta.url).href).then(() => { wtLoaded.set(ctx, true); });
+    wtLoaded.set(ctx, p);
+  }
+  const v = wtLoaded.get(ctx);
+  return v === true ? Promise.resolve() : v;
+}
+const decoded = new WeakMap();   // the stored table object -> { id, frames }
+const mipCache = new Map();      // table id -> mipmaps (a few, most recent last)
+const sentTo = new WeakMap();    // ctx -> Set of table ids the worklet already holds
+function tableOf(stored) {
+  if (!stored) return null;
+  let d = decoded.get(stored);
+  if (!d) {
+    const wt = decodeTable(stored);
+    if (!wt?.frames?.length) return null;
+    d = { id: tableId(wt), wt };
+    decoded.set(stored, d);
+  }
+  return d;
+}
+// the editor hands over the frames it already holds (a copy: it keeps editing its own), so a stored
+// table is not decoded again on every change
+export function primeTable(stored, wt) {
+  const copy = { name: wt.name || '', interp: wt.interp === 'spectral' ? 'spectral' : 'xfade', frames: wt.frames.map((f) => Float32Array.from(f)) };
+  decoded.set(stored, { id: tableId(copy), wt: copy });
+}
+function mipsOf(d) {
+  let m = mipCache.get(d.id);
+  if (m) { mipCache.delete(d.id); mipCache.set(d.id, m); return m; }
+  m = buildMips(playFrames(d.wt));
+  mipCache.set(d.id, m);
+  while (mipCache.size > 24) mipCache.delete(mipCache.keys().next().value);
+  return m;
+}
+// the table, for a worklet in this context: included the first time only
+function tableFor(c, d) {
+  let s = sentTo.get(c);
+  if (!s) { s = new Set(); sentTo.set(c, s); }
+  if (s.has(d.id)) return undefined;
+  s.add(d.id);
+  return mipsOf(d);
+}
+// one wavetable voice, shaped like an OscillatorNode for the code below (frequency, detune, start, stop, onended)
+class WtOsc {
+  constructor(c, d) {
+    this.node = new AudioWorkletNode(c, 'melofi-wavetable', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: { id: d.id, table: tableFor(c, d) } });
+    const P = this.node.parameters;
+    this.frequency = P.get('frequency'); this.detune = P.get('detune'); this.position = P.get('position'); this.run = P.get('run');
+    this.ended = null;
+    this.node.port.onmessage = (e) => { if (e.data === 'ended') this.ended?.(); };
+  }
+  set onended(fn) { this.ended = fn; }
+  connect(d) { return this.node.connect(d); }
+  disconnect() { this.node.disconnect(); }
+  start(t) { this.run.setValueAtTime(1, t); }
+  stop(t) { this.run.setValueAtTime(0, t); }
+  swap(c, d) { this.node.port.postMessage({ swap: d.id, id: d.id, table: tableFor(c, d) }); }
+}
+// without the worklet (a bare context, e.g. a quick preview render): the frame at the position as a
+// periodic wave, band-limited by the browser
+const pwCache = new WeakMap();
+function periodicOf(c, d, pos) {
+  const fr = playFrames(d.wt), i = Math.round(Math.max(0, Math.min(1, pos)) * (fr.length - 1));
+  let per = pwCache.get(c);
+  if (!per) { per = new Map(); pwCache.set(c, per); }
+  const key = `${d.id}:${i}`;
+  if (!per.has(key)) {
+    const s = spectrum(fr[i]), H = 1024, re = new Float32Array(H), im = new Float32Array(H);
+    for (let k = 1; k < H; k++) { re[k] = s.amp[k] * Math.sin(s.phase[k]); im[k] = s.amp[k] * Math.cos(s.phase[k]); }
+    per.set(key, c.createPeriodicWave(re, im, { disableNormalization: true }));
+  }
+  return per.get(key);
+}
+const DEFAULT_TABLE = { id: 'sine', wt: { name: '', interp: 'xfade', frames: [sineFrame()] } };
 
 const cents = (c) => Math.pow(2, c / 1200);
 const freqOf = (n) => 440 * Math.pow(2, (n - 69) / 12);
@@ -113,9 +202,25 @@ export class SynthChannel {
     this.voices = new Set();
     this.held = new Map();
     this.lastNote = null;
+    this.tables = [DEFAULT_TABLE, DEFAULT_TABLE];
   }
 
-  setParams(params) { this.p = { ...synthDefaults(), ...(params || {}) }; }
+  setParams(params) {
+    const before = this.tables || [];
+    this.p = { ...synthDefaults(), ...(params || {}) };
+    this.tables = [this.p.wt1, this.p.wt2].map((x) => tableOf(x) || DEFAULT_TABLE);
+    // notes already sounding: a changed table fades in, a moved table position glides there (no clicks)
+    const c = this.ctx, now = c.currentTime;
+    for (const v of this.voices) {
+      if (!v.wt || v.stopAt <= now) continue;
+      v.wt.forEach((list, k) => {
+        const d = this.tables[k];
+        if (before[k] && before[k].id !== d.id) for (const o of list) o.swap(c, d);
+        const pos = this.p[k ? 'wp2' : 'wp1'];
+        if (!this.p.wpe && Math.round(this.p.lt) !== 4) for (const o of list) { hold(o.position, now); o.position.setTargetAtTime(pos, now, 0.015); }
+      });
+    }
+  }
 
   // opts: { fine (cents), pan (-1..1), glideFrom (note) }
   noteOn(note, vel, at = 0, dur = null, opts = {}) {
@@ -126,7 +231,7 @@ export class SynthChannel {
     this.lastNote = note;
     // lvl: the preset's measured level trim (dB), so presets sit at their family's loudness
     const vg = 0.18 * p.vol * Math.pow(10, (p.lvl || 0) / 20) * (0.35 + 0.65 * (vel / 127) * (vel / 127));
-    const v = { nodes: [], stopAt: Infinity };
+    const v = { nodes: [], stopAt: Infinity, wt: [[], []] };
     const mix = c.createGain(); mix.gain.value = 1;
     const filt = c.createBiquadFilter(); filt.type = ['lowpass', 'highpass', 'bandpass'][Math.round(p.ft)] || 'lowpass'; filt.Q.value = p.res;
     const amp = c.createGain(); amp.gain.value = 0;
@@ -150,11 +255,18 @@ export class SynthChannel {
       fmGain.gain.setTargetAtTime(top * 0.15, t0 + 0.002, Math.max(0.005, p.fmd / 3));
       mod.connect(fmGain); oscs.push(mod); v.nodes.push(fmGain);
     }
-    const addOsc = (wave, freq, level, detuneSpread, fmTo = false) => {
+    const workletOk = wtLoaded.get(c) === true;
+    const addOsc = (k, wave, freq, level, detuneSpread, fmTo = false) => {
       if (level <= 0) return;
       const n = Math.max(1, Math.round(p.uni));
+      const custom = Math.round(wave) === CUSTOM_WAVE, d = this.tables[k], pos = p[k ? 'wp2' : 'wp1'] || 0;
       for (let i = 0; i < n; i++) {
-        const o = c.createOscillator(); setWave(c, o, wave);
+        let o;
+        if (custom && workletOk) {
+          o = new WtOsc(c, d); v.wt[k].push(o);
+          o.position.setValueAtTime(pos, t0);
+        } else if (custom) { o = c.createOscillator(); o.setPeriodicWave(periodicOf(c, d, pos)); }
+        else { o = c.createOscillator(); setWave(c, o, wave); }
         if (fmTo && fmGain) fmGain.connect(o.frequency);
         const off = n === 1 ? 0 : (i / (n - 1) - 0.5) * 2; // -1..1
         o.detune.value = off * detuneSpread;
@@ -164,8 +276,8 @@ export class SynthChannel {
         oscs.push(o); v.nodes.push(g);
       }
     };
-    addOsc(p.w1, f * Math.pow(2, Math.round(p.o1)), p.l1, p.det, true);
-    addOsc(p.w2, f * Math.pow(2, Math.round(p.o2) + Math.round(p.s2) / 12) * cents(p.f2), p.l2, p.det);
+    addOsc(0, p.w1, f * Math.pow(2, Math.round(p.o1)), p.l1, p.det, true);
+    addOsc(1, p.w2, f * Math.pow(2, Math.round(p.o2) + Math.round(p.s2) / 12) * cents(p.f2), p.l2, p.det);
     if (p.sub > 0) { const o = c.createOscillator(); o.type = 'square'; o.frequency.value = f / 2; const g = c.createGain(); g.gain.value = p.sub * 0.6; o.connect(g).connect(mix); oscs.push(o); v.nodes.push(g); }
     if (p.noise > 0) { const nz = noise(c); const g = c.createGain(); g.gain.value = p.noise * 0.5; nz.connect(g).connect(mix); oscs.push(nz); v.nodes.push(g); }
     // filter: cutoff follows the key and its envelope (in octaves)
@@ -173,6 +285,8 @@ export class SynthChannel {
     const peak = Math.min(c.sampleRate * 0.45, base * Math.pow(2, p.fenv));
     adsr(filt.frequency, t0, base, Math.max(20, peak), p.fa, p.fd, p.fs);
     adsr(amp.gain, t0, 0, vg, p.aa, p.ad, p.as);
+    // table position follows the filter envelope's shape (like Serum's ENV 2 on WT POS)
+    if (p.wpe) v.wt.forEach((list, k) => { const pos = p[k ? 'wp2' : 'wp1'] || 0; for (const o of list) adsr(o.position, t0, pos, pos + p.wpe, p.fa, p.fd, p.fs); });
     // LFO
     const lt = Math.round(p.lt);
     if (lt > 0 && p.ld > 0) {
@@ -180,6 +294,7 @@ export class SynthChannel {
       const dep = c.createGain();
       if (lt === 1) { dep.gain.value = p.ld * 60; lfo.connect(dep); for (const o of oscs) if (o.detune) dep.connect(o.detune); }
       else if (lt === 2) { dep.gain.value = base * p.ld * 2; lfo.connect(dep).connect(filt.frequency); }
+      else if (lt === 4) { dep.gain.value = p.ld * 0.5; lfo.connect(dep); for (const o of [...v.wt[0], ...v.wt[1]]) dep.connect(o.position); }
       else { const trem = c.createGain(); trem.gain.value = 1 - p.ld / 2; dep.gain.value = p.ld / 2; lfo.connect(dep).connect(trem.gain); filt.disconnect(); filt.connect(trem).connect(amp); v.nodes.push(trem); }
       oscs.push(lfo); v.nodes.push(dep);
     }
@@ -200,6 +315,7 @@ export class SynthChannel {
     v.amp.gain.setTargetAtTime(0, t, Math.max(0.003, p.ar / 4));
     hold(v.filt.frequency, t);
     v.filt.frequency.setTargetAtTime(v.base, t, Math.max(0.003, p.fr / 4));
+    if (p.wpe) v.wt.forEach((list, k) => { const pos = p[k ? 'wp2' : 'wp1'] || 0; for (const o of list) { hold(o.position, t); o.position.setTargetAtTime(pos, t, Math.max(0.003, p.fr / 4)); } });
     const end = t + p.ar * 1.6 + 0.05;
     v.stopAt = end;
     for (const o of v.oscs) { try { o.stop(end); } catch { /* already */ } }

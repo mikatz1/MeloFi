@@ -157,6 +157,12 @@ export async function openReport() {
         el('button', { class: 'link', title: t('이 PC에 남은 기록 (userData/logs)'), onclick: () => api.openLogs() }, t('로그 폴더')),
         el('span', { class: 'sp' }),
         el('button', { onclick: close }, t('닫기')),
+        el('button', { title: t('MeloFi 디스코드 서버의 버그 제보 게시판에 바로 올려요. 디스코드나 GitHub 로그인이 필요해요.'), onclick: () => run(async () => {
+          const r = await api.reportHelper(desc.value);
+          if (!r?.ok) throw new Error(r?.message || 'error');
+          if (r.url) api.account('openUrl', { url: r.url });
+          return t('디스코드 버그 제보 게시판에 올렸어요. 답변은 그 글에 달려요.');
+        }) }, t('디스코드에 올리기')),
         el('button', { title: t('브라우저에서 내용이 채워진 GitHub 이슈 작성 페이지를 열어요. 올리기는 거기서 직접 눌러요.'), onclick: () => run(async () => { await api.reportGithub(desc.value); return t('브라우저에 이슈 작성 페이지를 열었어요. 확인하고 올려 주세요.'); }) }, t('GitHub 이슈로')),
         el('button', { class: 'go', title: t('문서\\MeloFi 폴더에 .txt로 저장'), onclick: () => run(async () => t('저장했어요 · {file}', { file: await api.reportSave(desc.value) })) }, t('파일로 저장')),
       )));

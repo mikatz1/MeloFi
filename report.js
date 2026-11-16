@@ -118,6 +118,21 @@ function register(ipcMain, deps) {
     await shell.openExternal(issueUrl({ system, errors, description: scrub(String(description || '').slice(0, 3000)) }));
     return true;
   });
+  // to the bug forum on the MeloFi Discord server, through MeloFi Helper (account.js)
+  ipcMain.handle('report:helper', async (_e, description) => {
+    const scrub = scrubber();
+    const { system, errors } = await collect(deps);
+    const desc = scrub(String(description || '').slice(0, 3000));
+    // what the dialog shows (description, system, recent errors) and nothing else
+    const tail = '';
+    const title = desc.trim().split('\n')[0].slice(0, 70) || i18n.tc('issue', '문제 신고');
+    try {
+      const r = await require('./account.js').helperReport({ title, text: compose({ system, errors, description: desc, logTail: tail }) });
+      return { ok: true, url: r.url, appUrl: r.app_url };
+    } catch (err) {
+      return { ok: false, error: err.code || 'error', message: err.message };
+    }
+  });
   ipcMain.handle('report:openLogs', async () => { const d = crashlog.dir(); if (d) { await fsp.mkdir(d, { recursive: true }); await shell.openPath(d); } return true; });
 }
 

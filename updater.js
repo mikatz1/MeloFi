@@ -1,10 +1,11 @@
 'use strict';
 // Updates from the GitHub releases (mikatz1/MeloFi, pre-releases included).
-// Quiet check at start and every few hours; nothing is downloaded until the user presses 받기, and
-// nothing is installed until they press 지금 다시 시작 (autoInstallOnAppQuit is off).
+// Quiet check right after start and every few hours. A found update downloads in the background
+// (autoGet; the installed app), so 지금 다시 시작 is there as soon as it can be; nothing is installed
+// until the user presses it (autoInstallOnAppQuit is off).
 // The controller takes the updater as an argument so tests can drive it with a fake one.
 
-const START_DELAY = 20 * 1000;
+const START_DELAY = 3 * 1000; // the window is up by then
 const { t } = require('./i18n-main.js');
 const EVERY = 4 * 60 * 60 * 1000;
 
@@ -20,7 +21,7 @@ function newer(a, b) {
   return (x.pre || '') > (y.pre || '');
 }
 
-function createUpdateController({ updater, currentVersion, isPackaged = true, enabled = () => true, broadcast = () => {}, log = () => {}, timers = { setTimeout, setInterval, clearInterval, clearTimeout } }) {
+function createUpdateController({ updater, currentVersion, isPackaged = true, enabled = () => true, broadcast = () => {}, log = () => {}, timers = { setTimeout, setInterval, clearInterval, clearTimeout }, autoGet = false }) {
   let state = { phase: 'idle', current: currentVersion };
   let tick = null, first = null;
   const set = (patch) => { state = { current: currentVersion, ...patch }; broadcast(state); return state; };
@@ -50,7 +51,11 @@ function createUpdateController({ updater, currentVersion, isPackaged = true, en
       const r = await updater.checkForUpdates();
       const v = r?.updateInfo?.version;
       const found = v && r.isUpdateAvailable !== false && newer(v, currentVersion);
-      if (found) return set({ phase: 'available', version: v, manual });
+      if (found) {
+        set({ phase: 'available', version: v, manual });
+        if (autoGet) download(); // progress and the restart button come through the state
+        return state;
+      }
       return set({ phase: manual ? 'latest' : 'idle', manual });
     } catch (err) {
       log('info', `update check failed: ${String(err?.message || err).split('\n')[0]}`);
@@ -112,7 +117,7 @@ function register(ipcMain, { app, BrowserWindow, settingsFile, log, quiet = fals
   const installed = !app.isPackaged || process.platform !== 'win32' || fs.existsSync(path.join(path.dirname(process.execPath), `Uninstall ${app.getName()}.exe`));
   if (!installed) log('info', 'updates off: not running from an installed copy');
   const ctl = createUpdateController({
-    updater: installed ? updater : null, currentVersion: app.getVersion(), isPackaged: app.isPackaged, enabled, log,
+    updater: installed ? updater : null, currentVersion: app.getVersion(), isPackaged: app.isPackaged, enabled, log, autoGet: true,
     broadcast: (s) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('update:state', s); },
   });
   ipcMain.handle('update:state', () => ctl.state());

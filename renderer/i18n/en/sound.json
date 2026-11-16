@@ -433,5 +433,6 @@
  "요나누키 (일본풍 장음계)": "Yonanuki (Japanese major)",
 
  "// vocal (vocal.js)": "",
- "설치된 보이스가 없어요. 채널 설정 > 보컬에서 보이스를 내려받아 주세요.": "No voice is installed. Download one in Channel settings > Vocals."
+ "설치된 보이스가 없어요. 채널 설정 > 보컬에서 보이스를 내려받아 주세요.": "No voice is installed. Download one in Channel settings > Vocals.",
+  "VST3 이펙트 플러그인": "VST3 effect plugin"
 }

@@ -1,14 +1,13 @@
 {
   "name": "melofi",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Virtual piano with a visualizer, score playback and practice",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "set MELOFI_DEV=1&& electron .",
     "build:instruments": "node tools/build-instruments.mjs",
-    "dist": "electron-builder --win nsis --publish never",
-    "server": "node server/index.mjs"
+    "dist": "electron-builder --win nsis --publish never"
   },
   "author": "mikatz1",
   "license": "ISC",
@@ -27,6 +26,14 @@
   "private": true,
   "build": {
     "appId": "io.github.mikatz1.melofi",
+    "protocols": [
+      {
+        "name": "MeloFi",
+        "schemes": [
+          "melofi"
+        ]
+      }
+    ],
     "productName": "MeloFi",
     "directories": {
       "output": "dist"
@@ -37,6 +44,8 @@
       "lib/**/*",
       "daw.js",
       "account.js",
+      "workshop.js",
+      "firstrun.js",
       "studio-files.js",
       "vocal.js",
       "stems.js",
@@ -46,9 +55,17 @@
       "updater.js",
       "report.js",
       "i18n-main.js",
-      "tools/vocal/svs_render.py",
+      "vbcable.js",
+      "tools/vocal/*.py",
+      "tools/vocal/licenses/**",
       "tools/stems/analyze.py",
+      "tools/stems/notes_clean.py",
+      "tools/stems/labels_ymt3.py",
+      "tools/stems/gpu_cap.py",
       "tools/stems/instruments.py",
+      "tools/stems/piano_notes.py",
+      "tools/stems/bass_notes.py",
+      "tools/stems/vocal_notes.py",
       "tools/stems/engine/**",
       "package.json",
       "renderer/**/*",

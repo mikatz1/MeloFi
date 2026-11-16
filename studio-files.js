@@ -45,6 +45,27 @@ function register(ipcMain, { app, dialog, getWin, defaultDir, settings }) {
     return Promise.all(r.filePaths.slice(0, 32).map(async (p) => ({ name: path.basename(p), data: new Uint8Array(await fsp.readFile(p)) })));
   });
 
+  // ---- MeloFi Synth: the user's own presets and waveforms (userData/synth-user.json) ----
+  const SYNTH_USER = () => path.join(app.getPath('userData'), 'synth-user.json');
+  ipcMain.handle('synthuser:load', async () => { try { return await fsp.readFile(SYNTH_USER(), 'utf8'); } catch { return null; } });
+  ipcMain.handle('synthuser:save', async (_e, json) => {
+    if (typeof json !== 'string' || json.length > 200e6) return false;
+    const tmp = SYNTH_USER() + '.tmp';
+    await fsp.writeFile(tmp, json);
+    await fsp.rename(tmp, SYNTH_USER());
+    return true;
+  });
+  // a wavetable WAV (Serum / Vital format) where the user picks
+  ipcMain.handle('wavetable:save', async (_e, data, name) => {
+    const safe = String(name || 'wavetable').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'wavetable';
+    const dir = path.join(defaultDir(), 'Wavetables');
+    await fsp.mkdir(dir, { recursive: true }).catch(() => {});
+    const r = await dialog.showSaveDialog(getWin(), { defaultPath: path.join(dir, `${safe}.wav`), filters: [{ name: 'WAV', extensions: ['wav'] }] });
+    if (r.canceled || !r.filePath) return null;
+    await fsp.writeFile(r.filePath, Buffer.from(data));
+    return r.filePath;
+  });
+
   // ---- sample browser ----
   ipcMain.handle('media:pickFolder', async () => {
     const r = await dialog.showOpenDialog(getWin(), { properties: ['openDirectory'] });
@@ -70,6 +91,13 @@ function register(ipcMain, { app, dialog, getWin, defaultDir, settings }) {
 
   // ---- project files: <name>.mfproj + "<name> 오디오/" holding the audio it uses ----
   const mediaDir = (file) => file.replace(/\.mfproj$/i, '') + ' 오디오'; // i18n-ignore (a folder name projects are read back from)
+  // FL's Save new version (Ctrl+N): name_2.mfproj, name_3.mfproj … next to the project, never over a file
+  ipcMain.handle('studio:nextVersion', (_e, p) => {
+    if (!p || !/\.mfproj$/i.test(p)) return null;
+    const dir = path.dirname(p), m = path.basename(p, path.extname(p)).match(/^(.*?)(?:_(\d+))?$/);
+    for (let n = (+m[2] || 1) + 1; n < 10000; n++) { const q = path.join(dir, `${m[1]}_${n}.mfproj`); if (!fs.existsSync(q)) return q; }
+    return null;
+  });
   ipcMain.handle('studio:save', async (_e, json, name, p) => {
     let target = p;
     if (!target) {

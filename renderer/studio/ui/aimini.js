@@ -17,18 +17,22 @@ export class AiMini {
     this.ended = null; // { ok } once a run ended with the window closed
     this.el = h('button', { class: 'ai-mini', hidden: true, type: 'button', onclick: (e) => { if (e.target.closest('.ai-mini-x')) return; this.open(); } },
       h('div', { class: 'ai-mini-top' }, this.titleEl = h('b'), this.pctEl = h('em'),
-        this.xEl = h('span', { class: 'ai-mini-x', role: 'button', title: t('닫기'), onclick: () => { this.ended = null; this.el.hidden = true; } }, '×')),
+        this.xEl = h('span', { class: 'ai-mini-x', role: 'button', title: t('닫기'), onclick: () => { if (this.src?.busy && this.src.cancel) { this.src.cancel(); return; } this.ended = null; this.el.hidden = true; if (this.src?.done) this.src.done = null; } }, '×')),
       h('div', { class: 'ai-mini-bar' }, this.barEl = h('i')),
       this.subEl = h('small'));
     studio.el.append(this.el);
     this.timer = setInterval(() => this.paint(), 250);
   }
 
-  open() { this.ended = null; this.el.hidden = true; this.S.aiSheet.show(); }
+  open() { this.ended = null; this.el.hidden = true; (this.src || this.S.aiSheet).show(); }
 
   paint() {
-    const sh = this.S._ai; // created on first use; nothing to show before that
-    window.__melofiAiBusy = sh?.busy || null; // the updater asks every window before restarting
+    // the AI window, or a track conversion running from the project (stemconvert.js): both carry
+    // busy, progress, stemLabel, error and their window (created on first use)
+    const conv = this.S._conv, sh = conv?.busy || (conv?.done && !this.S._ai?.busy) ? conv : this.S._ai;
+    if (this.src !== sh) this.was = null; // (what ran in the other window is not this one's to report)
+    this.src = sh;
+    window.__melofiAiBusy = this.S._ai?.busy || conv?.busy || null; // the updater asks every window before restarting
     if (!sh || this.S.el.hidden) { this.el.hidden = true; return; }
     const closed = sh.el.hidden;
     if (sh.busy) {
@@ -48,13 +52,14 @@ export class AiMini {
       const own = /남은 시간|left/i.test(tdyn(sh.stemLabel || '')); // the stage says its own time left
       const left = bar && rate > 0 && p < 0.995 && !own ? t('약 {left} 남음', { left: mmss((1 - p) / rate) }) : '';
       this.subEl.textContent = [tdyn(sh.stemLabel || ''), left].filter(Boolean).join(' · ');
-      this.el.title = t('눌러서 AI 창 열기');
-      this.xEl.hidden = true;
+      this.el.title = sh.cancel ? t('눌러서 창 열기 · ×: 취소') : t('눌러서 AI 창 열기');
+      this.xEl.hidden = !sh.cancel; // a conversion can be stopped from the card
       this.el.hidden = false;
       return;
     }
     // just finished while closed: say how it went
     if (this.was && closed) this.ended = { ok: !sh.error, kind: this.was };
+    if (sh.done && closed && !this.ended) this.ended = { ok: sh.done.ok, kind: 'analyse' };
     this.was = null;
     if (!this.ended || !closed) { this.el.hidden = true; if (!closed) this.ended = null; return; }
     this.el.classList.remove('indet');

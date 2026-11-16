@@ -4,6 +4,9 @@ import { t, tc, tdyn, N_, langChoices, onLangChange } from '../i18n/i18n.js';
 import { THEMES } from './themes.js';
 import { openPicker } from './picker-client.js';
 import { LATENCY_DEFAULT, pairKeyFor, measureRoundTrip, midiTapTest } from './latency.js';
+import { VMIC_DEFAULT, listOutputs, listInputs, isCable } from './vmic.js';
+// VB-Audio's credit, shown wherever VB-CABLE is offered (THIRD_PARTY_NOTICES.md)
+const VB_CREDIT = () => t('VB-CABLE은 VB-Audio(www.vb-cable.com)의 기부형 프로그램입니다. VB-CABLE is a donationware, all participations are welcome.');
 
 // background pictures that ship with the app (drawn by tools/make-backgrounds.py, CC0)
 export const SAMPLE_BGS = [['dusk-mountains', N_('저녁 산')], ['night-city', N_('밤의 도시')], ['nebula', N_('성운')], ['misty-forest', N_('안개 숲')], ['sunset-sea', N_('노을 바다')]];
@@ -19,6 +22,7 @@ const mb = (bytes) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math
 import { LAYOUT, PRESETS, keyLabel, noteName, isBlack } from './keymap.js';
 import { HAND_COLORS } from './app-colors.js';
 import { infraMenuItems } from './appinfra.js';
+import { workshopMenuItems } from './workshop-ui.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -52,6 +56,8 @@ export class UI {
     for (const b of document.querySelectorAll('.menubar [data-menu]')) {
       b.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.openMenu(this.menuOpen === b.dataset.menu ? null : b.dataset.menu); });
       b.addEventListener('pointerenter', () => { if (this.menuOpen && this.menuOpen !== b.dataset.menu) this.openMenu(b.dataset.menu); });
+      // Enter / Space on a focused menu button (a click without a pointer) opens it too
+      b.addEventListener('click', (e) => { if (e.detail === 0) { e.stopPropagation(); this.openMenu(this.menuOpen === b.dataset.menu ? null : b.dataset.menu); } });
     }
     document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.menu')) this.openMenu(null); });
     for (const sh of document.querySelectorAll('.sheet')) sh.addEventListener('pointerdown', (e) => { if (e.target === sh) this.close(); });
@@ -135,6 +141,7 @@ export class UI {
         { label: M.projOpen, act: () => window.melofi.openStudioWindow('open') },
         { sep: true },
         { label: M.openRecDir, act: () => app.openRecDir() },
+        ...workshopMenuItems({ where: 'piano', app }), // 창작마당 · 계정 (workshop-ui.js)
         { sep: true },
         { label: M.quit, key: 'Alt+F4', act: () => window.close() },
       ];
@@ -211,6 +218,9 @@ export class UI {
           ...(devs.length ? devs.map((d) => ({ label: d, disabled: true })) : [{ label: M.midiNone, disabled: true }]),
         ] },
         { label: M.mixer, key: 'F4', act: () => this.open('mixer') },
+        { sep: true },
+        // Discord로 연주 보내기 (vmic.js): the card in the 소리 tab
+        { label: t('Discord로 연주 보내기…'), hint: v.vmic?.on ? t('켜짐') : '', act: () => { this.tab = 'sound'; this.open('settings'); setTimeout(() => $('#vmicCard')?.scrollIntoView({ block: 'start' }), 50); } },
       ];
     }
     if (name === 'view') {
@@ -322,7 +332,7 @@ export class UI {
     this.closeSub();
     for (const b of document.querySelectorAll('.menubar [data-menu]')) b.classList.toggle('on', b.dataset.menu === name);
     this.menuOpen = name;
-    if (!name) { menu.hidden = true; return; }
+    if (!name) { if (menu) menu.hidden = true; return; } // (no menu on the page: the studio's own windows close the piano's sheets too)
     this.renderMenu(menu, this.menuItems(name));
     const r = document.querySelector(`.menubar [data-menu="${name}"]`).getBoundingClientRect();
     menu.style.left = `${r.left}px`;
@@ -805,7 +815,173 @@ export class UI {
           side);
       })])),
       this.row('', h('button', { class: 'btn', onclick: () => this.open('mixer') }, `${T.mixer.title}  F4`)),
+      ...this.vmicRows(),
     ];
+  }
+
+  // ---------- Discord로 연주 보내기 (vmic.js) ----------
+  // One card with the three things that have to be true (a virtual cable, MeloFi sending to it,
+  // Discord listening to its other end), each with its state and the one button that fixes it.
+  // The device, the delay and the cable's buffer are under 자세히.
+  vmicRows() {
+    const vm = this.app.vmic;
+    if (!vm) return [];
+    const V = { ...VMIC_DEFAULT, ...(this.s.v.vmic || {}) };
+    const put = (patch) => this.s.set({ vmic: { ...V, ...this.s.v.vmic, ...patch } });
+    const live = (patch) => this.set({ vmic: { ...V, ...this.s.v.vmic, ...patch } });
+    // a change of state (device found, sending started) redraws the tab
+    if (!this.vmicSub) {
+      let first = true;
+      this.vmicSub = vm.onStatus(() => { if (first) { first = false; return; } if (this.tab === 'sound' && !$('#settings').hidden) this.renderDrawer(); });
+    }
+    const st = vm.status || { state: 'off' };
+    const rows = [
+      h('div', { class: 'group-title', id: 'vmicCard' }, t('Discord로 연주 보내기')),
+      this.row(t('보내기'), this.toggle(V.on, (x) => { put({ on: x }); if (x) this.vbAutoTune(); }),
+        t('피아노 소리를 Discord의 마이크 입력으로 보냅니다. 스피커에서도 그대로 들립니다. Zoom, OBS에서도 같은 방법으로 쓸 수 있습니다.')),
+    ];
+    if (!V.on) return rows;
+
+    const cable = st.state !== 'nodevice';
+    const sending = st.state === 'on';
+    const recv = isCable(st.sink?.label) ? `${st.sink.label.match(/^(.*?)input/i)?.[1] || 'CABLE '}Output` : 'CABLE Output';
+    const btn = (label, onclick, cls = 'btn sm') => h('button', { class: cls, disabled: !!this.vbBusy, onclick }, label);
+    const step = (n, done, title, text, ...acts) => {
+      const a = acts.filter(Boolean);
+      return h('div', { class: `vm-step${done ? ' done' : ''}` },
+        h('span', { class: 'vm-n' }, done ? '' : String(n)),
+        h('div', { class: 'vm-body' }, h('b', {}, title), h('span', {}, text), a.length ? h('div', { class: 'vm-acts' }, ...a) : null));
+    };
+
+    // 1. the cable
+    const s1 = cable
+      ? step(1, true, t('가상 케이블'), t('{dev} 준비됨', { dev: (st.sink?.label || 'VB-CABLE').replace(/\s*\(.*\)$/, '') }))
+      : step(1, false, t('가상 케이블 설치'),
+        this.vbMsg || t('Discord에 소리를 넘겨줄 무료 프로그램 VB-CABLE이 필요합니다. 설치 창에서 Install Driver를 누르면 나머지는 MeloFi가 맞춥니다. 관리자 권한 확인 창이 한 번 뜹니다.'),
+        btn(t('VB-CABLE 설치하기'), () => this.vbRun('install', { latency: 1024 }), 'btn sm primary'),
+        btn(t('직접 받기'), () => window.melofi.account('openUrl', { url: 'https://vb-audio.com/Cable/' }), 'btn sm ghost'));
+    // 2. MeloFi to the cable
+    let s2text = t('케이블이 준비되면 바로 보냅니다.');
+    if (sending) s2text = t('보내는 중 · 지연 약 {ms} ms', { ms: st.latencyMs ?? '?' });
+    else if (st.state === 'missing') s2text = t('고른 장치가 없습니다. 연결을 확인하거나 자동으로 찾도록 하십시오.');
+    else if (st.state === 'error') s2text = t('보내지 못했습니다: {err}', { err: st.error || '' });
+    const s2 = step(2, sending, t('MeloFi에서 보내기'), s2text,
+      st.state === 'missing' ? btn(t('자동으로 찾기'), () => put({ sink: 'auto' })) : null,
+      st.state === 'error' ? btn(t('다시 시도'), () => vm.apply(this.s.v.vmic, true)) : null);
+    // 3. Discord: pick the cable's other end, then see the test sound in its input meter
+    const testMsg = h('span', { class: 'vm-hint' }, this.vmicTestMsg || '');
+    const s3 = step(3, false, t('Discord에서 받기'),
+      `${t('Discord 설정 > 음성 및 비디오 > 입력 장치에서 {dev}를 고릅니다.', { dev: recv })} ${t('같은 화면의 소음 제거와 에코 제거를 끄면 피아노 소리가 깨끗하게 전달됩니다.')}`,
+      btn(t('장치 이름 복사'), (e) => { navigator.clipboard?.writeText(recv); e.currentTarget.textContent = t('복사했습니다'); }, 'btn sm ghost'),
+      sending ? btn(t('소리 확인'), () => {
+        try {
+          vm.testSound();
+          this.vmicTestMsg = t('Discord의 입력 감도 막대가 움직이면 연결된 것입니다.');
+        } catch (err) { this.vmicTestMsg = err.message || String(err); }
+        testMsg.textContent = this.vmicTestMsg;
+      }) : null,
+      testMsg);
+    rows.push(h('div', { class: 'vm-card' }, s1, s2, s3, cable ? null : h('div', { class: 'vm-credit' }, VB_CREDIT())));
+
+    rows.push(this.row(t('연주 크기'), this.slider(0, 1.5, 0.05, V.level, (x) => `${Math.round(x * 100)}%`, (x) => live({ level: x }))));
+
+    rows.push(this.row(t('내 목소리도 같이'), this.toggle(V.mic, (x) => put({ mic: x })),
+      t('Discord 마이크가 이 장치로 바뀌므로, 목소리도 함께 보내려면 켜십시오. 목소리는 스피커로 나오지 않습니다.')));
+    if (V.mic) {
+      const mic = h('select', {}, h('option', { value: '' }, t('기본 입력')));
+      listInputs().then((ins) => {
+        for (const [i, d] of ins.entries()) mic.append(h('option', { value: d.id }, d.label || t('입력 {n}', { n: i + 1 })));
+        mic.value = V.micDevice;
+        if (mic.value !== V.micDevice) mic.value = '';
+      });
+      mic.addEventListener('change', () => { put({ micDevice: mic.value }); mic.blur(); });
+      rows.push(this.row(t('마이크'), mic, st.micLabel ? t('사용 중: {dev}', { dev: st.micLabel }) : null));
+      rows.push(this.row(t('목소리 크기'), this.slider(0, 2, 0.05, V.micLevel, (x) => `${Math.round(x * 100)}%`, (x) => live({ micLevel: x }))));
+      rows.push(this.row(t('잡음 거르기'), this.slider(-100, -20, 1, V.gate, (x) => (x <= -100 ? t('끔') : `${x} dB`), (x) => live({ gate: x })),
+        t('이 값보다 작은 소리는 보내지 않습니다. 말이 끊기면 값을 낮추십시오.')));
+    }
+
+    // 자세히: the device, the measured delay, VB-CABLE's own buffer
+    const more = h('details', { class: 'vm-more' });
+    more.open = !!this.vmicMore;
+    more.addEventListener('toggle', () => { this.vmicMore = more.open; });
+    const sel = h('select', {}, h('option', { value: 'auto' }, t('자동 (가상 케이블 찾기)')));
+    listOutputs().then((outs) => {
+      for (const o of outs) sel.append(h('option', { value: o.id }, (o.label || t('출력 장치')) + (isCable(o.label) ? t(' · 가상 케이블') : '')));
+      sel.value = V.sink;
+      if (sel.value !== V.sink) sel.value = 'auto';
+    });
+    sel.addEventListener('change', () => { put({ sink: sel.value }); sel.blur(); });
+    more.append(h('summary', {}, t('자세히')), this.row(t('보낼 장치'), sel));
+    if (sending) {
+      const msg = h('span', { class: 'val', style: 'width:auto;flex:1;text-align:left;font-family:inherit' }, this.vmicMsg || '');
+      more.append(this.row(t('지연 시간'), [msg, h('button', { class: 'btn sm', onclick: async () => {
+        msg.textContent = t('측정 중');
+        try {
+          // through the cable and back when its other end can be recorded (the real figure), else up to the cable
+          const loop = await vm.measureLoop().catch(() => null);
+          if (loop) this.vmicMsg = t('건반에서 받는 쪽까지 약 {ms} ms (가상 케이블 포함)', { ms: loop.loopMs.toFixed(1) });
+          else {
+            const r = await vm.measure();
+            this.vmicMsg = t('스피커보다 {d} ms 늦음 · 건반 기준 약 {ms} ms', { d: r.bridgeMs.toFixed(1), ms: r.totalMs.toFixed(1) });
+          }
+        } catch (e) { this.vmicMsg = e.message || String(e); }
+        msg.textContent = this.vmicMsg;
+      } }, t('측정'))]));
+      if (/vb-audio/i.test(st.sink?.label || '')) more.append(this.vbcableRow());
+    }
+    more.append(h('div', { class: 'vm-credit' }, VB_CREDIT()));
+    rows.push(more);
+    return rows;
+  }
+
+  // VB-CABLE through the main process (vbcable.js): install / tune ask for administrator rights once
+  async vbRun(op, payload) {
+    if (this.vbBusy) return;
+    this.vbBusy = true; this.vbMsg = op === 'install' ? t('VB-CABLE 받는 중') : t('관리자 권한 확인 창이 뜹니다');
+    if (!this.vbSub) this.vbSub = window.melofi.onVbcableState?.((m) => { this.vbMsg = tdyn(m); if (this.tab === 'sound' && !$('#settings').hidden) this.renderDrawer(); });
+    this.renderDrawer();
+    const r = await window.melofi.vbcable(op, payload);
+    this.vbBusy = false;
+    if (!r.ok) this.vbMsg = r.error === 'cancelled' ? t('취소했습니다.') : t('실패했습니다: {err}', { err: r.message || r.error });
+    else {
+      this.vbStatus = r.data;
+      const reboot = r.data.restart && r.data.restart !== 'ok';
+      this.vbMsg = op === 'install'
+        ? (reboot ? t('설치했습니다. PC를 다시 시작하면 쓸 수 있습니다.') : t('설치했습니다. 케이블을 찾는 중입니다.'))
+        : (reboot ? t('바꿨습니다. PC를 다시 시작하면 적용됩니다.') : t('케이블 지연을 {n} 샘플로 바꿨습니다.', { n: r.data.latency }));
+      this.app.vmic?.apply(this.s.v.vmic, true); // the device list and the cable changed: look again
+    }
+    this.renderDrawer();
+  }
+
+  // Turning the virtual mic on: if VB-CABLE's buffer is over the recommended size, lower it once
+  // (the administrator prompt comes right after the user's own click; asked only once ever).
+  async vbAutoTune() {
+    const V = this.s.v.vmic || {};
+    if (V.tuneAsked || !window.melofi.vbcable) return;
+    const r = await window.melofi.vbcable('status');
+    if (!r?.ok || !r.data.installed) return;
+    this.vbStatus = r.data;
+    if (!(r.data.latency > r.data.recommended)) return;
+    this.s.set({ vmic: { ...this.s.v.vmic, tuneAsked: true } });
+    await this.vbRun('tune', { latency: r.data.recommended });
+  }
+
+  // the cable's own buffer (VB-CABLE's setting), with a one-click fix to the recommended value
+  vbcableRow() {
+    if (!this.vbStatus && !this.vbAsked) {
+      this.vbAsked = true;
+      window.melofi.vbcable?.('status').then((r) => { if (r?.ok) { this.vbStatus = r.data; this.renderDrawer(); } });
+    }
+    const s = this.vbStatus;
+    const lat = s?.latency, rec = s?.recommended || 1024;
+    const text = lat ? t('VB-CABLE 내부 버퍼 {n} 샘플 (최대 약 {ms} ms)', { n: lat, ms: Math.round(lat / 48) }) : t('VB-CABLE 설정 읽는 중');
+    return this.row(t('케이블 버퍼'), [
+      h('span', { class: 'val', style: 'width:auto;flex:1;text-align:left;font-family:inherit' }, this.vbMsg || text),
+      lat && lat > rec ? h('button', { class: 'btn sm', disabled: !!this.vbBusy, onclick: () => this.vbRun('tune', { latency: rec }) }, t('{n}(으)로 줄이기', { n: rec })) : null,
+      h('button', { class: 'btn sm ghost', onclick: () => window.melofi.vbcable('openPanel') }, t('제어판')),
+    ]);
   }
 
   tab_look() {
@@ -905,7 +1081,7 @@ export class UI {
     sel.value = this.latIn || '';
     sel.addEventListener('change', () => { this.latIn = sel.value; this.renderDrawer(); });
     navigator.mediaDevices?.enumerateDevices().then((ds) => {
-      for (const [i, d] of ds.filter((x) => x.kind === 'audioinput' && x.deviceId && x.deviceId !== 'default').entries()) sel.append(h('option', { value: d.deviceId }, d.label || t('입력 {n}', { n: i + 1 })));
+      for (const [i, d] of ds.filter((x) => x.kind === 'audioinput' && x.deviceId && x.deviceId !== 'default').entries()) sel.append(h('option', { value: d.deviceId, ...(d.label ? { 'data-i18n-skip': '' } : {}) }, d.label || t('입력 {n}', { n: i + 1 }))); // device names come from Windows, in its language
       sel.value = this.latIn || '';
     }).catch(() => {});
     const key = pairKeyFor(ctx, this.latIn), got = L.audio[key];

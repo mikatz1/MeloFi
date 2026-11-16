@@ -1,12 +1,18 @@
 // Piano roll for the selected channel in the current pattern (canvas).
 //   tools: draw (click / drag length) · chord (one click, a whole chord) · slide (mark glide notes)
-//   move: drag a note · resize: drag its right edge · erase: right-click / right-drag / double-click
-//   box select: Ctrl+drag · Shift+click: add to selection
-//   keys: Delete, Ctrl+A, Ctrl+C / Ctrl+V, Ctrl+D, ↑↓ (Shift: octave), ←→, Q (quantize)
-//   view: wheel scrolls pitch, Shift+wheel scrolls time, Ctrl+wheel zooms time, Alt+wheel zooms pitch
+//   move: drag a note · resize: drag its right edge · erase: right-click / right-drag
+//   double-click a note: Note properties (FL) · box select: Ctrl+drag · Ctrl+click: add to selection
+//   Shift+drag a note: copies of the selection (FL) · Alt while drawing: no snap
+//   keys (FL Studio's piano roll): Delete, Ctrl+A / Ctrl+D (deselect) / Shift+I (invert), Ctrl+C / X / V,
+//   Ctrl+B duplicate, ↑↓ and Shift+↑↓ semitone, Ctrl+↑↓ octave, ←→ and Shift+←→ by snap, Alt+←→ nudge,
+//   Ctrl+Q quick quantize, Shift+Q start times only, Alt+Q quantize…, Backspace snap line / none,
+//   PgUp / PgDn zoom, Alt+M / Shift+Alt+M mute / unmute, Alt+Y flip, Alt+U chop…, Alt+K limit…,
+//   Alt+X scale levels…, Alt+L articulate…, Alt+F flam…, Alt+E Riff Machine
+//   view: wheel scrolls pitch, Shift+wheel scrolls time, Ctrl+wheel zooms time, Alt+wheel: velocity of
+//   the note under the mouse (FL), elsewhere zooms pitch
 //   lane at the bottom: velocity / pan / fine pitch of each note
 //   scale: rows outside the scale are darker; with "lock" new and moved notes stay in the scale
-import { clamp, noteLabel, isBlackKey } from './dom.js';
+import { clamp, noteLabel, isBlackKey, form } from './dom.js';
 import { PPQ, STEP, barTicks, pattern, channel, notesOf, patternTicks, inScale, snapToScale, SCALES } from '../model.js';
 import { kitNames } from '../../js/drums.js';
 import { t, N_ } from '../../i18n/i18n.js';
@@ -243,20 +249,22 @@ export class Roll {
     if (y < RULER_H) { if (x > KEYS_W) S.seekPattern(this.snapT(this.xToT(x))); return; }
     if (x < KEYS_W) { const n = this.yToN(y); S.liveOn(n, 100); this.drag = { kind: 'key', n }; return; }
     if (y > RULER_H + this.gridH) { this.drag = { kind: 'lane' }; S.history.push(); this.laneAt(x, y); return; }
-    const hit = this.noteAt(x, y);
+    let hit = this.noteAt(x, y);
     const tool = this.tool;
     if (tool === 'zoom') { this.zoomAt(x, e.button === 2 ? 1 / 1.5 : 1.5); return; }
     if (e.button === 2) { S.history.push(); this.drag = { kind: 'erase' }; this.eraseAt(x, y); return; }
-    if (e.ctrlKey || tool === 'select') { this.drag = { kind: 'box', x0: x, y0: y, x1: x, y1: y, add: e.shiftKey }; return; }
+    if (e.ctrlKey && hit && tool !== 'select') { if (this.sel.has(hit)) this.sel.delete(hit); else this.sel.add(hit); this.draw(); return; }
+    if (e.ctrlKey || tool === 'select') { this.drag = { kind: 'box', x0: x, y0: y, x1: x, y1: y, add: e.shiftKey || e.ctrlKey }; return; }
     if (tool === 'delete') { S.history.push(); this.drag = { kind: 'erase' }; this.eraseAt(x, y); return; }
     if (tool === 'mute') { S.history.push(); this.drag = { kind: 'mute', done: new Set() }; this.muteAt(x, y); return; }
     if (tool === 'slice') { if (hit) this.sliceAt(hit, this.snapT(this.xToT(x))); return; }
     if (this.tool === 'slide' && hit) { S.edit(() => { hit.slide = !hit.slide; if (hit.slide) delete hit.porta; }); return; }
     if (this.tool === 'porta' && hit) { S.edit(() => { hit.porta = !hit.porta; if (hit.porta) delete hit.slide; }); return; }
     if (hit) {
-      if (e.shiftKey) { if (this.sel.has(hit)) this.sel.delete(hit); else this.sel.add(hit); this.draw(); return; }
       if (!this.sel.has(hit)) { this.sel.clear(); this.sel.add(hit); }
       S.history.push();
+      // FL: Shift+drag on a note drags copies of the selection, the originals stay
+      if (e.shiftKey) { const copies = [...this.sel].map((nt) => ({ ...nt })); for (const c of copies) this.list.push(c); const hi = [...this.sel].indexOf(hit); this.sel = new Set(copies); hit = copies[hi]; }
       const edge = x > this.tToX(hit.t + hit.d) - 6;
       const items = [...this.sel].map((nt) => ({ nt, t: nt.t, n: nt.n, d: nt.d }));
       this.drag = { kind: edge ? 'resize' : 'move', x0: x, y0: y, items, hit };
@@ -267,7 +275,7 @@ export class Roll {
     }
     S.history.push();
     this.sel.clear();
-    const t = this.snapT(this.xToT(x)), n = this.fitN(this.yToN(y));
+    const t = e.altKey ? Math.max(0, Math.round(this.xToT(x))) : this.snapT(this.xToT(x)), n = this.fitN(this.yToN(y)); // FL: Alt draws off the grid
     if (n < 0 || n > 127) return;
     const ns = this.tool === 'chord' ? this.chordNotes(n) : [n];
     const made = ns.map((k) => ({ t, d: this.lastLen, n: k, v: 100, ...(this.tool === 'slide' ? { slide: true } : this.tool === 'porta' ? { porta: true } : {}) }));
@@ -338,11 +346,34 @@ export class Roll {
     this.S.changed();
   }
 
+  // FL Studio: double-clicking a note opens its properties
   dbl(e) {
     const [x, y] = this.pos(e);
     const hit = this.noteAt(x, y);
-    if (!hit) return;
-    this.S.edit(() => { const l = this.list; l.splice(l.indexOf(hit), 1); this.sel.delete(hit); });
+    if (hit) this.noteProps(hit);
+  }
+
+  // Note properties (FL: PAN, VEL, fine pitch, slide / porta, time and length)
+  async noteProps(nt) {
+    const v = await form(t('노트 속성'), [
+      { key: 'n', label: t('음 (MIDI 번호, 60 = 가운데 도)'), type: 'number', value: nt.n, min: 0, max: 127 },
+      { key: 'v', label: t('벨로시티'), type: 'number', value: nt.v, min: 1, max: 127 },
+      { key: 'pan', label: t('팬 (-100 왼쪽 ~ 100 오른쪽)'), type: 'number', value: Math.round((nt.pan || 0) * 100), min: -100, max: 100 },
+      { key: 'fine', label: t('파인 피치 (센트)'), type: 'number', value: nt.fine || 0, min: -100, max: 100 },
+      { key: 't', label: t('시작 (스텝)'), type: 'number', value: +(nt.t / STEP).toFixed(3), min: 0, step: 0.25 },
+      { key: 'd', label: t('길이 (스텝)'), type: 'number', value: +(nt.d / STEP).toFixed(3), min: 0.0625, step: 0.25 },
+      { key: 'kind', label: t('글라이드'), type: 'select', value: nt.slide ? 'slide' : nt.porta ? 'porta' : '', options: [['', t('없음')], ['slide', t('슬라이드')], ['porta', t('포르타멘토')]] },
+      { key: 'mute', label: t('음소거'), type: 'check', value: !!nt.mute },
+    ], { ok: t('적용') });
+    if (!v) return;
+    this.S.edit(() => {
+      nt.n = clamp(Math.round(v.n), 0, 127); nt.v = clamp(Math.round(v.v), 1, 127);
+      nt.pan = clamp(v.pan, -100, 100) / 100; if (!nt.pan) delete nt.pan;
+      nt.fine = clamp(Math.round(v.fine), -100, 100); if (!nt.fine) delete nt.fine;
+      nt.t = Math.max(0, Math.round(v.t * STEP)); nt.d = Math.max(1, Math.round(v.d * STEP));
+      delete nt.slide; delete nt.porta; if (v.kind) nt[v.kind] = true;
+      if (v.mute) nt.mute = true; else delete nt.mute;
+    });
   }
 
   // mute tool: a muted note stays on screen, greyed, and does not play
@@ -400,7 +431,11 @@ export class Roll {
       const t = this.xToT(x);
       this.pxPerTick = clamp(this.pxPerTick * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 0.08, 6);
       this.scrollT = Math.max(0, t - (x - KEYS_W) / this.pxPerTick);
-    } else if (e.altKey) this.rowH = clamp(this.rowH + (e.deltaY < 0 ? 1 : -1), 7, 28);
+    } else if (e.altKey) {
+      const [x, y] = this.pos(e), hit = y > RULER_H && y < RULER_H + this.gridH ? this.noteAt(x, y) : null;
+      if (hit) { const list = this.sel.has(hit) ? [...this.sel] : [hit]; this.S.edit(() => { for (const n of list) n.v = clamp(n.v + (e.deltaY < 0 ? 4 : -4), 1, 127); }, false); this.S.changed(); this.S.status(t('벨로시티 {v}', { v: hit.v })); }
+      else this.rowH = clamp(this.rowH + (e.deltaY < 0 ? 1 : -1), 7, 28);
+    }
     else if (e.shiftKey) this.scrollT = Math.max(0, this.scrollT + e.deltaY / this.pxPerTick * 0.6);
     else this.top = clamp(this.top - Math.sign(e.deltaY) * 3, 20, 127);
     this.draw();
@@ -562,52 +597,105 @@ export class Roll {
     const S = this.S, l = this.list;
     const sel = [...this.sel];
     const k = e.key.toLowerCase();
-    if (e.key === 'Delete' || e.key === 'Backspace') { if (sel.length) S.edit(() => { for (const nt of sel) l.splice(l.indexOf(nt), 1); this.sel.clear(); }); return true; }
-    if (e.ctrlKey && k === 'a') { this.sel = new Set(l); this.draw(); return true; }
-    if (e.ctrlKey && k === 'c') { this.clip = sel.map((n) => ({ ...n })); return true; }
-    if (e.ctrlKey && k === 'v' && this.clip.length) {
+    const C = e.ctrlKey, A = e.altKey, Sh = e.shiftKey;
+    if (e.key === 'Delete') { if (sel.length) S.edit(() => { for (const nt of sel) l.splice(l.indexOf(nt), 1); this.sel.clear(); }); return true; }
+    // FL: Backspace switches the snap between the line grid and none
+    if (e.key === 'Backspace' && !C && !A) { S.toggleSnapNone?.(); return true; }
+    if (C && !A && k === 'a') { this.sel = new Set(l); this.draw(); return true; }
+    if (C && !A && k === 'd') { this.sel.clear(); this.draw(); return true; }                     // FL: deselect
+    if (Sh && !C && !A && k === 'i') { this.sel = new Set(l.filter((n) => !this.sel.has(n))); this.draw(); return true; } // invert selection
+    if (C && !A && (k === 'c' || k === 'x')) {
+      this.clip = sel.map((n) => ({ ...n }));
+      if (k === 'x' && sel.length) S.edit(() => { for (const nt of sel) l.splice(l.indexOf(nt), 1); this.sel.clear(); });
+      return true;
+    }
+    if (C && !A && k === 'v' && this.clip.length) {
       const base = Math.min(...this.clip.map((n) => n.t));
       const at = S.transport.playing ? this.snapT(S.transport.now()) : sel.length ? Math.max(...sel.map((n) => n.t + n.d)) : this.snapT(this.scrollT);
       S.edit(() => { this.sel.clear(); for (const n of this.clip) { const c = { ...n, t: n.t - base + at }; l.push(c); this.sel.add(c); } });
       return true;
     }
-    if (e.ctrlKey && k === 'd' && sel.length) {
+    if (C && !A && k === 'b' && sel.length) {                                                   // FL: duplicate
       const t0 = Math.min(...sel.map((n) => n.t)), t1 = Math.max(...sel.map((n) => n.t + n.d));
       S.edit(() => { this.sel.clear(); for (const n of sel) { const c = { ...n, t: n.t + (t1 - t0) }; l.push(c); this.sel.add(c); } });
       return true;
     }
-    if (!e.ctrlKey && !e.altKey && k === 'q') { this.quantizeOpts({}); return true; }
-    // FL Studio piano roll keys
-    if (e.ctrlKey && e.altKey && k === 'q') { this.quantizeOpts({}); return true; }                 // quick quantize
-    if (e.altKey && !e.ctrlKey && k === 'q') { this.S.quantizeDialog(); return true; } // FL: Alt+Q quantize dialog
-    if (e.ctrlKey && k === 'b' && sel.length) { return this.key({ ...e, key: 'd', ctrlKey: true, altKey: false, shiftKey: false }); } // duplicate
-    if (e.ctrlKey && sel.length && (k === 'arrowup' || k === 'arrowdown')) { return this.key({ ...e, ctrlKey: false, shiftKey: true }); } // octave
-    if (e.altKey && k === 'a') { this.arpeggiate({}); return true; }
-    if (e.altKey && k === 's') { this.strum({}); return true; }
-    if (e.altKey && k === 'r') { this.S.randomizeDialog(); return true; } // FL: Alt+R Randomize
-    if (e.ctrlKey && k === 'u') { this.chop(); return true; }
-    if (e.ctrlKey && k === 'g') { this.glue(); return true; }
-    if (e.ctrlKey && k === 'l') { this.legato(); return true; }
-    if (e.altKey && k === 'v') { this.ghosts = !this.ghosts; this.draw(); return true; }
-    if (sel.length && ['arrowup', 'arrowdown'].includes(k)) {
+    // quantize: Ctrl+Q quick, Shift+Q start times only, Alt+Q the dialog (Ctrl+Alt+Q as before)
+    if (C && k === 'q') { this.quantizeOpts({ lengths: true }); return true; }
+    if (Sh && !C && !A && k === 'q') { this.quantizeOpts({}); return true; }
+    if (A && !C && k === 'q') { S.quantizeDialog(); return true; }
+    if (A && !C && k === 'a') { this.arpeggiate({}); return true; }
+    if (A && !C && k === 's') { this.strum({}); return true; }
+    if (A && !C && k === 'r') { S.randomizeDialog(); return true; }                               // FL: Randomize
+    if (A && !C && k === 'e') { S.riffDialog(); return true; }                                    // FL: Riff Machine
+    if (A && !C && k === 'y') { this.transform('flip'); return true; }                             // FL: Flip
+    if (A && !C && k === 'u') { S.rollToolDialog?.('chop'); return true; }                        // FL: Chop…
+    if (A && !C && k === 'k') { S.rollToolDialog?.('limit'); return true; }                       // FL: Limit…
+    if (A && !C && k === 'x') { S.rollToolDialog?.('levels'); return true; }                      // FL: Scale levels…
+    if (A && !C && k === 'l') { S.rollToolDialog?.('articulate'); return true; }                  // FL: Articulate…
+    if (A && !C && k === 'f') { S.rollToolDialog?.('flam'); return true; }                        // FL: Flam…
+    if (A && !C && k === 'm') { if (sel.length) S.edit(() => { for (const n of sel) if (Sh) delete n.mute; else n.mute = true; }); return true; } // mute / Shift: unmute
+    if (C && !A && k === 'u') { this.chop(); return true; }
+    if (C && !A && k === 'g') { this.glue(); return true; }
+    if (C && !A && k === 'l') { this.legato(); return true; }
+    if (A && !C && k === 'v') { this.ghosts = !this.ghosts; this.draw(); return true; }
+    if (e.key === 'PageUp' || e.key === 'PageDown') { this.zoomAt(KEYS_W + (this.c.clientWidth - KEYS_W) / 2, e.key === 'PageUp' ? 1.3 : 1 / 1.3); return true; }
+    if (sel.length && ['arrowup', 'arrowdown'].includes(k) && !A) {
       const up = k === 'arrowup';
       S.edit(() => {
         for (const n of sel) {
-          if (e.shiftKey) n.n = clamp(n.n + (up ? 12 : -12), 0, 127);
+          if (C) n.n = clamp(n.n + (up ? 12 : -12), 0, 127);                                         // FL: Ctrl+↑↓ octave
           else if (this.lock && this.scale) { let m = n.n + (up ? 1 : -1); while (!inScale(this.scale, m) && m > 0 && m < 127) m += up ? 1 : -1; n.n = m; }
-          else n.n = clamp(n.n + (up ? 1 : -1), 0, 127);
+          else n.n = clamp(n.n + (up ? 1 : -1), 0, 127);                                               // ↑↓ and Shift+↑↓ semitone
         }
       });
       S.preview(this.ch.id, sel[0].n, sel[0].v);
       return true;
     }
-    if (sel.length && ['arrowleft', 'arrowright'].includes(k)) {
-      const dt = (k === 'arrowright' ? 1 : -1) * this.snap;
+    if (sel.length && ['arrowleft', 'arrowright'].includes(k) && !C) {
+      const dt = (k === 'arrowright' ? 1 : -1) * (A ? Math.max(1, Math.round(this.snap / 4)) : this.snap); // Alt: nudge
       if (Math.min(...sel.map((n) => n.t)) + dt < 0) return true;
       S.edit(() => { for (const n of sel) n.t += dt; });
       return true;
     }
     return false;
+  }
+
+  // FL's Limit: fold notes into a key range by octaves
+  limit({ low = 48, high = 84 }) {
+    if (high - low < 11) high = low + 11;
+    this.S.edit(() => { for (const n of this.targets()) { while (n.n < low) n.n += 12; while (n.n > high) n.n -= 12; } });
+  }
+
+  // FL's Scale levels: velocities scaled around their mean, then offset
+  scaleLevels({ scale = 100, offset = 0 }) {
+    const list = this.targets();
+    if (!list.length) return;
+    const mean = list.reduce((a, n) => a + n.v, 0) / list.length;
+    this.S.edit(() => { for (const n of list) n.v = clamp(Math.round(mean + (n.v - mean) * scale / 100 + offset), 1, 127); });
+  }
+
+  // FL's Articulate: every note's length as a share of the gap to the next note
+  articulate({ gate = 50 }) {
+    const list = this.targets().sort((a, b) => a.t - b.t);
+    this.S.edit(() => {
+      for (const n of list) {
+        const next = list.find((m) => m.t > n.t);
+        const room = next ? next.t - n.t : n.d;
+        n.d = Math.max(1, Math.round(room * gate / 100));
+      }
+    });
+  }
+
+  // FL's Flam: a soft grace note just before each note
+  flam({ delay = 8, velocity = 60 }) {
+    const list = this.targets();
+    this.S.edit(() => {
+      for (const n of list) {
+        if (n.t < delay) continue;
+        this.list.push({ ...n, t: n.t - delay, d: Math.max(1, Math.min(delay, n.d)), v: clamp(Math.round(n.v * velocity / 100), 1, 127) });
+      }
+    });
   }
 
   reset() { this.sel.clear(); }

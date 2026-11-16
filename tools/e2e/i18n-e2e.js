@@ -36,7 +36,7 @@ function scanFn(allowSrc) {
     if (!shown(el)) continue;
     for (const a of ['title', 'placeholder', 'aria-label']) { const v = el.getAttribute(a); if (v && HANGUL.test(v)) add(v, '[' + a + ']'); }
   }
-  for (const o of document.querySelectorAll('select')) if (shown(o)) for (const op of o.options) add(op.textContent, 'option');
+  for (const o of document.querySelectorAll('select')) if (shown(o)) for (const op of o.options) if (!op.hasAttribute('data-i18n-skip')) add(op.textContent, 'option'); // (device names from Windows are skipped)
   if (HANGUL.test(document.title)) add(document.title, 'title');
   return [...new Set(out)];
 }

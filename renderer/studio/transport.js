@@ -201,6 +201,10 @@ export class Transport {
     const { events, length, base } = eventsFor(this.get());
     this.events = events; this.length = length; this.base = base;
     this.lenSec = this.secAt(length);
+    // an automation point that ramps: its end goes out with its start, so the glide runs from the
+    // start (sent only LOOKAHEAD ahead, the end would arrive mid-way and the value would jump)
+    const lastX = new Map();
+    events.forEach((e, i) => { if (e.type !== 'x') return; const j = lastX.get(e.target); if (j != null && e.ramp) events[j].rampTo = i; lastX.set(e.target, i); });
   }
 
   // the arrangement changed while playing: pick it up from where we are
@@ -209,7 +213,7 @@ export class Transport {
     const p = this.now();
     this.build();
     this.engine.stopAll();
-    this.begin(Math.min(p, this.length - 1), this.ctx.currentTime + 0.03);
+    this.begin(Math.min(p, this.length - 1), this.ctx.currentTime + Math.max(0.03, this.engine.startLead?.() || 0));
   }
 
   async play() {
@@ -220,7 +224,7 @@ export class Transport {
     this.playing = true;
     if (this.get().playlist.clips.some((c) => c.kind === 'audio')) await this.prepare();
     if (!this.playing) return;
-    this.begin(this.pos, this.ctx.currentTime + 0.05);
+    this.begin(this.pos, this.ctx.currentTime + Math.max(0.05, this.engine.startLead?.() || 0));
     this.out?.start(this.startCtx, this.base + this.pos, PPQ);
     clearInterval(this.timer);
     this.timer = setInterval(() => this.pump(), 20);
@@ -230,6 +234,7 @@ export class Transport {
   begin(fromTick, ctxTime) {
     this.startTick = fromTick;
     this.startCtx = ctxTime;
+    this.engine.sendTempo?.(true, ctxTime - this.secAt(fromTick)); // VST plugins follow the song position
     this.cursor = this.events.findIndex((e) => e.tick >= fromTick);
     if (this.cursor < 0) this.cursor = this.events.length;
     this.loopBase = 0;
@@ -284,7 +289,12 @@ export class Transport {
         this.engine.note(e.ch, e.n, e.v, t, dur, { fine: e.fine, pan: e.pan, slide: e.slide, porta: e.porta });
         if (!e.slide) this.out?.note(e.ch, e.n, e.v, t, dur);
       } else if (e.type === 'a') this.audio(e, abs);
-      else if (e.type === 'x') this.engine.target(proj, e.target)?.set(e.v, this.at(abs), e.ramp);
+      else if (e.type === 'x') {
+        const tg = this.engine.target(proj, e.target);
+        tg?.set(e.v, this.at(abs), e.ramp);
+        const nx = e.rampTo != null ? this.events[e.rampTo] : null;
+        if (nx) tg?.set(nx.v, this.at(this.loopBase + nx.tick), true);
+      }
     }
     if (this.metro) {
       const bt = barTicks(proj), beat = (PPQ * 4) / proj.sig[1];
@@ -309,6 +319,7 @@ export class Transport {
     this.playing = false;
     clearInterval(this.timer);
     this.engine.stopAll();
+    this.engine.sendTempo?.(false);
     this.out?.stop();
     this.onStop();
     this.onTick();

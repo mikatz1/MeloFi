@@ -77,6 +77,13 @@ def musicxml(notes, bpm=120):
         s = max(s, cur)
         if e <= s:
             continue
+        # a gap shorter than 40 ms is a slightly short note in the piano roll, not a breath: the
+        # note before it is held on (a rest there would cut the phrase, and a hold "ー" right
+        # after a rest is an error for NEUTRINO and Sinsy)
+        if 0 < s - cur < tick(0.04) and items and items[-1][0] == "n":
+            k, ln, n_, ly = items[-1]
+            items[-1] = (k, ln + s - cur, n_, ly)
+            cur = s
         if s > cur:
             items.append(("r", s - cur, 0, ""))
         syl = str(x.get("syl") or "").strip()
@@ -161,6 +168,11 @@ def run_nnsvs(job):
     from nnmnkwii.io import hts
     import nnsvs.util
     from nnsvs.svs import SPSVS
+    import nnsvs.gen
+    # nnsvs 0.1.1 writes a log line with float() of a one-element array when it stretches note lengths
+    # (long songs); NumPy 2 refuses that. Its own module gets a float() that takes such an array.
+    import builtins
+    nnsvs.gen.float = lambda x=0.0: builtins.float(np.asarray(x).reshape(-1)[0]) if getattr(x, "ndim", 0) else builtins.float(x)
     world_only = True
     if (d / "vocoder_model.pth").exists():
         # the voice's own neural vocoder (uSFGAN) when its package is installed; otherwise WORLD
@@ -205,12 +217,41 @@ def run_diffsinger(job):
     finish(wav, sr, job["out"])
 
 
+# ---------------------------------------------------------------- NEUTRINO
+def run_neutrino(job):
+    """NEUTRINO (STUDIO NEUTRINO, freeware): the user's own install, run as its Run.bat does.
+    job: neutrino_dir (the folder with bin/ and model/), model (a folder name under model/)."""
+    import subprocess, tempfile, pathlib
+    import numpy as np, soundfile as sf
+    root = pathlib.Path(job["neutrino_dir"])
+    model = root / "model" / job["model"]
+    if not (root / "bin" / "neutrino.exe").exists() or not (model / "info.toml").exists():
+        raise FileNotFoundError("NEUTRINO or its voice model is missing")
+    flags = {"creationflags": 0x08000000} if os.name == "nt" else {}  # no console window
+    with tempfile.TemporaryDirectory(prefix="melofi-neutrino-") as tmp:
+        t = pathlib.Path(tmp)
+        (t / "s.musicxml").write_text(musicxml(job["notes"]), encoding="utf-8")
+        say(p=0.05, label="label")
+        r = subprocess.run([str(root / "bin" / "musicXMLtoLabel.exe"), str(t / "s.musicxml"), str(t / "full.lab"), str(t / "mono.lab")],
+                           cwd=root, capture_output=True, **flags)
+        if r.returncode or not (t / "full.lab").exists():
+            raise RuntimeError("musicXMLtoLabel failed: " + r.stderr.decode("utf-8", "replace")[-300:])
+        say(p=0.15, label="sing")
+        args = [str(root / "bin" / "neutrino.exe"), str(t / "full.lab"), str(t / "timing.lab"), str(t / "s.f0"), str(t / "s.melspec"), str(t / "s.wav"),
+                str(model) + os.sep, "-n", str(job.get("threads", 8)), "-k", str(job.get("style", 0)), "-f", "0", "-s", "48000", "-b", "16", "-m", "-t"]
+        r = subprocess.run(args, cwd=root, capture_output=True, **flags)
+        if r.returncode or not (t / "s.wav").exists():
+            raise RuntimeError("NEUTRINO failed: " + r.stderr.decode("utf-8", "replace")[-300:])
+        wav, sr = sf.read(str(t / "s.wav"), dtype="float32", always_2d=True)
+    finish(np.ascontiguousarray(wav.mean(axis=1)), sr, job["out"])
+
+
 def main():
     with open(sys.argv[1], encoding="utf-8") as f:
         job = json.load(f)
     if not job.get("notes"):
         raise ValueError("no notes")
-    (run_diffsinger if job["engine"] == "diffsinger" else run_nnsvs)(job)
+    {"diffsinger": run_diffsinger, "neutrino": run_neutrino}.get(job["engine"], run_nnsvs)(job)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ Prints one JSON object per line: {"p": 0..1, "label": "..."} while working, then
 """
 import argparse, json, os, sys, time, subprocess, shutil, glob, re
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # notes_clean.py next to this file
 
 
 # The overall bar: each part of the run gets a share of 0..1 by how long it takes. With MuScriptor
@@ -157,6 +158,45 @@ def only_muscriptor(a):
     say(1.0, "끝", result=str(out / "result.json"))
 
 
+def transcribe_notes(raw, stems):
+    import notes_clean as NC
+    opt = dict(NC.DEFAULT)
+    cqt = NC.load_stems({"stems": {k: str(v) for k, v in stems.items()}}) if opt.get("needs_audio") else None
+    return NC.transcribe(raw, None, cqt, **opt)
+
+
+def redo(a):
+    """A song separated by an older version: the steps after the separation that changed since
+    (beats per bar, notes) run again on its saved stems, in seconds instead of minutes."""
+    import numpy as np
+    import notes_clean as NC
+    out = Path(a.out); done = out / "result.json"
+    res = json.loads(done.read_text(encoding="utf-8"))
+    stems = {k: Path(v) for k, v in res["stems"].items()}
+    t0 = time.time(); times = res.get("times", {})
+    say(0.05, "박자를 다시 세는 중")
+    tr = res.get("tracked") or {"beats": res["beats"], "meter": res["meter"]}
+    tr.setdefault("downbeats", res["downbeats"])
+    downbeats = tr["downbeats"]
+    beats, meter, _ = NC.fix_meter(tr["beats"], downbeats, tr["meter"], NC.onset_env(NC.stems_mix(stems)))
+    bpm = float(60.0 / np.median(np.diff(beats))) if len(beats) > 2 else res["bpm"]
+    raw = NC.basic_pitch(stems, say=lambda f, k: say(0.15 + 0.8 * f, f"음표를 받아 적는 중: {k} (Basic Pitch)"), times=times)
+    notes = transcribe_notes(raw, stems)
+    voice = NC.voice_expression(raw["vocals"]) if "vocals" in raw else None
+    if res.get("drum_parts"):
+        say(0.97, "드럼 타격을 찾는 중")
+        res["drums"] = NC.drum_hits(NC.drum_features(res["drum_parts"]), **NC.DRUMS)
+    grid = NC.refine_grid(beats, downbeats, meter, notes, res.get("drums") or [], res["duration"])
+    if grid:
+        beats, downbeats, meter, info = grid
+        bpm = info["bpm"]
+    res.update({"beats": beats, "downbeats": downbeats, "first_downbeat": downbeats[0] if downbeats else res.get("first_downbeat", 0.0), "meter": meter, "bpm": round(bpm, 2),
+                "tracked": tr, "grid": grid[3] if grid else None, "notes": notes, "post": NC.POST_VERSION, "voice": voice})
+    times["redo"] = round(time.time() - t0, 1); res["times"] = times
+    done.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+    say(1.0, "끝", result=str(done))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -167,9 +207,12 @@ def main():
     ap.add_argument("--muscriptor", default="off", choices=["off", "small", "medium", "large"],
                     help="also transcribe the whole mix with MuScriptor (weights: CC BY-NC 4.0, non-commercial; needs HF_TOKEN)")
     ap.add_argument("--only-muscriptor", action="store_true", help="add a MuScriptor run to the finished analysis in --out")
+    ap.add_argument("--redo", action="store_true", help="the finished analysis in --out: redo the steps after the separation (notes_clean.POST_VERSION)")
     a = ap.parse_args()
     if a.only_muscriptor:
         return only_muscriptor(a)
+    if a.redo:
+        return redo(a)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     models = Path(a.models); models.mkdir(parents=True, exist_ok=True)
     t_all = time.time(); times = {}
@@ -183,6 +226,8 @@ def main():
     import soundfile as sf
     import torch
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    import gpu_cap  # MELOFI_GPU_CAP (test runs): a ceiling on the card's memory and load
+    gpu_cap.limit_memory(torch)
     say(0.03, f"장치: {torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU'}")
     mix, sr = sf.read(str(src), always_2d=True)
     duration = len(mix) / sr
@@ -204,6 +249,7 @@ def main():
                       use_autocast=dev == "cuda",
                       mdxc_params={"segment_size": 256, "override_model_segment_size": False, "batch_size": 1, "overlap": 4, "pitch_shift": 0})
         s.load_model(model_filename=model)
+        gpu_cap.pace_attr(s.model_instance, "model_run", torch)
         files = s.separate(str(path))
         times[model] = round(time.time() - t0, 1)
         got = {}
@@ -270,8 +316,10 @@ def main():
     from beat_this.inference import File2Beats
     f2b = File2Beats(checkpoint_path="final0", device=dev, dbn=False)
     beats, downbeats = f2b(str(src))
+    gpu_cap.rest(time.time() - t0)
     beats = [float(x) for x in beats]; downbeats = [float(x) for x in downbeats]
     times["beat_this"] = round(time.time() - t0, 1)
+    if gpu_cap.CAP: times["gpu_cap"] = gpu_cap.report()  # (test runs: how often the cap made the analysis wait)
     ibi = np.diff(beats) if len(beats) > 2 else np.array([0.5])
     bpm = float(60.0 / np.median(ibi))
     # beats per bar from the downbeats
@@ -284,6 +332,14 @@ def main():
         meter = int(np.bincount(ok).argmax()) if len(ok) >= 0.6 * len(per) and ok else 4
     else:
         meter = 4
+    beats_tracked, meter_tracked = beats, meter
+    import librosa
+    import notes_clean as NC
+    y_mix, _ = librosa.load(str(src), sr=NC.SR, mono=True)
+    beats, meter, _ = NC.fix_meter(beats, downbeats, meter, NC.onset_env(y_mix))
+    del y_mix
+    if beats is not beats_tracked:
+        bpm = float(60.0 / np.median(np.diff(beats)))
 
     # ---------- 4. key ----------
     say(0.78, "조성을 찾는 중")
@@ -305,27 +361,12 @@ def main():
             if c > best[0]: best = (c, r, mode)
     key = {"root": best[1], "mode": best[2], "confidence": round(best[0], 3)}
 
-    # ---------- 5. notes of each pitched stem ----------
-    notes = {}
-    from basic_pitch.inference import predict
-    from basic_pitch import ICASSP_2022_MODEL_PATH
-    pitched = [k for k in ("bass", "piano", "guitar", "vocals", "backing", "other") if k in stems]
-    ranges = {"bass": (28, 67), "vocals": (40, 88), "backing": (40, 88)}
-    for i, k in enumerate(pitched):
-        say(0.80 + 0.14 * i / max(1, len(pitched)), f"음표를 받아 적는 중: {k} (Basic Pitch)")
-        t0 = time.time()
-        lo, hi = ranges.get(k, (21, 108))
-        try:
-            _, _, ev = predict(str(stems[k]), ICASSP_2022_MODEL_PATH, onset_threshold=0.5, frame_threshold=0.3,
-                               minimum_note_length=80 if k in ("vocals", "backing") else 58,
-                               minimum_frequency=librosa.midi_to_hz(lo), maximum_frequency=librosa.midi_to_hz(hi),
-                               multiple_pitch_bends=False, melodia_trick=True)
-        except Exception as e:  # one stem failing must not lose the rest
-            say(0.80, f"{k}: {e}")
-            continue
-        notes[k] = [[round(float(s), 4), round(float(e - s), 4), int(n), int(max(1, min(127, round(a * 127))))] for s, e, n, a, *_ in ev]
-        notes[k].sort()
-        times[f"basic_pitch_{k}"] = round(time.time() - t0, 1)
+    # ---------- 5. notes of each pitched stem (notes_clean.py: Basic Pitch and the clean-ups) ----------
+    raw = NC.basic_pitch(stems, say=lambda f, k: say(0.80 + 0.14 * f, f"음표를 받아 적는 중: {k} (Basic Pitch)"), times=times)
+    notes = transcribe_notes(raw, stems)
+    voice = NC.voice_expression(raw["vocals"]) if "vocals" in raw else None
+    del raw
+    downbeats_tracked = downbeats
 
     # ---------- 5b. MuScriptor: the whole mix -> notes per instrument (35 classes) ----------
     mus = None
@@ -336,29 +377,17 @@ def main():
 
     # ---------- 6. drum hits from the DrumSep stems ----------
     say(0.95, "드럼 타격을 찾는 중")
-    GM = {"kick": 36, "snare": 38, "toms": 45, "hh": 42, "hihat": 42, "ride": 51, "crash": 49, "cymbals": 49}
-    drums = []
-    for k, f in drum_parts.items():
-        n = GM.get(k.replace(" ", "").replace("-", ""), None)
-        if n is None: continue
-        s, _ = librosa.load(str(f), sr=22050, mono=True)
-        if np.sqrt(np.mean(s ** 2)) < 1e-4: continue
-        env = librosa.onset.onset_strength(y=s, sr=22050, hop_length=256)
-        peak = env.max() or 1
-        env = env / peak  # onset_detect thresholds a 0..1 envelope
-        # a hit must also be loud in absolute terms: bleed from other drums is quiet in a clean stem
-        rms = librosa.feature.rms(y=s, frame_length=1024, hop_length=256)[0]
-        loud = rms / (rms.max() or 1)
-        on = [fr for fr in librosa.onset.onset_detect(onset_envelope=env, sr=22050, hop_length=256, backtrack=False, delta=0.07, wait=3, normalize=False)
-              if loud[min(len(loud) - 1, fr + 2)] > 0.12]
-        peak = 1
-        for fr in on:
-            drums.append([round(float(fr * 256 / 22050), 4), n, int(max(30, min(127, 40 + 87 * env[fr] / peak)))])
-    drums.sort()
+    drums = NC.drum_hits(NC.drum_features(drum_parts), **NC.DRUMS)
+    # the grid against the notes (notes_clean.refine_grid): rebuilt where the tracker is clearly off
+    grid = NC.refine_grid(beats, downbeats, meter, notes, drums, duration)
+    if grid:
+        beats, downbeats, meter, grid_info = grid
+        bpm = grid_info["bpm"]
 
     res = {
         "version": 1, "engine": "melofi-stems", "device": dev, "duration": round(duration, 3),
         "bpm": round(bpm, 2), "meter": meter, "beats": beats, "downbeats": downbeats,
+        "tracked": {"beats": beats_tracked, "meter": meter_tracked, "downbeats": downbeats_tracked}, "grid": grid[3] if grid else None, "post": NC.POST_VERSION, "voice": voice,
         "first_downbeat": downbeats[0] if downbeats else (beats[0] if beats else 0.0),
         "key": key,
         "stems": {k: str(p) for k, p in stems.items()},
